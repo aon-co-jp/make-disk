@@ -72,13 +72,29 @@
     <h2>必要な外部ツール / Requirements</h2>
     <p>
       コーデックや書き込み処理は既存のオープンソースエンジンをラップしています。
-      実行には以下がインストール済みである必要があります。<br>
+      実行には<a href="https://ffmpeg.org/" target="_blank" rel="noopener noreferrer">FFmpeg</a>と
+      <a href="https://www.gnu.org/software/xorriso/" target="_blank" rel="noopener noreferrer">GNU xorriso</a>を
+      あらかじめインストールしておいてください。<br>
       This app wraps existing open-source engines rather than reimplementing
-      codecs or burning logic. The following must be installed:
+      codecs or burning logic. Please pre-install
+      <a href="https://ffmpeg.org/" target="_blank" rel="noopener noreferrer">FFmpeg</a> and
+      <a href="https://www.gnu.org/software/xorriso/" target="_blank" rel="noopener noreferrer">GNU xorriso</a>
+      before running it.
+    </p>
+    <p>
+      Windows向けには、それぞれをインストーラー付きで簡単に導入できる
+      Rustリスペクト版もご用意しています(現状は初期WIP、機能は本家の一部のみ)。<br>
+      For Windows, we also offer Rust tribute versions of each with a
+      one-command installer for easy setup (currently early WIP, covering
+      only a subset of the original's features).
     </p>
     <ul>
-      <li><a href="https://ffmpeg.org/" target="_blank" rel="noopener noreferrer">FFmpeg</a> — フォーマット変換・ビットレート制御 / format conversion &amp; bitrate control</li>
-      <li><a href="https://www.gnu.org/software/xorriso/" target="_blank" rel="noopener noreferrer">xorriso</a> — ISO生成・ディスク書き込み / ISO creation &amp; disc burning</li>
+      <li><a href="https://ffmpeg.org/" target="_blank" rel="noopener noreferrer">FFmpeg</a> — フォーマット変換・ビットレート制御 / format conversion &amp; bitrate control
+        ・ Windows版はRustでリスペクト: <a href="https://github.com/aon-co-jp/rs-FFmpeg" target="_blank" rel="noopener noreferrer">rs-FFmpeg</a>
+        (Rust tribute for Windows: <a href="https://github.com/aon-co-jp/rs-FFmpeg" target="_blank" rel="noopener noreferrer">rs-FFmpeg</a>)</li>
+      <li><a href="https://www.gnu.org/software/xorriso/" target="_blank" rel="noopener noreferrer">xorriso</a> — ISO生成・ディスク書き込み / ISO creation &amp; disc burning
+        ・ Windows版はRustでリスペクト: <a href="https://github.com/aon-co-jp/rs-xorriso" target="_blank" rel="noopener noreferrer">rs-xorriso</a>
+        (Rust tribute for Windows: <a href="https://github.com/aon-co-jp/rs-xorriso" target="_blank" rel="noopener noreferrer">rs-xorriso</a>)</li>
     </ul>
   </section>
 
