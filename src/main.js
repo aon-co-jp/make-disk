@@ -84,10 +84,25 @@ document.getElementById("add-files-btn").addEventListener("click", async () => {
 });
 
 document.getElementById("pick-output-btn").addEventListener("click", async () => {
-  const dir = await open({ directory: true });
-  if (!dir) return;
-  outputFolder = dir;
-  outputFolderEl.value = dir;
+  try {
+    const dir = await open({ directory: true });
+    if (!dir) return;
+    outputFolder = dir;
+    outputFolderEl.value = dir;
+  } catch (e) {
+    if (String(e).includes("not implemented on mobile")) {
+      // TODO(次回セッション): SAF(ACTION_OPEN_DOCUMENT_TREE)を扱う独自
+      // Tauriプラグインを実装し、モバイルでも共通フォルダへの出力を
+      // 可能にする計画。詳細はCLAUDE.md「Android実機検証で発見した
+      // 問題と対応方針」の発見2を参照。現時点では未実装のため案内のみ。
+      log(
+        "このプラットフォームでは共通フォルダの選択に未対応です(実装準備中)。 / " +
+        "Shared folder selection is not yet supported on this platform (implementation planned)."
+      );
+    } else {
+      log(`エラー: ${e}`);
+    }
+  }
 });
 
 document.getElementById("write-speed-mode").addEventListener("change", (e) => {
