@@ -257,14 +257,23 @@ document.getElementById("pick-output-btn").addEventListener("click", async () =>
     outputFolderEl.value = dir;
   } catch (e) {
     if (String(e).includes("not implemented on mobile")) {
-      // TODO(次回セッション): SAF(ACTION_OPEN_DOCUMENT_TREE)を扱う独自
-      // Tauriプラグインを実装し、モバイルでも共通フォルダへの出力を
-      // 可能にする計画。詳細はCLAUDE.md「Android実機検証で発見した
-      // 問題と対応方針」の発見2を参照。現時点では未実装のため案内のみ。
-      log(
-        "このプラットフォームでは共通フォルダの選択に未対応です(実装準備中)。 / " +
-        "Shared folder selection is not yet supported on this platform (implementation planned)."
-      );
+      // Tauri標準のdialogプラグインはモバイルでのフォルダ選択を未実装
+      // なので、Android向けに追加した自前プラグイン(tauri-plugin-android-folder、
+      // SAF ACTION_OPEN_DOCUMENT_TREE)にフォールバックする。
+      try {
+        const uri = await invoke("pick_output_tree");
+        if (!uri) return; // ユーザーがキャンセル
+        outputFolder = uri;
+        outputFolderEl.value = uri;
+        log(
+          "注意: Androidでは選択したフォルダがcontent:// URIになります。ffmpeg/xorrisoはAndroidに" +
+          "同梱されていないため、変換の実行自体は現時点でエラーになります(フォルダ選択UIの動作確認まで)。 / " +
+          "Note: on Android the selected folder is a content:// URI. Since ffmpeg/xorriso aren't bundled for " +
+          "Android, actually running a conversion will still fail for now — this only verifies the folder-picker UI."
+        );
+      } catch (e2) {
+        log(`エラー: ${e2}`);
+      }
     } else {
       log(`エラー: ${e}`);
     }

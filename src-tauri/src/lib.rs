@@ -47,12 +47,23 @@ fn estimate_cpu_encode_speed() -> CpuEncodeEstimate {
     cpu::estimate_cpu_encode_speed()
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn pick_output_tree(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_android_folder::AndroidFolderExt;
+    app.android_folder().pick_output_tree().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_shell::init());
+
+    #[cfg(target_os = "android")]
+    let builder = builder
+        .plugin(tauri_plugin_android_folder::init())
         .invoke_handler(tauri::generate_handler![
             probe_media,
             convert_media,
@@ -62,7 +73,20 @@ pub fn run() {
             burn_image,
             list_burn_devices,
             estimate_cpu_encode_speed,
-        ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+            pick_output_tree,
+        ]);
+
+    #[cfg(not(target_os = "android"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![
+        probe_media,
+        convert_media,
+        calc_auto_bitrate_kbps,
+        check_bitrate_quality,
+        create_iso,
+        burn_image,
+        list_burn_devices,
+        estimate_cpu_encode_speed,
+    ]);
+
+    builder.run(tauri::generate_context!()).expect("error while running tauri application");
 }
