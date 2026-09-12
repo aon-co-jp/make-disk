@@ -63,6 +63,59 @@ Linux: パッケージマネージャー案内、等)は未確定・要検討。
   光学ドライブ(Android USB OTG経由等)への対応を検討課題とする
   (現時点では未着手・要実機検証)。
 
+## Android実機検証で発見した問題と対応方針(2026-09-12)
+
+### 発見1: main.jsのベアインポートが全プラットフォームで動かないバグ(修正済み)
+`import { invoke } from "@tauri-apps/api/core"`のようなベア指定子は
+バンドラー無しのWebViewでは解決できず、モジュール読み込みが例外で
+止まり**main.js内の全イベントリスナーが登録されない**(=全ボタンが
+無反応になる)という重大バグがあった。`window.__TAURI__.core.invoke`
+経由に変更して修正済み(実機で「ファイルを追加」ボタンがネイティブ
+ピッカーを開くことまで確認)。デスクトップ版でもこのバグは(検証は
+していなかったが)理論上同じ影響を受けていたはずで、静的ファイル
+プレビューだけでは検出できなかった教訓が大きい。
+
+### 発見2: Tauri dialogプラグインはモバイルでフォルダ選択が未実装
+実機で`open({directory:true})`を呼ぶと
+`"Folder picker is not implemented on mobile"`で例外になることを
+確認。ユーザー指示により「まとめて1フォルダに出力」の仕様を
+モバイルでも維持する方針とし、Android向けにはSAF
+(`ACTION_OPEN_DOCUMENT_TREE`)を直接扱う**独自Tauriプラグインの
+新規実装が必要**という結論に至った(標準dialogプラグインの範囲では
+実現不可)。
+
+**実装計画(次回セッション向け、未着手)**:
+1. `src-tauri/`配下に小さなカスタムTauriプラグインを追加
+   (例: `tauri-plugin-android-folder`、Kotlin側で
+   `ACTION_OPEN_DOCUMENT_TREE`のIntentを発行しActivity Resultを
+   受け取り、`takePersistableUriPermission`で永続化)。
+2. Rust側に`pick_output_tree() -> Result<String, String>`のような
+   コマンドを追加し、返ったtree URI文字列をJS側で保持。
+3. JS側(`main.js`)でAndroid判定時にこのコマンドを呼ぶよう分岐。
+
+### 発見3(重要・優先度確定): ffmpeg/xorrisoはAndroidに存在しないため、
+### SAF実装だけでは変換機能は動かない
+make-diskは`std::process::Command::new("ffmpeg"/"xorriso")`で外部
+バイナリをシェルアウトする設計。Android端末にはこれらのバイナリが
+存在せず、同梱もしていないため、**SAFフォルダ選択を実装しても
+「実行」ボタンを押した時点で確実に失敗する**(コマンドが見つからない
+エラー)。
+
+**方針(ユーザー承認済み、2026-09-12)**: Android対応のffmpeg/xorriso戦略は
+以下の優先順で検討する。
+1. まずSAFフォルダ選択のUI・権限取得部分を実装する(上記実装計画)。
+   実行結果はエラーになる想定だが、UIフローとしては完成させる。
+2. [`rs-FFmpeg`](https://github.com/aon-co-jp/rs-FFmpeg)・
+   [`rs-xorriso`](https://github.com/aon-co-jp/rs-xorriso)を
+   Android向けにクロスコンパイルし、`jniLibs`同梱の実行可能ファイル
+   またはRustライブラリとして直接リンクする方向を検討する
+   (外部プロセスのシェルアウトではなくRust関数呼び出しに変更できれば
+   Android/iOS双方で動く可能性が高い——ただし両リポジトリとも
+   現時点でmake-diskの実引数と非互換な部分が残っている点に注意)。
+3. 本家ffmpeg/xorrisoをAndroidバイナリとして同梱する道は、
+   ライセンス・バイナリサイズ・クロスコンパイルの複雑さの観点から
+   優先度を下げる。
+
 ## 既知の未実装・要検証事項(2026-09-12時点)
 
 - 実機での書き込み検証(CD/DVD/Blu-rayいずれも)は未実施。
