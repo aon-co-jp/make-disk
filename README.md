@@ -37,11 +37,17 @@ codecs or disc-burning logic. The following must be installed and on
 
 - [FFmpeg](https://ffmpeg.org/) (`ffmpeg` / `ffprobe`) — format
   conversion and bitrate control / フォーマット変換・ビットレート制御
+  — for Windows, easy one-command install with our Rust tribute:
+  [rs-FFmpeg](https://github.com/aon-co-jp/rs-FFmpeg) (Windows installer,
+  Rustでリスペクトしました！early WIP, subset of features)
 - [xorriso](https://www.gnu.org/software/xorriso/) — ISO creation and
   disc burning (covers cdrtools/cdrecord, cdrdao, libburn/libisofs
   functionality through one cross-platform CLI) / ISO生成・ディスク
   書き込み(cdrtools/cdrecord・cdrdao・libburn/libisofs相当の機能を
   クロスプラットフォームな単一CLIでカバー)
+  — for Windows, easy one-command install with our Rust tribute:
+  [rs-xorriso](https://github.com/aon-co-jp/rs-xorriso) (Windows installer,
+  Rustでリスペクトしました！early WIP, subset of features)
 
 ## Development / 開発
 
