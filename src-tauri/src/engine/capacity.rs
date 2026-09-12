@@ -8,6 +8,8 @@ pub enum DiscType {
     DvdDl85,
     Bd25,
     Bd50,
+    /// BDXL 4層(quad layer)、128GB。
+    Bd128,
 }
 
 impl DiscType {
@@ -20,6 +22,7 @@ impl DiscType {
             DiscType::DvdDl85 => 8_500_000_000,
             DiscType::Bd25 => 25_000_000_000,
             DiscType::Bd50 => 50_000_000_000,
+            DiscType::Bd128 => 128_000_000_000,
         };
         nominal * 98 / 100
     }
@@ -95,4 +98,24 @@ pub fn quality_warning(bitrate_bps: u64, kind: MediaKind) -> Option<QualityWarni
         message_ja: ja.to_string(),
         message_en: en.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bd128_usable_bytes_is_98_percent_of_128gb() {
+        let usable = DiscType::Bd128.usable_bytes();
+        assert_eq!(usable, 128_000_000_000 * 98 / 100);
+        assert!(usable > DiscType::Bd50.usable_bytes());
+    }
+
+    #[test]
+    fn serde_round_trips_bd128_as_snake_case() {
+        let json = serde_json::to_string(&DiscType::Bd128).unwrap();
+        assert_eq!(json, "\"bd128\"");
+        let back: DiscType = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, DiscType::Bd128);
+    }
 }

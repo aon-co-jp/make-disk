@@ -17,9 +17,10 @@ writing and audio/video format conversion, built with Rust + Tauri.
   ISOイメージ出力、ディスクへの直接書き込みを、チェックボックスで
   複数選択可能。
 - Bitrate: fixed (kbps) or auto-calculated to the maximum that fits
-  the target disc's capacity (CD/DVD/DVD-DL/BD/BD-DL).
-  ビットレートは固定値、またはディスク容量(CD/DVD/DVD DL/BD/BD DL)
-  から自動算出した最大値を選択可能。
+  the target disc's capacity (CD/DVD/DVD-DL/BD/BD-DL/BDXL quad-layer
+  128GB).
+  ビットレートは固定値、またはディスク容量(CD/DVD/DVD DL/BD/BD DL/
+  BDXL 4層 128GB)から自動算出した最大値を選択可能。
 - Per-file start time / duration trimming (e.g. 5-minute or
   10-minute clips), editable per item.
   ファイルごとの開始位置・長さ(5分・10分等)を個別に指定・編集可能。
