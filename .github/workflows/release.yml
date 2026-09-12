@@ -1,0 +1,62 @@
+name: release
+
+# v*タグをpushした時だけ発火し、Windows/macOS/Linuxのインストーラーを
+# ビルドしてGitHub Releaseへ添付する(open-englishと同じ運用に準拠)。
+# Fires only on a v* tag push, builds installers for Windows/macOS/
+# Linux, and attaches them to a GitHub Release (same convention as
+# open-english).
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: "macos-latest"
+            args: "--target aarch64-apple-darwin"
+          - platform: "macos-latest"
+            args: "--target x86_64-apple-darwin"
+          - platform: "ubuntu-22.04"
+            args: ""
+          - platform: "windows-latest"
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf ffmpeg xorriso
+
+      - name: install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: install frontend dependencies
+        run: npm install
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "make-disk ${{ github.ref_name }}"
+          releaseBody: |
+            See CLAUDE.md / PORTING.md in the repository for current status and known limitations.
+            現状・既知の制限はリポジトリ内のCLAUDE.md / PORTING.mdを参照してください。
+          releaseDraft: false
+          prerelease: true
+          args: ${{ matrix.args }}
