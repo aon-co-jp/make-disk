@@ -121,12 +121,37 @@
 
 ### 未完了・次回やること(継続)
 
-- Android向けSAFフォルダ選択プラグイン(最優先、上記参照)。
 - `open-directx`での実GPUディスパッチ(既存の狭いDXBC→SPIR-Vデコーダの
   拡張が必要、次段階として保留中)。
 - macOS/Linux版の実機動作確認(GitHub Actionsでのビルド自体は
   v0.1.0〜成功しているが、実機起動確認はWindows版のみ)。
 - 動画プレビューエディタの実機での表示・シーク動作の実機確認。
+- rusty_h264(ピュアRust H.264実装、調査で発見)は現時点でスター6・
+  作成2.5ヶ月と実績が浅く、「ffmpegとビット完全一致」という主張も
+  独立検証できていないため、採用は見送り。将来の選択肢として記録のみ。
+
+## 🔁 再開用メッセージ(2026-09-12 続き、v0.1.3、AndroidのSAFプラグイン完了)
+
+### 実施したこと
+
+15. **Android向けSAFフォルダ選択プラグインを実装・実機検証まで完了**。
+    `src-tauri/plugins/tauri-plugin-android-folder/`に新規プラグイン作成
+    (Rust: `pick_output_tree`コマンド。Kotlin:
+    `ACTION_OPEN_DOCUMENT_TREE`+`takePersistableUriPermission`、
+    `tauri-plugin-dialog`自身のAndroidソースを正確なAPIリファレンスとして
+    参照)。`Cargo.toml`では`target.'cfg(target_os = "android")'`で
+    Android限定の依存にし、デスクトップ版のビルド・11テストへの影響
+    無しを確認。
+    実機(OPPO Reno11 A)で「フォルダを選択」→ネイティブのSAFフォルダ
+    ツリーピッカーが開く→フォルダを選んで「このフォルダを使用」→
+    アクセス許可ダイアログ→`content://com.android.externalstorage.
+    documents/tree/primary%3ADocuments`というURIが実際に「出力先
+    フォルダ」欄へ反映される、という一連の流れをエンドツーエンドで
+    確認した。
+    **残課題**: 返るのはcontent:// URIでありffmpeg/xorrisoにそのまま
+    渡せる実ファイルシステムパスではない。実際の変換機能との連携には
+    URI→実処理の橋渡しが別途必要(かつffmpeg/xorriso自体がAndroidに
+    存在しない問題は解決していない、上記「発見3」参照)。
 
 ## 関連リポジトリ
 

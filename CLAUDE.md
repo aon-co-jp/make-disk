@@ -137,8 +137,23 @@ make-diskは`std::process::Command::new("ffmpeg"/"xorriso")`で外部
 
 **方針(ユーザー承認済み、2026-09-12)**: Android対応のffmpeg/xorriso戦略は
 以下の優先順で検討する。
-1. まずSAFフォルダ選択のUI・権限取得部分を実装する(上記実装計画)。
-   実行結果はエラーになる想定だが、UIフローとしては完成させる。
+1. **完了(2026-09-12)**: SAFフォルダ選択のUI・権限取得部分を実装した。
+   `src-tauri/plugins/tauri-plugin-android-folder/`に自前Tauriプラグインを
+   新規作成(Rust側`pick_output_tree`コマンド、Kotlin側
+   `ACTION_OPEN_DOCUMENT_TREE`+`takePersistableUriPermission`)。
+   実機(OPPO Reno11 A, Android)で「フォルダを選択」→ネイティブの
+   フォルダツリーピッカー→アクセス許可ダイアログ→
+   `content://com.android.externalstorage.documents/tree/primary%3ADocuments`
+   というURIが実際に「出力先フォルダ」欄に表示されるところまで
+   エンドツーエンドで確認済み。実装は`tauri-plugin-dialog`
+   (v2.7.3)自身のAndroidソース(`DialogPlugin.kt`の
+   `saveFileDialog`/`ACTION_CREATE_DOCUMENT`パターン)を正確なAPI
+   リファレンスとして参照した。`Cargo.toml`では
+   `[target.'cfg(target_os = "android")'.dependencies]`でAndroid限定の
+   依存とし、デスクトップ版のビルド・テスト(11件)には影響しないことを
+   確認済み。
+   なお、返るのはcontent:// URIであり実ファイルシステムパスではないため、
+   実際のffmpeg/xorriso連携(後述の2)は別途URI→実処理の橋渡しが必要。
 2. [`rs-FFmpeg`](https://github.com/aon-co-jp/rs-FFmpeg)・
    [`rs-xorriso`](https://github.com/aon-co-jp/rs-xorriso)を
    Android向けにクロスコンパイルし、`jniLibs`同梱の実行可能ファイル
