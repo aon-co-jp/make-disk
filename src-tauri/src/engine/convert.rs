@@ -1,5 +1,6 @@
 //! FFmpegによるフォーマット変換・ビットレート制御・時間トリミング。
 
+use crate::engine::cpu;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -172,6 +173,18 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
             // に比べて大幅に高速)。
             args.push("-c:v".into());
             args.push(hw_encoder.unwrap_or("libx264").to_string());
+            if hw_encoder.is_none() {
+                // GPUが無くCPU(libx264)にフォールバックする場合のみ、
+                // open-cpuの検出結果(AVX2/AVX-512の有無)で-presetを
+                // 自動選択する。x264自身はAVX2/AVX-512の使用可否を実行時に
+                // 自動判定するが、「どれだけ探索を頑張るか」を決める
+                // presetはこちらで明示的に選ぶ必要がある——非力なCPUには
+                // 軽いpreset、強力なCPUにはより圧縮効率の良いpresetを
+                // 割り当てることで、open-cpuの検出結果を実際にffmpegの
+                // 挙動制御へ反映する。
+                args.push("-preset".into());
+                args.push(cpu::recommended_x264_preset().to_string());
+            }
             args.push("-c:a".into());
             args.push("aac".into());
         } else {

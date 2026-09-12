@@ -1,90 +1,67 @@
 # make-disk
 
-Cross-platform (Windows / macOS / Linux) GUI app for CD / DVD / Blu-ray
-writing and audio/video format conversion, built with Rust + Tauri.
 プラットフォーム共通コード(Rust + Tauri)によるCD/DVD/Blu-ray書き込み・
 音声/動画フォーマット変換GUIアプリ。インストーラーのみをOSごとに分ける
 方針で、アプリ本体は単一コードベース。
 
-## Features / 機能
+## 機能
 
-- Select multiple source files (audio/video) and an output folder.
-  複数のソースファイル(音声/動画)と出力先フォルダを選択。
-- Convert to well-known audio formats (MP3, etc.) and video formats
-  (MP4, etc.), or output an ISO image, or burn directly to disc —
-  any combination, selectable via checkboxes.
-  有名な音声フォーマット(MP3等)・動画フォーマット(MP4等)への変換、
+- 複数のソースファイル(音声/動画)と出力先フォルダを選択。
+- 有名な音声フォーマット(MP3等)・動画フォーマット(MP4等)への変換、
   ISOイメージ出力、ディスクへの直接書き込みを、チェックボックスで
   複数選択可能。
-- Bitrate: fixed (kbps) or auto-calculated to the maximum that fits
-  the target disc's capacity (CD/DVD/DVD-DL/BD/BD-DL/BDXL quad-layer
-  128GB).
-  ビットレートは固定値、またはディスク容量(CD/DVD/DVD DL/BD/BD DL/
+- ビットレートは固定値、またはディスク容量(CD/DVD/DVD DL/BD/BD DL/
   BDXL 4層 128GB)から自動算出した最大値を選択可能。
-- Per-file start time / duration trimming (e.g. 5-minute or
-  10-minute clips), editable per item.
-  ファイルごとの開始位置・長さ(5分・10分等)を個別に指定・編集可能。
-- Write speed: auto-detect, maximum, or a fixed speed.
-  書き込み速度は自動判定・最高速・速度指定から選択可能。
+- 複数区間の動画カット(最初・途中・最後、いくつでも指定可能)。
+  マウスでの動画プレビュー確認、または時:分:秒の直接数字入力の
+  どちらでも指定できる。フレーム精度カットモードではGPUハードウェア
+  エンコーダ(NVENC/QuickSync/AMF)を自動検出して使用し、無ければ
+  CPU(open-cpuの検出結果に応じて`-preset`を自動選択)にフォールバック。
+- 書き込み速度は自動判定・最高速・速度指定から選択可能。
 
-## Requirements / 実行時の外部依存
+## 実行時の外部依存
 
-This app wraps existing open-source engines rather than reimplementing
-codecs or disc-burning logic. The following must be installed and on
-`PATH`:
 コーデックや書き込み処理を自前実装せず、既存のオープンソースエンジンを
 ラップする方針。以下が別途インストール済みで`PATH`が通っている必要が
 あります。
 
-- [FFmpeg](https://ffmpeg.org/) (`ffmpeg` / `ffprobe`) — format
-  conversion and bitrate control / フォーマット変換・ビットレート制御
-  — for Windows, easy one-command install with our Rust tribute:
-  [rs-FFmpeg](https://github.com/aon-co-jp/rs-FFmpeg) (Windows installer,
-  Rustでリスペクトしました！early WIP, subset of features)
-- [xorriso](https://www.gnu.org/software/xorriso/) — ISO creation and
-  disc burning (covers cdrtools/cdrecord, cdrdao, libburn/libisofs
-  functionality through one cross-platform CLI) / ISO生成・ディスク
+- [FFmpeg](https://ffmpeg.org/)(`ffmpeg` / `ffprobe`) — フォーマット
+  変換・ビットレート制御。Windows向けにはRustでのリスペクト版
+  [rs-FFmpeg](https://github.com/aon-co-jp/rs-FFmpeg)もあります
+  (初期WIP、機能は本家の一部のみ)。
+- [xorriso](https://www.gnu.org/software/xorriso/) — ISO生成・ディスク
   書き込み(cdrtools/cdrecord・cdrdao・libburn/libisofs相当の機能を
-  クロスプラットフォームな単一CLIでカバー)
-  — for Windows, easy one-command install with our Rust tribute:
-  [rs-xorriso](https://github.com/aon-co-jp/rs-xorriso) (Windows installer,
-  Rustでリスペクトしました！early WIP, subset of features)
+  クロスプラットフォームな単一CLIでカバー)。Windows向けにはRustでの
+  リスペクト版[rs-xorriso](https://github.com/aon-co-jp/rs-xorriso)も
+  あります(初期WIP、機能は本家の一部のみ)。
 
-## Development / 開発
+## 開発
 
 ```bash
 npm install
 npm run tauri dev
 ```
 
-## Building installers / インストーラーのビルド
+## インストーラーのビルド
 
 ```bash
 npm run tauri build
 ```
 
-Produces a native installer for the host OS (`.msi`/`.exe` on Windows,
-`.dmg`/`.app` on macOS, `.deb`/`.AppImage` on Linux) via Tauri's bundler.
 実行したOS向けのネイティブインストーラー(Windows: `.msi`/`.exe`、
 macOS: `.dmg`/`.app`、Linux: `.deb`/`.AppImage`)がTauriのbundlerにより
-生成されます。
+生成されます。`v*`タグをpushするとGitHub Actionsで全プラットフォーム
+向けにビルドし、GitHub Releaseへ自動公開されます。
 
-## Status / 現状
+## 現状
 
-Early scaffold (2026-09-12): core UI and Rust command wiring are in
-place for desktop; an Android project scaffold exists and has been
-verified to launch on a real device, but a critical module-loading bug
-was found and fixed there (see `CLAUDE.md`). Real-device disc-burning
-and per-OS installer builds are not yet verified. See
-[`CLAUDE.md`](CLAUDE.md) and [`PORTING.md`](PORTING.md) for details
-(bilingual JA/EN).
-初期スケルトン段階(2026-09-12時点)。デスクトップ版はUIとRustコマンドの
-配線が完了。Android版はプロジェクト骨組みが存在し実機起動まで確認済み
-だが、重大なモジュール読み込みバグを発見・修正した(`CLAUDE.md`参照)。
-実機でのディスク書き込みテスト・各OSインストーラーの実ビルド確認は
-未実施。詳細は[`CLAUDE.md`](CLAUDE.md)・[`PORTING.md`](PORTING.md)
-(日英併記)を参照。
+2026-09-12時点でv0.1.2まで公開済み。デスクトップ版はUIとRustコマンドの
+配線が完了し、実際のffmpegを使った統合テストも整備済み。Android版は
+プロジェクト骨組みが存在し実機起動まで確認済みだが、共通フォルダ選択
+機能はモバイル未対応(独自プラグイン実装が次の課題)。実機でのディスク
+書き込みテストは未実施。詳細は[`CLAUDE.md`](CLAUDE.md)・
+[`PORTING.md`](PORTING.md)を参照。
 
-## License
+## ライセンス
 
 MIT
