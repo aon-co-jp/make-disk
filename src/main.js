@@ -1,5 +1,11 @@
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+// バンドラー(Vite等)を使わない素のWebView(特にAndroidのSystem WebView)は
+// "@tauri-apps/api/core"のようなベア指定子を解決できず、モジュール読み込みが
+// 例外で止まり、main.js内の全イベントリスナーが登録されないまま失敗する
+// (実機検証で発見: ボタンが一切反応しない不具合の原因だった)。
+// tauri.conf.jsonのwithGlobalTauri:trueで公開されるグローバルを使うことで、
+// バンドラー無しでも全プラットフォームで確実に動く。
+const invoke = window.__TAURI__.core.invoke;
+const open = window.__TAURI__.dialog.open;
 
 /** @type {{path: string, startSecs: string, durationSecs: string}[]} */
 let sourceFiles = [];
