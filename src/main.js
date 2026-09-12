@@ -6,8 +6,13 @@
 // バンドラー無しでも全プラットフォームで確実に動く。
 const invoke = window.__TAURI__.core.invoke;
 const open = window.__TAURI__.dialog.open;
+const convertFileSrc = window.__TAURI__.core.convertFileSrc;
 
-/** @type {{path: string, startSecs: string, durationSecs: string}[]} */
+/**
+ * @typedef {{ startSecs: number, endSecs: number | null }} CutRange
+ * @typedef {{ path: string, cutRanges: CutRange[], frameAccurate: boolean, editing: boolean }} SourceFile
+ */
+/** @type {SourceFile[]} */
 let sourceFiles = [];
 let outputFolder = "";
 
@@ -31,6 +36,158 @@ const AUDIO_CODEC_ARGS = {
   ogg: ["-c:a", "libvorbis"],
 };
 
+function secsToHms(totalSecs) {
+  const s = Math.max(0, Math.floor(totalSecs));
+  return { h: Math.floor(s / 3600), m: Math.floor((s % 3600) / 60), sec: s % 60 };
+}
+
+function hmsToSecs(h, m, sec) {
+  return (parseInt(h, 10) || 0) * 3600 + (parseInt(m, 10) || 0) * 60 + (parseFloat(sec) || 0);
+}
+
+function formatHms(totalSecs) {
+  const { h, m, sec } = secsToHms(totalSecs);
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+}
+
+/** 開始/終了を時・分・秒の数値入力3つ(+任意の"末尾まで"チェック)として
+ * 描画するミニフォーム。マウス操作(動画プレビューの現在位置をセット)と
+ * 数字直接入力のどちらでも同じ値を編集できる。 */
+function buildTimeInputs(labelText, initialSecs, videoEl, onSetFromPlayhead) {
+  const wrap = document.createElement("span");
+  wrap.className = "hms-input";
+
+  const { h, m, sec } = secsToHms(initialSecs ?? 0);
+  const hEl = document.createElement("input");
+  hEl.type = "number";
+  hEl.min = "0";
+  hEl.value = h;
+  hEl.className = "hms-h";
+  const mEl = document.createElement("input");
+  mEl.type = "number";
+  mEl.min = "0";
+  mEl.max = "59";
+  mEl.value = m;
+  mEl.className = "hms-m";
+  const sEl = document.createElement("input");
+  sEl.type = "number";
+  sEl.min = "0";
+  sEl.max = "59";
+  sEl.value = sec;
+  sEl.className = "hms-s";
+
+  const setBtn = document.createElement("button");
+  setBtn.type = "button";
+  setBtn.textContent = "現在位置";
+  setBtn.title = "動画プレビューの再生位置をこの欄にセットします";
+  setBtn.addEventListener("click", () => {
+    const { h: ch, m: cm, sec: cs } = secsToHms(videoEl.currentTime);
+    hEl.value = ch;
+    mEl.value = cm;
+    sEl.value = cs;
+    if (onSetFromPlayhead) onSetFromPlayhead();
+  });
+
+  const label = document.createElement("span");
+  label.textContent = labelText;
+
+  wrap.append(label, hEl, document.createTextNode(":"), mEl, document.createTextNode(":"), sEl, setBtn);
+  return { el: wrap, getSecs: () => hmsToSecs(hEl.value, mEl.value, sEl.value) };
+}
+
+function renderCutEditor(container, file, index) {
+  container.innerHTML = "";
+  container.className = "cut-editor";
+
+  const isVideo = /\.(mp4|mkv|avi|mov|webm)$/i.test(file.path);
+  let video = null;
+  if (isVideo) {
+    video = document.createElement("video");
+    video.controls = true;
+    video.preload = "metadata";
+    video.style.maxWidth = "100%";
+    video.src = convertFileSrc(file.path);
+    container.appendChild(video);
+  } else {
+    const note = document.createElement("p");
+    note.className = "hint";
+    note.textContent = "音声ファイルのプレビューは未対応です。数字で時:分:秒を直接指定してください。 / Preview isn't available for audio files — enter times directly.";
+    container.appendChild(note);
+  }
+
+  const rangeList = document.createElement("ul");
+  rangeList.className = "cut-range-list";
+  function renderRangeList() {
+    rangeList.innerHTML = "";
+    file.cutRanges.forEach((r, ri) => {
+      const li = document.createElement("li");
+      li.textContent = `カット ${ri + 1}: ${formatHms(r.startSecs)} 〜 ${r.endSecs === null ? "末尾まで" : formatHms(r.endSecs)}`;
+      const removeBtn = document.createElement("button");
+      removeBtn.textContent = "削除";
+      removeBtn.addEventListener("click", () => {
+        file.cutRanges.splice(ri, 1);
+        renderRangeList();
+      });
+      li.appendChild(removeBtn);
+      rangeList.appendChild(li);
+    });
+  }
+  renderRangeList();
+
+  const addForm = document.createElement("div");
+  addForm.className = "cut-range-form";
+
+  const dummyVideo = video ?? { currentTime: 0 };
+  const startInput = buildTimeInputs("開始", 0, dummyVideo);
+  const endInput = buildTimeInputs("終了", 0, dummyVideo);
+
+  const toEofCheckbox = document.createElement("input");
+  toEofCheckbox.type = "checkbox";
+  const toEofLabel = document.createElement("label");
+  toEofLabel.append(toEofCheckbox, document.createTextNode(" 末尾までカット"));
+
+  const addBtn = document.createElement("button");
+  addBtn.textContent = "この区間をカットに追加";
+  addBtn.addEventListener("click", () => {
+    const startSecs = startInput.getSecs();
+    const endSecs = toEofCheckbox.checked ? null : endInput.getSecs();
+    if (endSecs !== null && endSecs <= startSecs) {
+      log("エラー: 終了位置は開始位置より後にしてください。 / End must be after start.");
+      return;
+    }
+    file.cutRanges.push({ startSecs, endSecs });
+    renderRangeList();
+  });
+
+  addForm.append(startInput.el, endInput.el, toEofLabel, addBtn);
+
+  const frameAccurateLabel = document.createElement("label");
+  const frameAccurateCheckbox = document.createElement("input");
+  frameAccurateCheckbox.type = "checkbox";
+  frameAccurateCheckbox.checked = file.frameAccurate;
+  frameAccurateCheckbox.addEventListener("change", () => (file.frameAccurate = frameAccurateCheckbox.checked));
+  frameAccurateLabel.append(
+    frameAccurateCheckbox,
+    document.createTextNode(" フレーム精度で正確にカットする(GPUエンコーダがあれば自動使用、無ければCPU) / Frame-accurate cut (uses GPU encoder if available)")
+  );
+
+  container.append(document.createElement("h4"), rangeList, addForm, frameAccurateLabel);
+  container.querySelector("h4").textContent = "カットする区間(いくつでも追加可)";
+
+  if (video) {
+    video.addEventListener("loadedmetadata", async () => {
+      try {
+        const estimate = await invoke("estimate_cpu_encode_speed");
+        if (estimate.speed_hint === "slow") {
+          log(`ℹ️ ${estimate.message_ja} / ${estimate.message_en}`);
+        }
+      } catch (e) {
+        // 参考情報の取得失敗は無視してよい(必須機能ではない)。
+      }
+    });
+  }
+}
+
 function renderFileList() {
   fileListEl.innerHTML = "";
   sourceFiles.forEach((f, i) => {
@@ -39,21 +196,14 @@ function renderFileList() {
 
     const name = document.createElement("span");
     name.className = "file-name";
-    name.textContent = f.path;
+    name.textContent = f.path + (f.cutRanges.length > 0 ? ` (カット${f.cutRanges.length}件)` : "");
 
-    const start = document.createElement("input");
-    start.type = "number";
-    start.min = "0";
-    start.placeholder = "開始(秒)";
-    start.value = f.startSecs;
-    start.addEventListener("input", () => (sourceFiles[i].startSecs = start.value));
-
-    const dur = document.createElement("input");
-    dur.type = "number";
-    dur.min = "0";
-    dur.placeholder = "長さ(秒) 例:300=5分";
-    dur.value = f.durationSecs;
-    dur.addEventListener("input", () => (sourceFiles[i].durationSecs = dur.value));
+    const editBtn = document.createElement("button");
+    editBtn.textContent = f.editing ? "閉じる" : "編集...";
+    editBtn.addEventListener("click", () => {
+      f.editing = !f.editing;
+      renderFileList();
+    });
 
     const removeBtn = document.createElement("button");
     removeBtn.textContent = "削除";
@@ -62,8 +212,14 @@ function renderFileList() {
       renderFileList();
     });
 
-    li.append(name, start, dur, removeBtn);
+    li.append(name, editBtn, removeBtn);
     fileListEl.appendChild(li);
+
+    if (f.editing) {
+      const editorLi = document.createElement("li");
+      renderCutEditor(editorLi, f, i);
+      fileListEl.appendChild(editorLi);
+    }
   });
 }
 
@@ -78,7 +234,7 @@ document.getElementById("add-files-btn").addEventListener("click", async () => {
   if (!selected) return;
   const paths = Array.isArray(selected) ? selected : [selected];
   for (const path of paths) {
-    sourceFiles.push({ path, startSecs: "", durationSecs: "" });
+    sourceFiles.push({ path, cutRanges: [], frameAccurate: false, editing: false });
   }
   renderFileList();
 });
@@ -126,21 +282,30 @@ function baseName(path) {
   return path.replace(/\\/g, "/").split("/").pop().replace(/\.[^.]+$/, "");
 }
 
+/** カット区間を考慮した実効尺(自動ビットレート算出用)。
+ * カット区間の合計を元の尺から差し引く。 */
+async function effectiveDurationSecs(f) {
+  let total = 0;
+  try {
+    const info = await invoke("probe_media", { path: f.path });
+    total = info.duration_secs;
+  } catch (e) {
+    log(`警告: ${f.path} の尺取得に失敗: ${e}`);
+    return 0;
+  }
+  for (const r of f.cutRanges) {
+    const end = r.endSecs ?? total;
+    total -= Math.max(0, end - r.startSecs);
+  }
+  return Math.max(0, total);
+}
+
 /** 選択された複数ディスク種別のうち、最も容量が小さいものを基準に
  * 自動ビットレートを算出する(=どのディスクにも収まる保守的な値)。 */
 async function computeAutoBitrateKbps(discTypes) {
   let totalDuration = 0;
   for (const f of sourceFiles) {
-    if (f.durationSecs) {
-      totalDuration += parseFloat(f.durationSecs);
-    } else {
-      try {
-        const info = await invoke("probe_media", { path: f.path });
-        totalDuration += info.duration_secs;
-      } catch (e) {
-        log(`警告: ${f.path} の尺取得に失敗: ${e}`);
-      }
-    }
+    totalDuration += await effectiveDurationSecs(f);
   }
 
   let minKbps = null;
@@ -169,10 +334,9 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
             output_path: outputPath,
             codec_args: codecArgs,
             bitrate: format === "wav" || format === "flac" ? null : { [mode === "auto" ? "auto_max_for_capacity" : "fixed"]: bitrateKbps },
-            trim: {
-              start_secs: f.startSecs ? parseFloat(f.startSecs) : null,
-              duration_secs: f.durationSecs ? parseFloat(f.durationSecs) : null,
-            },
+            trim: null,
+            cut_ranges: f.cutRanges.length > 0 ? f.cutRanges.map((r) => ({ start_secs: r.startSecs, end_secs: r.endSecs })) : null,
+            frame_accurate: f.frameAccurate,
           },
         });
         outputs.push(outputPath);

@@ -3,6 +3,7 @@ mod engine;
 use engine::burn::{self, WriteSpeed};
 use engine::capacity::{self, DiscType, MediaKind, QualityWarning};
 use engine::convert::{self, ConvertJob};
+use engine::cpu::{self, CpuEncodeEstimate};
 use engine::iso;
 use engine::probe;
 
@@ -41,6 +42,11 @@ fn list_burn_devices() -> Result<Vec<String>, String> {
     burn::list_devices()
 }
 
+#[tauri::command]
+fn estimate_cpu_encode_speed() -> CpuEncodeEstimate {
+    cpu::estimate_cpu_encode_speed()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -55,6 +61,7 @@ pub fn run() {
             create_iso,
             burn_image,
             list_burn_devices,
+            estimate_cpu_encode_speed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
