@@ -1,7 +1,7 @@
 mod engine;
 
 use engine::burn::{self, WriteSpeed};
-use engine::capacity::{self, DiscType};
+use engine::capacity::{self, DiscType, MediaKind, QualityWarning};
 use engine::convert::{self, ConvertJob};
 use engine::iso;
 use engine::probe;
@@ -19,6 +19,11 @@ fn convert_media(job: ConvertJob) -> Result<(), String> {
 #[tauri::command]
 fn calc_auto_bitrate_kbps(disc: DiscType, total_duration_secs: f64, reserved_bytes: u64) -> u64 {
     capacity::max_bitrate_for_capacity(disc, total_duration_secs, reserved_bytes) / 1000
+}
+
+#[tauri::command]
+fn check_bitrate_quality(bitrate_kbps: u64, kind: MediaKind) -> Option<QualityWarning> {
+    capacity::quality_warning(bitrate_kbps * 1000, kind)
 }
 
 #[tauri::command]
@@ -46,6 +51,7 @@ pub fn run() {
             probe_media,
             convert_media,
             calc_auto_bitrate_kbps,
+            check_bitrate_quality,
             create_iso,
             burn_image,
             list_burn_devices,

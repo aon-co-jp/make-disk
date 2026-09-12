@@ -17,7 +17,10 @@ Windows/macOS/Linux共通コードのGUIアプリ(Rust + Tauri)。
 - バックエンド: `src-tauri/src/engine/`
   - `probe.rs` — ffprobeでメディア尺・コーデック取得
   - `convert.rs` — ffmpegでフォーマット変換・ビットレート制御・トリミング
-  - `capacity.rs` — CD/DVD/Blu-ray容量からの自動最大ビットレート算出
+  - `capacity.rs` — CD/DVD/Blu-ray容量からの自動最大ビットレート算出、
+    および基準ビットレートに対する低下度合いを4段階(下がります→
+    少し下がります→かなり下がります→画質/音質が落ちます)で警告する
+    `quality_warning`(下限は設けず、常に容量に収まる値を返す仕様)
   - `iso.rs` — xorriso(`-as mkisofs`)でISOイメージ生成
   - `burn.rs` — xorriso(`-as cdrecord`)でディスク書き込み・速度指定・デバイス列挙
 
