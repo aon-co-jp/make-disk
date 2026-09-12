@@ -225,7 +225,7 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
     result
 }
 
-/// このffmpegビルドが対応しているGPUハードウェアエンコーダを検出する。
+/// このマシンで実際に使えるGPUハードウェアエンコーダを検出する。
 /// NVIDIA(NVENC)→Intel(QuickSync)→AMD(AMF)の順で優先し、
 /// どれも無ければNoneを返す(呼び出し側はlibx264にフォールバックする)。
 ///
@@ -233,16 +233,33 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
 /// 実装を持たないため、ここでは既存のffmpegビルドが持つハードウェア
 /// エンコーダをそのまま活用する方針にしている(実際に動作し、CPUソフト
 /// エンコードより大幅に高速な、現実的な解決策のため)。
+///
+/// 重要: `ffmpeg -encoders`の一覧に載っているかどうかだけでは不十分
+/// (実機検証で発見した実バグ)。それはそのエンコーダが「ffmpegの
+/// ビルドにコンパイルされているか」を示すだけで、実際にこのマシンの
+/// GPUドライバが対応しているかは別問題——古いNVIDIAドライバでは
+/// 「h264_nvencはリストに出るが実行すると
+/// "Driver does not support the required nvenc API version" で失敗する」
+/// ことを実際に確認した。そのため、候補ごとに実際に1フレームだけ
+/// 試しエンコードしてみて、本当に成功するものだけを採用する。
 fn detect_hw_video_encoder() -> Option<&'static str> {
-    let output = Command::new("ffmpeg").args(["-hide_banner", "-encoders"]).output().ok()?;
-    let text = String::from_utf8_lossy(&output.stdout);
-
     for candidate in ["h264_nvenc", "h264_qsv", "h264_amf"] {
-        if text.contains(candidate) {
+        if hw_encoder_actually_works(candidate) {
             return Some(candidate);
         }
     }
     None
+}
+
+fn hw_encoder_actually_works(encoder: &str) -> bool {
+    Command::new("ffmpeg")
+        .args([
+            "-f", "lavfi", "-i", "color=black:size=64x64:rate=1",
+            "-frames:v", "1", "-c:v", encoder, "-f", "null", "-",
+        ])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 fn push_bitrate_args(args: &mut Vec<String>, bitrate: &Option<BitrateMode>) {
@@ -315,5 +332,113 @@ mod tests {
         ];
         let keep = keep_segments_from_cuts(&cuts);
         assert_eq!(keep, vec![(0.0, Some(100.0)), (200.0, Some(500.0))]);
+    }
+
+    // --- ここから実ffmpegを使う統合テスト ---
+    // ffmpegが無い環境ではeprintln!してスキップする(open-cuda/open-directx
+    // の実機テストと同じ方針: fakeな成功にしない)。
+
+    fn ffmpeg_available() -> bool {
+        Command::new("ffmpeg").arg("-version").output().map(|o| o.status.success()).unwrap_or(false)
+    }
+
+    fn probe_duration_secs(path: &Path) -> f64 {
+        let output = Command::new("ffprobe")
+            .args(["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path.to_str().unwrap()])
+            .output()
+            .expect("ffprobe should run");
+        String::from_utf8_lossy(&output.stdout).trim().parse().expect("ffprobe should print a duration")
+    }
+
+    fn make_test_video(dir: &Path, name: &str, duration_secs: u32) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let status = Command::new("ffmpeg")
+            .args([
+                "-y", "-f", "lavfi", "-i", &format!("testsrc=duration={duration_secs}:size=320x240:rate=10"),
+                "-c:v", "libx264", "-g", "10", "-pix_fmt", "yuv420p",
+                path.to_str().unwrap(),
+            ])
+            .output()
+            .expect("ffmpeg should run");
+        assert!(status.status.success(), "test fixture generation failed: {}", String::from_utf8_lossy(&status.stderr));
+        path
+    }
+
+    #[test]
+    fn real_ffmpeg_multi_range_cut_produces_expected_duration() {
+        if !ffmpeg_available() {
+            eprintln!("ffmpegが見つからないためスキップ / skipping: ffmpeg not found on PATH");
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let source = make_test_video(&tmp, "source.mp4", 20);
+        let output = tmp.join("output.mp4");
+
+        // カット: 最初の0-3秒、途中の8-10秒、最後の16-20秒(末尾まで)。
+        // 残る区間: 3-8秒(5秒) + 10-16秒(6秒) = 合計11秒のはず。
+        let job = ConvertJob {
+            input_path: source.to_string_lossy().to_string(),
+            output_path: output.to_string_lossy().to_string(),
+            codec_args: vec![],
+            bitrate: None,
+            trim: None,
+            cut_ranges: Some(vec![
+                CutRange { start_secs: 0.0, end_secs: Some(3.0) },
+                CutRange { start_secs: 8.0, end_secs: Some(10.0) },
+                CutRange { start_secs: 16.0, end_secs: None },
+            ]),
+            frame_accurate: false,
+        };
+
+        run_convert(&job).expect("run_convert with cut_ranges should succeed");
+
+        let result_duration = probe_duration_secs(&output);
+        assert!(
+            (result_duration - 11.0).abs() < 2.0,
+            "expected ~11s after cuts (stream-copy is keyframe-aligned so some slack is expected), got {result_duration}s"
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn real_ffmpeg_frame_accurate_cut_is_close_to_exact() {
+        if !ffmpeg_available() {
+            eprintln!("ffmpegが見つからないためスキップ / skipping: ffmpeg not found on PATH");
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_fa_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let source = make_test_video(&tmp, "source.mp4", 10);
+        let output = tmp.join("output.mp4");
+
+        // 単一区間(2秒〜7秒、5秒分)のフレーム精度カット。
+        // GPUエンコーダはこのCI/開発機には無い想定なのでlibx264
+        // フォールバック経路を検証する。
+        let job = ConvertJob {
+            input_path: source.to_string_lossy().to_string(),
+            output_path: output.to_string_lossy().to_string(),
+            codec_args: vec![],
+            bitrate: None,
+            trim: None,
+            cut_ranges: Some(vec![
+                CutRange { start_secs: 0.0, end_secs: Some(2.0) },
+                CutRange { start_secs: 7.0, end_secs: None },
+            ]),
+            frame_accurate: true,
+        };
+
+        run_convert(&job).expect("run_convert with frame_accurate should succeed");
+
+        let result_duration = probe_duration_secs(&output);
+        assert!(
+            (result_duration - 5.0).abs() < 0.5,
+            "frame-accurate cut should be close to exact (expected ~5s), got {result_duration}s"
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

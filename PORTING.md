@@ -125,27 +125,62 @@ and what's next.
     dispatch via `open-directx` (needs extending its narrow existing
     DXBC→SPIR-V decoder) is deferred as the next step.
 
-### 既知の未検証事項(v0.1.1時点) / Known unverified items (as of v0.1.1)
+### 既知の未検証事項(v0.1.1時点、v0.1.2で一部解消) / Known unverified items (as of v0.1.1, partly resolved in v0.1.2)
 
-- **このPCにffmpegが入っていないため、複数区間カット機能(`CutRange`)の
-  実際のffmpeg実行を伴うテストは未実施**(単体テストは区間計算ロジック
-  のみをカバーしており、実際の`-c copy`抽出→concat結合の動作は
-  未検証)。次回、ffmpegが入った環境での実ファイルによる検証が必要。
-  **This dev machine has no ffmpeg installed, so the multi-range cut
-  feature has not been tested against a real ffmpeg run** (unit tests
-  only cover the pure range-math logic — the actual `-c copy`
-  extraction + concat behavior is unverified). Needs testing against
-  real files on a machine with ffmpeg next.
-- GPUハードウェアエンコーダ検出(`detect_hw_video_encoder`)も、
-  実際にNVENC/QSV/AMF搭載環境での動作は未検証(このマシンの
-  GPU/ffmpegビルド構成に依存)。
-  GPU hardware-encoder detection (`detect_hw_video_encoder`) is also
-  unverified on real NVENC/QSV/AMF hardware.
+- ~~このPCにffmpegが入っていないため~~ → **v0.1.2で解消**。gyan.devの
+  公式Windowsビルドをこの開発機にインストールし、実際のffmpegで
+  複数区間カット機能を検証した(下記参照)。
+  ~~This dev machine had no ffmpeg installed~~ → **resolved in v0.1.2**:
+  installed the official gyan.dev Windows build and verified the
+  multi-range cut feature against real ffmpeg (see below).
 - 動画プレビューエディタ(`<video>` + `convertFileSrc`)の実機での
   表示・シーク動作は未検証(ビルド成功とロジックレビューのみ)。
   The video-preview editor (`<video>` + `convertFileSrc`) has not been
   verified live in a running window — only that it builds and the
   logic reviews correctly.
+
+## 🔁 再開用メッセージ(2026-09-12 続き、v0.1.2) / Resume message continued (v0.1.2)
+
+### 実施したこと / Done
+
+12. この開発機にffmpeg(gyan.dev公式Windowsビルド)をインストールし、
+    複数区間カット機能・フレーム精度カットモードの**実際のffmpeg実行を
+    伴う統合テストを2件追加**(合成テスト動画を`testsrc`で生成→
+    カット適用→`ffprobe`で結果の尺を検証)。
+    Installed ffmpeg (official gyan.dev Windows build) on this dev
+    machine and added 2 **real-ffmpeg integration tests** for the
+    multi-range cut feature and frame-accurate mode (generate a
+    synthetic `testsrc` video → apply cuts → verify resulting duration
+    via `ffprobe`).
+13. **その統合テストで実際のバグを発見・修正した**:
+    `detect_hw_video_encoder`は`ffmpeg -encoders`の一覧に載っているか
+    (=ffmpegのビルドにそのコーデックがコンパイルされているか)だけを
+    見ており、実際にこのマシンのGPUドライバが対応しているかは
+    見ていなかった。実機のNVIDIAドライバが古く、`h264_nvenc`は
+    リストには出るが実行すると
+    `"Driver does not support the required nvenc API version. \
+    Required: 13.1 Found: 11.1"`で失敗することを統合テストで実際に
+    再現した。修正: 候補ごとに実際に1フレームだけ試しエンコードし、
+    本当に成功するものだけを採用するよう変更(`hw_encoder_actually_works`)。
+    修正後、10テスト全green。
+    **That integration test caught a real bug**:
+    `detect_hw_video_encoder` only checked whether a codec appeared in
+    `ffmpeg -encoders` (i.e., whether it was compiled into the ffmpeg
+    build) — not whether this machine's GPU driver actually supports
+    it. This machine's NVIDIA driver is old enough that `h264_nvenc`
+    appears in the list but fails at runtime with `"Driver does not
+    support the required nvenc API version. Required: 13.1 Found:
+    11.1"` — the integration test reproduced this for real. Fix: each
+    candidate is now actually test-encoded (one frame) before being
+    accepted (`hw_encoder_actually_works`). All 10 tests pass after the
+    fix.
+
+このv0.1.2の教訓: 「実際に統合テストを書いて実行する」ことでしか
+見つからないバグ(実機のドライバ依存の挙動)があった。単体テストと
+コードレビューだけでは検出できなかった。
+Lesson from v0.1.2: some bugs (real-hardware-driver-dependent behavior)
+are only caught by actually writing and running an integration test —
+unit tests and code review alone would not have found this one.
 
 ## 関連リポジトリ / Related repositories
 
