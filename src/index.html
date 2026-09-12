@@ -26,24 +26,42 @@
       </section>
 
       <section>
-        <h2>3. 出力形式(複数選択可)</h2>
+        <h2>3. 音声フォーマットへ変換(複数選択可)</h2>
         <div class="checkbox-grid">
-          <label><input type="checkbox" name="target" value="convert_audio" /> 音声フォーマット変換 (MP3等)</label>
-          <label><input type="checkbox" name="target" value="convert_video" /> 動画フォーマット変換 (MP4等)</label>
-          <label><input type="checkbox" name="target" value="iso" /> ISOイメージ出力</label>
-          <label><input type="checkbox" name="target" value="burn" /> ディスクへ書き込み</label>
+          <label><input type="checkbox" name="audio-format" value="mp3" /> MP3</label>
+          <label><input type="checkbox" name="audio-format" value="wav" /> WAV</label>
+          <label><input type="checkbox" name="audio-format" value="flac" /> FLAC</label>
+          <label><input type="checkbox" name="audio-format" value="aac" /> AAC (M4A)</label>
+          <label><input type="checkbox" name="audio-format" value="ogg" /> OGG (Vorbis)</label>
         </div>
       </section>
 
       <section>
-        <h2>4. ディスク種別 (ISO / 書き込み時)</h2>
-        <select id="disc-type">
-          <option value="cd700">CD (700MB)</option>
-          <option value="dvd47" selected>DVD (4.7GB)</option>
-          <option value="dvd_dl85">DVD DL (8.5GB)</option>
-          <option value="bd25">Blu-ray (25GB)</option>
-          <option value="bd50">Blu-ray DL (50GB)</option>
-        </select>
+        <h2>4. 動画フォーマットへ変換(複数選択可)</h2>
+        <div class="checkbox-grid">
+          <label><input type="checkbox" name="video-format" value="mp4" /> MP4 (H.264/AAC)</label>
+          <label><input type="checkbox" name="video-format" value="mkv" /> MKV</label>
+          <label><input type="checkbox" name="video-format" value="avi" /> AVI</label>
+          <label><input type="checkbox" name="video-format" value="mov" /> MOV (QuickTime)</label>
+          <label><input type="checkbox" name="video-format" value="webm" /> WebM</label>
+        </div>
+      </section>
+
+      <section>
+        <h2>5. ISOイメージ出力</h2>
+        <label><input type="checkbox" id="output-iso" /> 選択した音声/動画をISOイメージとして出力する</label>
+      </section>
+
+      <section>
+        <h2>6. ディスクへの書き込み(複数種別を同時選択可)</h2>
+        <div class="checkbox-grid">
+          <label><input type="checkbox" name="disc-type" value="cd700" /> CD (700MB)</label>
+          <label><input type="checkbox" name="disc-type" value="dvd47" /> DVD (4.7GB)</label>
+          <label><input type="checkbox" name="disc-type" value="dvd_dl85" /> DVD DL (8.5GB)</label>
+          <label><input type="checkbox" name="disc-type" value="bd25" /> Blu-ray (25GB)</label>
+          <label><input type="checkbox" name="disc-type" value="bd50" /> Blu-ray DL (50GB)</label>
+        </div>
+        <p class="hint">チェックした種別ごとに、その容量に合わせたISO/書き込みを行います。</p>
 
         <h3>書き込み速度</h3>
         <select id="write-speed-mode">
@@ -55,15 +73,15 @@
       </section>
 
       <section>
-        <h2>5. ビットレート</h2>
+        <h2>7. ビットレート</h2>
         <label><input type="radio" name="bitrate-mode" value="fixed" checked /> 固定ビットレート</label>
         <input id="bitrate-fixed" type="number" min="1" value="192" /> kbps
         <br />
-        <label><input type="radio" name="bitrate-mode" value="auto" /> ディスク容量から自動で最大ビットレートを算出</label>
+        <label><input type="radio" name="bitrate-mode" value="auto" /> ディスク容量から自動で最大ビットレートを算出(ディスク種別を選択時)</label>
       </section>
 
       <section>
-        <h2>6. 時間指定・トリミング</h2>
+        <h2>8. 時間指定・トリミング</h2>
         <p class="hint">各ファイルの行にある開始位置・長さを編集してください(空欄は先頭/末尾扱い)。5分・10分など固定枠にしたい場合は「長さ」に秒数を入力します。</p>
       </section>
 
