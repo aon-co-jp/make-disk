@@ -165,7 +165,30 @@ function renderCutEditor(container, file, index) {
   const frameAccurateCheckbox = document.createElement("input");
   frameAccurateCheckbox.type = "checkbox";
   frameAccurateCheckbox.checked = file.frameAccurate;
-  frameAccurateCheckbox.addEventListener("change", () => (file.frameAccurate = frameAccurateCheckbox.checked));
+  frameAccurateCheckbox.addEventListener("change", async () => {
+    if (frameAccurateCheckbox.checked) {
+      // GPUエンコーダの有無はRust側(実際に1フレーム試しエンコード)でしか
+      // 判定できないため、ここではCPUの命令セット対応状況(open-cpu検出)
+      // だけを見て、GPUが無かった場合にどれくらい遅くなりそうかを事前警告する。
+      try {
+        const estimate = await invoke("estimate_cpu_encode_speed");
+        if (estimate.speed_hint === "slow" || estimate.speed_hint === "very_slow") {
+          const proceed = window.confirm(
+            `${estimate.message_ja}\n${estimate.message_en}\n\n` +
+            "(GPUエンコーダが実際に見つかればこの警告どおりにはなりません / this warning won't apply if a GPU encoder is actually found)\n\n" +
+            "このままフレーム精度カットを続けますか？ / Proceed with frame-accurate cutting anyway?"
+          );
+          if (!proceed) {
+            frameAccurateCheckbox.checked = false;
+            return;
+          }
+        }
+      } catch (e) {
+        // 参考情報の取得失敗は無視してよい(必須機能ではない)。
+      }
+    }
+    file.frameAccurate = frameAccurateCheckbox.checked;
+  });
   frameAccurateLabel.append(
     frameAccurateCheckbox,
     document.createTextNode(" フレーム精度で正確にカットする(GPUエンコーダがあれば自動使用、無ければCPU) / Frame-accurate cut (uses GPU encoder if available)")
@@ -173,19 +196,6 @@ function renderCutEditor(container, file, index) {
 
   container.append(document.createElement("h4"), rangeList, addForm, frameAccurateLabel);
   container.querySelector("h4").textContent = "カットする区間(いくつでも追加可)";
-
-  if (video) {
-    video.addEventListener("loadedmetadata", async () => {
-      try {
-        const estimate = await invoke("estimate_cpu_encode_speed");
-        if (estimate.speed_hint === "slow") {
-          log(`ℹ️ ${estimate.message_ja} / ${estimate.message_en}`);
-        }
-      } catch (e) {
-        // 参考情報の取得失敗は無視してよい(必須機能ではない)。
-      }
-    });
-  }
 }
 
 function renderFileList() {
