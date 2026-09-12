@@ -44,7 +44,12 @@ Linux: パッケージマネージャー案内、等)は未確定・要検討。
   (`src-tauri/gen/android`)、Rustのandroidターゲット(aarch64/armv7/
   i686/x86_64)へのクロスコンパイルも成功を確認済み。ただしこの開発機
   (Windows)でのAPKパッケージングは、jniLibsへのシンボリックリンク作成で
-  管理者権限相当が必要な状態のため未完了(開発者モード有効化を依頼中)。
+  管理者権限相当が必要な状態のため未完了。2026-09-12にユーザーが
+  設定でON操作を実施したが、レジストリキー
+  (`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock\
+  AllowDevelopmentWithoutDevLicense`)が依然存在せず反映されていない
+  ことを確認(グループポリシーによる明示的ブロックの形跡は無し)。
+  再起動後の再確認待ち、保留中。
   UIは`styles.css`にタッチ操作向けの調整(44px以上のタップ領域、
   スマホ幅でのレイアウト崩し、iOS自動ズーム防止のinput最小フォント
   16px)を追加済み。
