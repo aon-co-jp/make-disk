@@ -1,6 +1,6 @@
 [package]
 name = "make-disk"
-version = "0.1.0"
+version = "0.1.1"
 description = "Cross-platform CD/DVD/Blu-ray writing & format conversion GUI"
 authors = ["aon-co-jp"]
 edition = "2021"
@@ -18,12 +18,16 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# CPU命令セット(AVX2/AVX512等)のランタイム検出。GPUハードウェア
+# エンコーダが見つからない場合のCPUフォールバック(libx264)が
+# どの程度実用的な速度になりそうかをUIで伝えるために使う。
+open-cpu = { git = "https://github.com/aon-co-jp/open-cpu" }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
