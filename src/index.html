@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>make-disk</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <h1>make-disk</h1>
+      <p class="subtitle">CD / DVD / Blu-ray 書き込み・フォーマット変換</p>
+
+      <section>
+        <h2>1. ソースファイル</h2>
+        <button id="add-files-btn">ファイルを追加...</button>
+        <ul id="file-list"></ul>
+      </section>
+
+      <section>
+        <h2>2. 出力先フォルダ</h2>
+        <div class="row">
+          <input id="output-folder" type="text" readonly placeholder="未選択" />
+          <button id="pick-output-btn">フォルダを選択...</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>3. 出力形式(複数選択可)</h2>
+        <div class="checkbox-grid">
+          <label><input type="checkbox" name="target" value="convert_audio" /> 音声フォーマット変換 (MP3等)</label>
+          <label><input type="checkbox" name="target" value="convert_video" /> 動画フォーマット変換 (MP4等)</label>
+          <label><input type="checkbox" name="target" value="iso" /> ISOイメージ出力</label>
+          <label><input type="checkbox" name="target" value="burn" /> ディスクへ書き込み</label>
+        </div>
+      </section>
+
+      <section>
+        <h2>4. ディスク種別 (ISO / 書き込み時)</h2>
+        <select id="disc-type">
+          <option value="cd700">CD (700MB)</option>
+          <option value="dvd47" selected>DVD (4.7GB)</option>
+          <option value="dvd_dl85">DVD DL (8.5GB)</option>
+          <option value="bd25">Blu-ray (25GB)</option>
+          <option value="bd50">Blu-ray DL (50GB)</option>
+        </select>
+
+        <h3>書き込み速度</h3>
+        <select id="write-speed-mode">
+          <option value="auto">自動判定</option>
+          <option value="max">最高速</option>
+          <option value="fixed">速度を指定</option>
+        </select>
+        <input id="write-speed-fixed" type="number" min="1" placeholder="倍速 (例: 8)" style="display:none" />
+      </section>
+
+      <section>
+        <h2>5. ビットレート</h2>
+        <label><input type="radio" name="bitrate-mode" value="fixed" checked /> 固定ビットレート</label>
+        <input id="bitrate-fixed" type="number" min="1" value="192" /> kbps
+        <br />
+        <label><input type="radio" name="bitrate-mode" value="auto" /> ディスク容量から自動で最大ビットレートを算出</label>
+      </section>
+
+      <section>
+        <h2>6. 時間指定・トリミング</h2>
+        <p class="hint">各ファイルの行にある開始位置・長さを編集してください(空欄は先頭/末尾扱い)。5分・10分など固定枠にしたい場合は「長さ」に秒数を入力します。</p>
+      </section>
+
+      <section>
+        <button id="run-btn" class="primary">実行</button>
+        <pre id="log"></pre>
+      </section>
+    </main>
+    <script type="module" src="main.js"></script>
+  </body>
+</html>
