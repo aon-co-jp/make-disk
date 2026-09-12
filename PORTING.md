@@ -153,6 +153,38 @@
     URI→実処理の橋渡しが別途必要(かつffmpeg/xorriso自体がAndroidに
     存在しない問題は解決していない、上記「発見3」参照)。
 
+## 🔁 再開用メッセージ(2026-09-12 続き、open-directx実GPU実行の事前検証)
+
+### 実施したこと(調査のみ、コード変更なし)
+
+16. `open-directx`でyuv_to_rgbカーネルを実GPU(Vulkan)で動かす前段階として、
+    リスクを減らすため実装前に3点を検証した。
+    - **ツール確認**: `fxc.exe`(HLSLコンパイラ)はこのマシンのWindows SDK
+      (`C:\Program Files (x86)\Windows Kits\10\bin\...\x64\fxc.exe`)に
+      同梱されており利用可能。
+    - **GPU確認**: `open-cuda/examples/vulkan_info`を実行し、このマシンの
+      GT 730で実際にVulkan 1.2のcompute queueが使えることを確認済み
+      (`api_version: 1.2.175`、`OK: ... compute queue are available`)。
+    - **既存デコーダの対応範囲を精査**: `directx-shader-translate`には
+      想定より進んだ`translate_chain_shader`(N入力バッファ+逐次2項演算
+      〈add/mul/div/sub〉のチェーンに対応、`vector_add_mul_div_sub_...`
+      系のテストが多数存在)があった。
+    - **重大な制約を発見**: `RegExpr`は`Load(uav)`と`BinOp`のみを表現でき、
+      **即値(リテラル定数)オペランドに対応していない**
+      (`decode_chain_shape`のソースを直接確認)。YUV→RGB変換の係数
+      (1.402, 0.344136, 0.714136, 1.772, オフセット128)は全て定数のため、
+      現状のデコーダでは原理的に表現不可能。
+
+### 次にやること(具体的にスコープ確定済み、次回セッション)
+
+- `RegExpr`に`Immediate(f32)`相当のバリアントを追加。
+- `decode_chain_shape`で`RegisterType::Immediate32`オペランドを実際の
+  fxc.exe出力で確認しながら認識できるよう拡張。
+- `emit_chain_spirv`側で対応する`OpConstant`を生成するよう拡張。
+- 簡単な定数付きシェーダー(例: `Output[i] = A[i] * 1.402 + 128.0`)を
+  実際にfxc.exeでコンパイルし、実GPU(GT730)で動かしてCPU参照実装と
+  数値一致することを検証してから、yuv_to_rgb本体の実装に進む。
+
 ## 関連リポジトリ
 
 - [aon-co-jp/make-disk](https://github.com/aon-co-jp/make-disk) — 本体
