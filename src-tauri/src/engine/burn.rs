@@ -30,7 +30,7 @@ pub fn burn_image(image_path: &str, device: &str, disc: DiscType, speed: WriteSp
             args.push("-v".into());
             args.push("-data".into());
         }
-        DiscType::Dvd47 | DiscType::DvdDl85 | DiscType::Bd25 | DiscType::Bd50 => {
+        DiscType::Dvd47 | DiscType::DvdDl85 | DiscType::Bd25 | DiscType::Bd50 | DiscType::Bd128 => {
             args.push("-dao".into());
         }
     }
