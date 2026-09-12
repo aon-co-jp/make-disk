@@ -196,6 +196,12 @@ document.getElementById("run-btn").addEventListener("click", async () => {
     log("選択したディスクのうち最小容量に合わせて最大ビットレートを算出中...");
     bitrateKbps = await computeAutoBitrateKbps(discTypes);
     log(`自動算出ビットレート: ${bitrateKbps} kbps`);
+
+    const mediaKind = videoFormats.length > 0 ? "video" : "audio";
+    const warning = await invoke("check_bitrate_quality", { bitrateKbps, kind: mediaKind });
+    if (warning) {
+      log(`⚠️ ${warning.message_ja} / ${warning.message_en}`);
+    }
   }
 
   const convertedPaths = [];
