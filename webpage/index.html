@@ -83,10 +83,17 @@
     </p>
     <p>
       Windows向けには、それぞれをインストーラー付きで簡単に導入できる
-      Rustリスペクト版もご用意しています(現状は初期WIP、機能は本家の一部のみ)。<br>
+      Rustリスペクト版もご用意しています。<strong>ただし現時点では
+      make-disk本体からの完全な代替にはなりません</strong>
+      (実機検証済み: rs-xorrisoはISO生成のみ対応・長いファイル名は
+      切り詰め・ディスク書き込み機能は無し、rs-ffmpegは無圧縮WAVの
+      probe/変換のみ対応・コーデック指定やビットレート制御は非対応)。<br>
       For Windows, we also offer Rust tribute versions of each with a
-      one-command installer for easy setup (currently early WIP, covering
-      only a subset of the original's features).
+      one-command installer. <strong>Note: as of now these are not full
+      substitutes for what make-disk itself needs</strong> (verified:
+      rs-xorriso only creates ISO images — long filenames get truncated
+      and there is no disc-burning — and rs-ffmpeg only probes/converts
+      uncompressed WAV, with no codec selection or bitrate control).
     </p>
     <ul>
       <li><a href="https://ffmpeg.org/" target="_blank" rel="noopener noreferrer">FFmpeg</a> — フォーマット変換・ビットレート制御 / format conversion &amp; bitrate control
