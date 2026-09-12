@@ -71,11 +71,18 @@ macOS: `.dmg`/`.app`、Linux: `.deb`/`.AppImage`)がTauriのbundlerにより
 ## Status / 現状
 
 Early scaffold (2026-09-12): core UI and Rust command wiring are in
-place; real-device burn testing and per-OS installer builds are not
-yet verified. See [`CLAUDE.md`](CLAUDE.md) for details (Japanese).
-初期スケルトン段階(2026-09-12時点)。UIとRustコマンドの配線は完了して
-いるが、実機での書き込みテスト・各OSインストーラーの実ビルド確認は
-未実施。詳細は[`CLAUDE.md`](CLAUDE.md)(日本語)を参照。
+place for desktop; an Android project scaffold exists and has been
+verified to launch on a real device, but a critical module-loading bug
+was found and fixed there (see `CLAUDE.md`). Real-device disc-burning
+and per-OS installer builds are not yet verified. See
+[`CLAUDE.md`](CLAUDE.md) and [`PORTING.md`](PORTING.md) for details
+(bilingual JA/EN).
+初期スケルトン段階(2026-09-12時点)。デスクトップ版はUIとRustコマンドの
+配線が完了。Android版はプロジェクト骨組みが存在し実機起動まで確認済み
+だが、重大なモジュール読み込みバグを発見・修正した(`CLAUDE.md`参照)。
+実機でのディスク書き込みテスト・各OSインストーラーの実ビルド確認は
+未実施。詳細は[`CLAUDE.md`](CLAUDE.md)・[`PORTING.md`](PORTING.md)
+(日英併記)を参照。
 
 ## License
 
