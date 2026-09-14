@@ -4,3 +4,4 @@ pub mod convert;
 pub mod cpu;
 pub mod iso;
 pub mod probe;
+pub mod sidecar;

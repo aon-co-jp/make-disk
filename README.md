@@ -22,8 +22,12 @@
 ## 実行時の外部依存
 
 コーデックや書き込み処理を自前実装せず、既存のオープンソースエンジンを
-ラップする方針。以下が別途インストール済みで`PATH`が通っている必要が
-あります。
+ラップする方針。**Windows/Linux版インストーラーにはffmpeg/ffprobeを
+同梱済み**(2026-09-14〜、`src-tauri/src/engine/sidecar.rs`参照)——
+同梱バイナリが使えれば自動的にそちらを使い、無ければ以下の通り
+PATH上のものにフォールバックする。**xorriso・macOS版のffmpeg/ffprobeは
+まだ同梱していない**ため、以下が別途インストール済みで`PATH`が通って
+いる必要があります。
 
 - [FFmpeg](https://ffmpeg.org/)(`ffmpeg` / `ffprobe`) — フォーマット
   変換・ビットレート制御。Windows向けにはRustでのリスペクト版
@@ -67,14 +71,15 @@ Android)。iOSは実機未保有のため対応保留。
 
 ## 現状
 
-2026-09-14時点でv0.1.4まで公開済み。デスクトップ版はUIとRustコマンドの
+2026-09-14時点でv0.1.6まで公開済み。デスクトップ版はUIとRustコマンドの
 配線が完了し、実際のffmpegを使った統合テストも整備済み。Android版は
 実機(OnePlus A401OP)での動作確認・SAFフォルダ選択プラグインの実装まで
 完了し、CI経由でuniversal APKを自動ビルド・公開できるようになった。
-実機でのディスク書き込みテスト(CD/DVD/Blu-ray)は未実施。`ffmpeg`/
-`xorriso`は別途インストールが必要(インストーラーへの同梱化は次の開発
-増分として計画中)。詳細は[`CLAUDE.md`](CLAUDE.md)・
-[`PORTING.md`](PORTING.md)を参照。
+Windows/Linux版インストーラーにはffmpeg/ffprobeを同梱済み(実際に
+インストーラーをビルド・サイレントインストールして実機検証済み)。
+macOS版・xorrisoはまだ未対応(理由・設計は`CLAUDE.md`参照)。実機での
+ディスク書き込みテスト(CD/DVD/Blu-ray)は未実施。詳細は
+[`CLAUDE.md`](CLAUDE.md)・[`PORTING.md`](PORTING.md)を参照。
 
 ## ライセンス
 

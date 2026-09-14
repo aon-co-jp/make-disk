@@ -2,10 +2,10 @@
 //! xorrisoはWindows/macOS/Linuxいずれにも移植されており、
 //! 本アプリではOS判定を持ち込まず単一コマンド経路に統一する。
 
-use std::process::Command;
+use crate::engine::sidecar::resolve_tool;
 
 pub fn create_iso(source_dir: &str, output_iso: &str, volume_label: &str) -> Result<(), String> {
-    let output = Command::new("xorriso")
+    let output = resolve_tool("xorriso")
         .args([
             "-as", "mkisofs",
             "-iso-level", "3",

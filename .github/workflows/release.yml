@@ -66,6 +66,18 @@ jobs:
       - name: install frontend dependencies
         run: npm install
 
+      # 2026-09-14追加: ffmpeg/ffprobeをsidecarとしてインストーラーへ
+      # 同梱する(ユーザー指示「必要なリポジトリを同梱してインストーラー
+      # 付きアプリとして完成させて」への対応、src-tauri/binaries/
+      # README.md参照)。Windows/Linuxのみ対応(macOSは信頼できる静的
+      # ビルド配布元が未確定のため今回は見送り、xorrisoも同様に見送り
+      # ——いずれも同梱が無ければ従来通りPATH上の実行ファイルへ
+      # フォールバックするため、このステップが無くてもビルド自体は壊れない)。
+      - name: fetch ffmpeg/ffprobe sidecar binaries
+        if: matrix.platform == 'windows-latest' || matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: bash scripts/fetch-ffmpeg-sidecars.sh
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

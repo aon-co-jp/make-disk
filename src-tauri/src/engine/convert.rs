@@ -1,9 +1,11 @@
 //! FFmpegによるフォーマット変換・ビットレート制御・時間トリミング。
 
 use crate::engine::cpu;
+use crate::engine::sidecar::resolve_tool;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+#[cfg(test)]
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -265,7 +267,7 @@ fn detect_hw_video_encoder() -> Option<&'static str> {
 }
 
 fn hw_encoder_actually_works(encoder: &str) -> bool {
-    Command::new("ffmpeg")
+    resolve_tool("ffmpeg")
         .args([
             "-f", "lavfi", "-i", "color=black:size=64x64:rate=1",
             "-frames:v", "1", "-c:v", encoder, "-f", "null", "-",
@@ -286,7 +288,7 @@ fn push_bitrate_args(args: &mut Vec<String>, bitrate: &Option<BitrateMode>) {
 }
 
 fn run_ffmpeg(args: &[String]) -> Result<(), String> {
-    let output = Command::new("ffmpeg")
+    let output = resolve_tool("ffmpeg")
         .args(args)
         .output()
         .map_err(|e| format!("ffmpegの起動に失敗しました(未インストールの可能性): {e}"))?;
