@@ -5,6 +5,20 @@
 詳細な技術的発見・方針決定は[`CLAUDE.md`](CLAUDE.md)にあるので、
 ここでは「今どこまで進んでいて、次に何をするか」だけを簡潔に記す。
 
+## 🔁 再開用メッセージ(2026-09-14続き、最新)
+
+- **ffmpeg/ffprobeのsidecar同梱化(Windows/Linux)を実装・実機検証・
+  リリース完了**(v0.1.6)。詳細設計・実機検証で発見したバグ(当初
+  `<name>-<target-triple>.exe`という誤った命名で探していたが、実際の
+  インストール後は`<name>.exe`〈bare〉だった)は`CLAUDE.md`の
+  2026-09-14 HANDOFF参照。**次回はCI(`gh run list`)の実際の成否を
+  必ず確認すること**(このメッセージ記載時点ではタグpush前/直後)。
+- **次の増分候補**: (1) macOS向けffmpeg/ffprobe同梱(信頼できる
+  Intel/Apple Silicon両対応の静的ビルド入手元の確定が先決)、
+  (2) xorrisoの同梱(静的クロスプラットフォームビルドの入手元確定+
+  GPLライセンス表示整備が先決)、(3) モバイル(Android/iOS)向け
+  ffmpegクロスコンパイル。
+
 ## 🔁 再開用メッセージ(2026-09-14時点、最新)
 
 - **v0.1.5を全プラットフォーム(Windows/macOS×2/Linux×3形式/Android)

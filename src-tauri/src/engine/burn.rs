@@ -3,7 +3,7 @@
 //! 内包しているため、CD/DVD/Blu-rayを単一コマンド体系で扱える。
 
 use crate::engine::capacity::DiscType;
-use std::process::Command;
+use crate::engine::sidecar::resolve_tool;
 
 /// 書き込み速度。`Auto`は指定を省略し、ドライブ・メディアの自動判定に委ねる。
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -37,7 +37,7 @@ pub fn burn_image(image_path: &str, device: &str, disc: DiscType, speed: WriteSp
 
     args.push(image_path.to_string());
 
-    let output = Command::new("xorriso")
+    let output = resolve_tool("xorriso")
         .args(&args)
         .output()
         .map_err(|e| format!("xorrisoの起動に失敗しました(未インストールの可能性): {e}"))?;
@@ -50,7 +50,7 @@ pub fn burn_image(image_path: &str, device: &str, disc: DiscType, speed: WriteSp
 
 /// 利用可能な光学ドライブの一覧(device文字列)。
 pub fn list_devices() -> Result<Vec<String>, String> {
-    let output = Command::new("xorriso")
+    let output = resolve_tool("xorriso")
         .args(["-devices"])
         .output()
         .map_err(|e| format!("xorrisoの起動に失敗しました: {e}"))?;
