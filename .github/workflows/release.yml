@@ -119,7 +119,7 @@ jobs:
       - name: build Android universal APK
         env:
           NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
-        run: npm run tauri android build -- --apk --target aarch64 --target armv7 --target x86 --target x86_64 --debug
+        run: npm run tauri android build -- --apk --target aarch64 --target armv7 --target i686 --target x86_64 --debug
 
       - name: upload APK to release
         env:
