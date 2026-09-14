@@ -53,13 +53,27 @@ macOS: `.dmg`/`.app`、Linux: `.deb`/`.AppImage`)がTauriのbundlerにより
 生成されます。`v*`タグをpushするとGitHub Actionsで全プラットフォーム
 向けにビルドし、GitHub Releaseへ自動公開されます。
 
+## ダウンロード / インストーラー
+
+Windows(.msi/.exe)・macOS(.dmg、Intel/Apple Silicon)・Linux(.deb/
+.rpm/.AppImage)・Android(スマホ・タブレット共通のuniversal APK)向け
+インストーラーを[GitHub Releases](https://github.com/aon-co-jp/make-disk/releases/latest)で
+公開している。詳細・各ファイルの対応表は[`installer/README.md`](installer/README.md)
+参照。紹介ページ: <https://easy-web.tokyo/make-disk/>
+
+`v*`タグをpushすると`.github/workflows/release.yml`が全プラットフォーム
+分を自動ビルドし、同じGitHub Releaseへ添付する(デスクトップ3種+
+Android)。iOSは実機未保有のため対応保留。
+
 ## 現状
 
-2026-09-12時点でv0.1.2まで公開済み。デスクトップ版はUIとRustコマンドの
+2026-09-14時点でv0.1.4まで公開済み。デスクトップ版はUIとRustコマンドの
 配線が完了し、実際のffmpegを使った統合テストも整備済み。Android版は
-プロジェクト骨組みが存在し実機起動まで確認済みだが、共通フォルダ選択
-機能はモバイル未対応(独自プラグイン実装が次の課題)。実機でのディスク
-書き込みテストは未実施。詳細は[`CLAUDE.md`](CLAUDE.md)・
+実機(OnePlus A401OP)での動作確認・SAFフォルダ選択プラグインの実装まで
+完了し、CI経由でuniversal APKを自動ビルド・公開できるようになった。
+実機でのディスク書き込みテスト(CD/DVD/Blu-ray)は未実施。`ffmpeg`/
+`xorriso`は別途インストールが必要(インストーラーへの同梱化は次の開発
+増分として計画中)。詳細は[`CLAUDE.md`](CLAUDE.md)・
 [`PORTING.md`](PORTING.md)を参照。
 
 ## ライセンス

@@ -5,6 +5,21 @@ name: release
 # Fires only on a v* tag push, builds installers for Windows/macOS/
 # Linux, and attaches them to a GitHub Release (same convention as
 # open-english).
+#
+# 2026-09-14追加: Android(スマホ/タブレット共通のuniversal APK)も同じ
+# タグでビルドし、同じReleaseへ添付するジョブ(release-android)を追加。
+# この開発機(Windows)ではDeveloper Mode有効化の壁でtauri android build
+# が直接動かせず、Rustクロスコンパイル+手動gradlewパッケージングという
+# 回避策を使っていた(CLAUDE.md「Android実機検証」節参照)が、GitHub
+# Actionsのubuntu-latestランナーにはその制約が無いため、公式の
+# `npm run tauri android build`コマンドをそのまま使える。
+# 2026-09-14: Added an Android job (release-android) building a single
+# universal APK (covers phones and tablets) on the same tag, attached
+# to the same Release. This dev machine (Windows) couldn't run
+# `tauri android build` directly due to a Developer Mode activation
+# blocker (worked around via manual Rust cross-compile + gradlew
+# packaging, see CLAUDE.md "Android実機検証"), but GitHub Actions'
+# ubuntu-latest runner has no such limitation.
 on:
   push:
     tags:
@@ -63,3 +78,53 @@ jobs:
           releaseDraft: false
           prerelease: true
           args: ${{ matrix.args }}
+
+  release-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: install Android SDK + NDK
+        uses: android-actions/setup-android@v3
+
+      - name: install NDK
+        run: sdkmanager --install "ndk;27.0.12077973"
+
+      - name: install Rust (Android targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: install frontend dependencies
+        run: npm install
+
+      - name: install Tauri CLI
+        run: npm install -g @tauri-apps/cli@2
+
+      # 署名鍵は未設定(Play Store配布ではなくGitHub Releaseからの
+      # サイドロード配布のため、まずは--apk universal debugビルドで
+      # 公開する——CLAUDE.md「Android実機検証」節で実機確認済みの構成と
+      # 同じ)。
+      - name: build Android universal APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
+        run: npm run tauri android build -- --apk --target aarch64 --target armv7 --target x86 --target x86_64 --debug
+
+      - name: upload APK to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          apk=$(find src-tauri/gen/android -iname "*.apk" | head -1)
+          echo "uploading $apk"
+          gh release upload "${{ github.ref_name }}" "$apk#make-disk-${{ github.ref_name }}-android-universal.apk" --clobber -R "${{ github.repository }}"
