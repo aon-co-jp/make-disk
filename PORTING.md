@@ -7,13 +7,18 @@
 
 ## 🔁 再開用メッセージ(2026-09-14時点、最新)
 
-- Android CIジョブ(`release-android`)を`release.yml`へ追加、
-  `installer/README.md`新設、`webpage/index.html`の古い「近日公開」
-  文言を実際の公開状況へ更新、v0.1.4としてタグpush済み。**CIの実際の
-  成否(特にAndroidジョブ)は未確認のまま次回へ引き継ぐ**——
-  `gh run list`/`gh run watch`で確認し、失敗していればログを見て
-  NDKバージョン等を調整すること(詳細は`CLAUDE.md`の2026-09-14
-  HANDOFF参照)。
+- **v0.1.5を全プラットフォーム(Windows/macOS×2/Linux×3形式/Android)
+  で公開完了・実際にCIグリーンを確認済み**(v0.1.4は`--target x86`の
+  誤り〈正しくは`i686`〉で`release-android`が即失敗、v0.1.5で修正し
+  全5ジョブ成功。GitHub Releaseのアセット一覧を`gh release view
+  v0.1.5`で実際に確認済み)。VPS(`easy-web.tokyo/make-disk/`)の
+  紹介ページも`git pull`で更新反映済み(実際に`curl`でライブ確認済み)。
+- Android APKのアセット名は当初`app-universal-debug.apk`という
+  分かりにくい名前で公開されてしまった(`gh release upload
+  local#label`の`#label`は表示名のみでファイル名は変わらないという
+  仕様を実際に確認)——v0.1.5では手動でリネームして再アップロード済み、
+  `release.yml`側も次回リリースから自動的に分かりやすい名前になるよう
+  修正済み(`cp`でリネームしてからアップロード)。
 - ユーザーから「必要なリポジトリを同梱してインストーラー付きアプリを
   完成させて」との指示があり、ffmpeg/xorrisoをTauriのsidecar機構で
   同梱する設計を`CLAUDE.md`の2026-09-14(続き)HANDOFFに記録した

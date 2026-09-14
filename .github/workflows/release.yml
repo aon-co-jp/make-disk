@@ -126,5 +126,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           apk=$(find src-tauri/gen/android -iname "*.apk" | head -1)
-          echo "uploading $apk"
-          gh release upload "${{ github.ref_name }}" "$apk#make-disk-${{ github.ref_name }}-android-universal.apk" --clobber -R "${{ github.repository }}"
+          # `gh release upload local#label`の`#label`はUI表示名のみを
+          # 変え、実際のダウンロードファイル名は元のbasenameのまま
+          # (v0.1.5リリースで実際に確認した挙動)——分かりやすい
+          # ファイル名で配布するため、事前にコピー/リネームしてから
+          # アップロードする。
+          renamed="make-disk-${{ github.ref_name }}-android-universal.apk"
+          cp "$apk" "$renamed"
+          echo "uploading $renamed"
+          gh release upload "${{ github.ref_name }}" "$renamed" --clobber -R "${{ github.repository }}"
