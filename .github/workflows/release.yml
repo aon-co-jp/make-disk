@@ -78,9 +78,35 @@ jobs:
         shell: bash
         run: bash scripts/fetch-ffmpeg-sidecars.sh
 
+      # 2026-09-16追加: 姉妹Rustリスペクト版(rs-FFmpeg/rs-xorriso、MIT
+      # ライセンス)を隣にcloneしてソースからビルドし、sidecarとして
+      # 追加同梱する(ユーザー指示「作成したRust版も同梱して」への対応)。
+      - name: checkout rs-FFmpeg / rs-xorriso
+        if: matrix.platform == 'windows-latest' || matrix.platform == 'ubuntu-22.04'
+        uses: actions/checkout@v4
+        with:
+          repository: aon-co-jp/rs-FFmpeg
+          path: rs-FFmpeg-sibling
+
+      - name: checkout rs-xorriso
+        if: matrix.platform == 'windows-latest' || matrix.platform == 'ubuntu-22.04'
+        uses: actions/checkout@v4
+        with:
+          repository: aon-co-jp/rs-xorriso
+          path: rs-xorriso-sibling
+
+      - name: build rs-FFmpeg/rs-xorriso sidecar binaries
+        if: matrix.platform == 'windows-latest' || matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        env:
+          RS_FFMPEG_DIR: ${{ github.workspace }}/rs-FFmpeg-sibling
+          RS_XORRISO_DIR: ${{ github.workspace }}/rs-xorriso-sibling
+        run: bash scripts/build-rs-tribute-sidecars.sh
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "make-disk ${{ github.ref_name }}"
@@ -88,7 +114,13 @@ jobs:
             See CLAUDE.md / PORTING.md in the repository for current status and known limitations.
             現状・既知の制限はリポジトリ内のCLAUDE.md / PORTING.mdを参照してください。
           releaseDraft: false
-          prerelease: true
+          # 2026-09-16変更: 自動アップデート機能(tauri-plugin-updater)は
+          # GitHubの`/releases/latest/download/...`エイリアスを使うが、
+          # このエイリアスはprerelease扱いのリリースを除外する仕様のため、
+          # falseへ変更した(これによりアップデーターが正しく最新版を
+          # 検出できるようになる)。
+          prerelease: false
+          includeUpdaterJson: true
           args: ${{ matrix.args }}
 
   release-android:

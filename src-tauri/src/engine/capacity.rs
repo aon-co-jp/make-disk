@@ -28,6 +28,46 @@ impl DiscType {
     }
 }
 
+/// CD品質(44.1kHz・16bit・ステレオ)の非圧縮PCM WAVのビット/秒。
+/// 「最高音質」モード(2026-09-16新設)でのロスレス音声変換に使う——
+/// ロスレスPCMは可変ビットレートではなく、サンプルレート・ビット深度・
+/// チャンネル数だけで一意に決まる物理量なので、[`max_bitrate_for_capacity`]
+/// のような「容量から逆算」はできない(逆に「この設定なら何秒収まるか」を
+/// 計算する側になる、[`max_lossless_audio_duration_secs`]参照)。
+pub const LOSSLESS_CD_QUALITY_WAV_BPS: u64 = 44_100 * 16 * 2;
+
+/// 「最高音質」モードで、指定ディスクにCD品質ロスレスWAVとして収まる
+/// 最大収録時間(秒)を返す。
+pub fn max_lossless_audio_duration_secs(disc: DiscType, reserved_bytes: u64) -> f64 {
+    let usable = disc.usable_bytes().saturating_sub(reserved_bytes);
+    (usable as f64 * 8.0) / LOSSLESS_CD_QUALITY_WAV_BPS as f64
+}
+
+/// 「最高音質」モードで、実際にディスクへ収まるかどうかの判定結果。
+/// 収まらない場合は、代わりにどれだけの時間なら収まるか
+/// (`max_fitting_duration_secs`)も返す——ユーザー指示「必要な時間や
+/// データサイズを自動で割り出す」への対応。
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct LosslessFitEstimate {
+    pub fits: bool,
+    pub required_bytes: u64,
+    pub usable_bytes: u64,
+    /// `fits`が`false`の場合、代わりにこの秒数までなら収まる。
+    pub max_fitting_duration_secs: f64,
+}
+
+/// [`LosslessFitEstimate`]を計算する。
+pub fn estimate_lossless_audio_fit(disc: DiscType, total_duration_secs: f64, reserved_bytes: u64) -> LosslessFitEstimate {
+    let usable_bytes = disc.usable_bytes().saturating_sub(reserved_bytes);
+    let required_bytes = ((total_duration_secs.max(0.0) * LOSSLESS_CD_QUALITY_WAV_BPS as f64) / 8.0) as u64;
+    LosslessFitEstimate {
+        fits: required_bytes <= usable_bytes,
+        required_bytes,
+        usable_bytes,
+        max_fitting_duration_secs: max_lossless_audio_duration_secs(disc, reserved_bytes),
+    }
+}
+
 /// 収録したいメディアの合計尺(秒)から、指定ディスクに収まる
 /// 最大平均ビットレート(bit/s)を算出する。
 /// `reserved_bytes` はISO9660オーバーヘッド等の予約分。
@@ -109,6 +149,40 @@ mod tests {
         let usable = DiscType::Bd128.usable_bytes();
         assert_eq!(usable, 128_000_000_000 * 98 / 100);
         assert!(usable > DiscType::Bd50.usable_bytes());
+    }
+
+    /// 「最高音質」モード(2026-09-16新設)の基本動作:
+    /// CD(700MB)に十分収まる短い尺なら`fits=true`になること。
+    #[test]
+    fn lossless_audio_fit_reports_true_for_a_short_clip_on_cd() {
+        let estimate = estimate_lossless_audio_fit(DiscType::Cd700, 60.0, 0);
+        assert!(estimate.fits);
+        assert!(estimate.required_bytes < estimate.usable_bytes);
+    }
+
+    /// CD1枚に収まらない長さ(例: 10時間)を指定した場合は`fits=false`に
+    /// なり、代わりに収まる秒数(`max_fitting_duration_secs`)が
+    /// `usable_bytes`から逆算した一貫性のある値になること。
+    #[test]
+    fn lossless_audio_fit_reports_false_and_max_fitting_duration_for_a_too_long_clip() {
+        let ten_hours = 10.0 * 3600.0;
+        let estimate = estimate_lossless_audio_fit(DiscType::Cd700, ten_hours, 0);
+        assert!(!estimate.fits);
+        assert!(estimate.max_fitting_duration_secs < ten_hours);
+        assert!(estimate.max_fitting_duration_secs > 0.0);
+
+        // 逆算した秒数ちょうどなら収まるはず(整合性チェック)。
+        let recheck = estimate_lossless_audio_fit(DiscType::Cd700, estimate.max_fitting_duration_secs, 0);
+        assert!(recheck.fits);
+    }
+
+    /// より大きなディスク(Blu-ray 25GB)なら、CD1枚に収まらない長さでも
+    /// 収まること(ディスク種別による違いが正しく反映されているか)。
+    #[test]
+    fn lossless_audio_fit_on_a_larger_disc_fits_a_longer_clip() {
+        let ten_hours = 10.0 * 3600.0;
+        let estimate = estimate_lossless_audio_fit(DiscType::Bd25, ten_hours, 0);
+        assert!(estimate.fits);
     }
 
     #[test]

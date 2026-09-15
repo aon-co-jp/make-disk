@@ -339,33 +339,73 @@ async function computeAutoBitrateKbps(discTypes) {
   return minKbps ?? 0;
 }
 
+/** 同時実行数の目安。WebView(素のブラウザAPI)から分かる範囲の
+ * `navigator.hardwareConcurrency`を使い、無ければ4を既定にする
+ * (2026-09-16新設、ユーザー指示「非同期でマルチスレッドで同時に
+ * 行える様に」への対応)。ffmpegプロセス自体もマルチスレッドで動くため
+ * 「論理コア数と同じだけ同時起動」は詰め込みすぎになりやすく、半分
+ * 程度を上限にする(最低1)。 */
+function conversionConcurrency() {
+  const cores = typeof navigator !== "undefined" && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 4;
+  return Math.max(1, Math.floor(cores / 2));
+}
+
+/** `tasks`(引数無しの非同期関数の配列)を、同時実行数`limit`件までの
+ * 並列度で全て実行する(単純なワーカープール、外部ライブラリ不要)。 */
+async function runWithConcurrencyLimit(tasks, limit) {
+  const results = new Array(tasks.length);
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= tasks.length) return;
+      results[i] = await tasks[i]();
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  return results;
+}
+
+/** 音声/動画フォーマット×ソースファイルの全組み合わせを変換する。
+ * 2026-09-16変更: 逐次(1件ずつawait)ではなく、`runWithConcurrencyLimit`で
+ * 複数のffmpegプロセスを同時に起動する非同期・マルチスレッド実行に
+ * した(1トラック変換完了を待ってから次へ、という無駄な直列待ちを
+ * 無くす——例: 「MP4をWAVへ」+「ISO化」のような組み合わせでも、
+ * 複数ファイル・複数フォーマットの変換自体は並列に進む)。 */
 async function convertAll(formats, codecMap, mode, bitrateKbps) {
-  const outputs = [];
+  const jobs = [];
   for (const format of formats) {
     const codecArgs = codecMap[format];
     for (const f of sourceFiles) {
       const outputPath = `${outputFolder}/${baseName(f.path)}.${format}`;
-      log(`変換中: ${f.path} -> ${outputPath}`);
-      try {
-        await invoke("convert_media", {
-          job: {
-            input_path: f.path,
-            output_path: outputPath,
-            codec_args: codecArgs,
-            bitrate: format === "wav" || format === "flac" ? null : { [mode === "auto" ? "auto_max_for_capacity" : "fixed"]: bitrateKbps },
-            trim: null,
-            cut_ranges: f.cutRanges.length > 0 ? f.cutRanges.map((r) => ({ start_secs: r.startSecs, end_secs: r.endSecs })) : null,
-            frame_accurate: f.frameAccurate,
-          },
-        });
-        outputs.push(outputPath);
-        log(`完了: ${outputPath}`);
-      } catch (e) {
-        log(`エラー: ${e}`);
-      }
+      jobs.push({ outputPath, f, format, codecArgs });
     }
   }
-  return outputs;
+
+  const tasks = jobs.map(({ outputPath, f, format, codecArgs }) => async () => {
+    log(`変換中: ${f.path} -> ${outputPath}`);
+    try {
+      await invoke("convert_media", {
+        job: {
+          input_path: f.path,
+          output_path: outputPath,
+          codec_args: codecArgs,
+          bitrate: format === "wav" || format === "flac" ? null : { [mode === "auto" || mode === "max_quality" ? "auto_max_for_capacity" : "fixed"]: bitrateKbps },
+          trim: null,
+          cut_ranges: f.cutRanges.length > 0 ? f.cutRanges.map((r) => ({ start_secs: r.startSecs, end_secs: r.endSecs })) : null,
+          frame_accurate: f.frameAccurate,
+        },
+      });
+      log(`完了: ${outputPath}`);
+      return outputPath;
+    } catch (e) {
+      log(`エラー: ${e}`);
+      return null;
+    }
+  });
+
+  const results = await runWithConcurrencyLimit(tasks, conversionConcurrency());
+  return results.filter((p) => p !== null);
 }
 
 document.getElementById("run-btn").addEventListener("click", async () => {
@@ -379,20 +419,37 @@ document.getElementById("run-btn").addEventListener("click", async () => {
     return;
   }
 
-  const audioFormats = checkedValues("audio-format");
-  const videoFormats = checkedValues("video-format");
+  let audioFormats = checkedValues("audio-format");
+  let videoFormats = checkedValues("video-format");
   const discTypes = checkedValues("disc-type");
-  const wantIso = document.getElementById("output-iso").checked;
+  let wantIso = document.getElementById("output-iso").checked;
+
+  const mode = bitrateMode();
+
+  // 「最高音質・最高画質」モード(2026-09-16新設): フォーマット未選択でも
+  // 実行できる——音声フォーマットが1つも選ばれていなければロスレスWAVを
+  // 自動選択し、常にISO化する(ユーザー指示「音声や画像フォーマットを
+  // 選択しない場合...ロスレスのWAVに変換後ISO変換を同時に行なう」)。
+  if (mode === "max_quality") {
+    if (discTypes.length === 0) {
+      log("エラー: 最高音質・最高画質モードにはディスク種別を1つ以上選択してください。 / Error: select at least one disc type for maximum-quality mode.");
+      return;
+    }
+    if (audioFormats.length === 0 && videoFormats.length === 0) {
+      audioFormats = ["wav"];
+      log("音声/動画フォーマットが未選択のため、ロスレスWAVを自動選択しました。 / No audio/video format selected — automatically using lossless WAV.");
+    }
+    wantIso = true;
+  }
 
   if (audioFormats.length === 0 && videoFormats.length === 0) {
     log("エラー: 音声または動画フォーマットを1つ以上選択してください。");
     return;
   }
 
-  const mode = bitrateMode();
   let bitrateKbps = parseInt(document.getElementById("bitrate-fixed").value, 10);
 
-  if (mode === "auto") {
+  if (mode === "auto" || mode === "max_quality") {
     if (discTypes.length === 0) {
       log("エラー: 自動ビットレートにはディスク種別を1つ以上選択してください。");
       return;
@@ -408,13 +465,43 @@ document.getElementById("run-btn").addEventListener("click", async () => {
     }
   }
 
-  const convertedPaths = [];
-  if (audioFormats.length > 0) {
-    convertedPaths.push(...(await convertAll(audioFormats, AUDIO_CODEC_ARGS, mode, bitrateKbps)));
+  // 最高音質モードでWAV(ロスレス)を使う場合、容量から逆算した
+  // 「収まる/収まらない、収まるなら何秒まで」を先に表示する
+  // (ユーザー指示「必要な時間やデータサイズを自動で割り出す」)。
+  if (mode === "max_quality" && audioFormats.includes("wav")) {
+    let totalDuration = 0;
+    for (const f of sourceFiles) {
+      totalDuration += await effectiveDurationSecs(f);
+    }
+    for (const discType of discTypes) {
+      const est = await invoke("estimate_lossless_audio_fit", {
+        disc: discType,
+        totalDurationSecs: totalDuration,
+        reservedBytes: 50 * 1024 * 1024,
+      });
+      const { h, m, sec } = secsToHms(totalDuration);
+      const need = `${h}時間${m}分${Math.floor(sec)}秒 / ${h}h${m}m${Math.floor(sec)}s`;
+      if (est.fits) {
+        log(`[${discType}] 収録時間(${need})はロスレスWAVで収まります(必要: ${(est.required_bytes / 1e6).toFixed(1)}MB / 容量: ${(est.usable_bytes / 1e6).toFixed(1)}MB)。`);
+      } else {
+        const fit = secsToHms(est.max_fitting_duration_secs);
+        log(
+          `⚠️ [${discType}] 収録時間(${need})はロスレスWAVでは収まりません(必要: ${(est.required_bytes / 1e9).toFixed(2)}GB / 容量: ${(est.usable_bytes / 1e9).toFixed(2)}GB)。` +
+            `このディスクにロスレスで収まるのは最大${fit.h}時間${fit.m}分${Math.floor(fit.sec)}秒までです。 / ` +
+            `Won't fit losslessly — this disc can hold at most ${fit.h}h${fit.m}m${Math.floor(fit.sec)}s of lossless audio.`
+        );
+      }
+    }
   }
-  if (videoFormats.length > 0) {
-    convertedPaths.push(...(await convertAll(videoFormats, VIDEO_CODEC_ARGS, mode, bitrateKbps)));
-  }
+
+  // 音声変換・動画変換もお互いを待たず並行して進める(2026-09-16変更、
+  // 「MP4をWAVに変換しつつISO化」のような組み合わせも含め、全体として
+  // 非同期・マルチスレッドに実行する)。
+  const [audioOutputs, videoOutputs] = await Promise.all([
+    audioFormats.length > 0 ? convertAll(audioFormats, AUDIO_CODEC_ARGS, mode, bitrateKbps) : Promise.resolve([]),
+    videoFormats.length > 0 ? convertAll(videoFormats, VIDEO_CODEC_ARGS, mode, bitrateKbps) : Promise.resolve([]),
+  ]);
+  const convertedPaths = [...audioOutputs, ...videoOutputs];
 
   if (wantIso || discTypes.length > 0) {
     const isoPath = `${outputFolder}/output.iso`;
@@ -458,3 +545,47 @@ document.getElementById("run-btn").addEventListener("click", async () => {
 
   log("すべての処理が完了しました。");
 });
+
+// ── 自動アップデート確認(2026-09-16新設) ──────────────────────────
+// アプリ起動時に一度だけGitHub Releasesの最新版を確認し、新しいバージョンが
+// あれば日本語・英語併記のダイアログで確認してから更新する。デスクトップ
+// のみ対応(`window.__TAURI__.updater`はAndroid/iOSでは登録していない
+// ため未定義——モバイルはストア/APKサイドロードでの更新が前提、
+// `lib.rs`のコメント参照)。
+async function checkForUpdatesOnStartup() {
+  const updater = window.__TAURI__.updater;
+  const process = window.__TAURI__.process;
+  if (!updater || !process) {
+    return; // モバイル等、アップデータープラグインが登録されていない環境
+  }
+
+  let update;
+  try {
+    update = await updater.check();
+  } catch (e) {
+    console.warn("update check failed / アップデート確認に失敗しました:", e);
+    return;
+  }
+  if (!update) {
+    return; // 最新版を使用中
+  }
+
+  const message =
+    `新しいバージョン ${update.version} があります。バージョンアップしますか？\n\n` +
+    `A new version (${update.version}) is available. Would you like to update now?`;
+  const shouldUpdate = window.confirm(message);
+  if (!shouldUpdate) {
+    return;
+  }
+
+  try {
+    log(`アップデートをダウンロード中... / Downloading update... (v${update.version})`);
+    await update.downloadAndInstall();
+    log("アップデートが完了しました。アプリを再起動します。 / Update installed. Restarting the app.");
+    await process.relaunch();
+  } catch (e) {
+    log(`アップデートに失敗しました / Update failed: ${e}`);
+  }
+}
+
+checkForUpdatesOnStartup();

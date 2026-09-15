@@ -27,6 +27,14 @@ fn check_bitrate_quality(bitrate_kbps: u64, kind: MediaKind) -> Option<QualityWa
     capacity::quality_warning(bitrate_kbps * 1000, kind)
 }
 
+/// 「最高音質」モード(2026-09-16新設)向け:CD品質ロスレスWAVで
+/// 指定ディスクに収まるかどうか、収まらない場合は代わりに何秒までなら
+/// 収まるかを算出する。
+#[tauri::command]
+fn estimate_lossless_audio_fit(disc: DiscType, total_duration_secs: f64, reserved_bytes: u64) -> capacity::LosslessFitEstimate {
+    capacity::estimate_lossless_audio_fit(disc, total_duration_secs, reserved_bytes)
+}
+
 #[tauri::command]
 fn create_iso(source_dir: String, output_iso: String, volume_label: String) -> Result<(), String> {
     iso::create_iso(&source_dir, &output_iso, &volume_label)
@@ -61,6 +69,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init());
 
+    // 自動アップデート確認(2026-09-16新設、デスクトップのみ——
+    // `tauri-plugin-updater`はモバイル未対応、Android/iOSはストア/APK
+    // サイドロードでの更新が前提のため元々対象外)。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init());
+
     #[cfg(target_os = "android")]
     let builder = builder
         .plugin(tauri_plugin_android_folder::init())
@@ -73,6 +87,7 @@ pub fn run() {
             burn_image,
             list_burn_devices,
             estimate_cpu_encode_speed,
+            estimate_lossless_audio_fit,
             pick_output_tree,
         ]);
 
@@ -86,6 +101,7 @@ pub fn run() {
         burn_image,
         list_burn_devices,
         estimate_cpu_encode_speed,
+        estimate_lossless_audio_fit,
     ]);
 
     builder.run(tauri::generate_context!()).expect("error while running tauri application");

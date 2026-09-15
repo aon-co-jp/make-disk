@@ -1,6 +1,6 @@
 [package]
 name = "make-disk"
-version = "0.1.6"
+version = "0.1.7"
 description = "Cross-platform CD/DVD/Blu-ray writing & format conversion GUI"
 authors = ["aon-co-jp"]
 edition = "2021"
@@ -28,6 +28,12 @@ serde_json = "1"
 # エンコーダが見つからない場合のCPUフォールバック(libx264)が
 # どの程度実用的な速度になりそうかをUIで伝えるために使う。
 open-cpu = { git = "https://github.com/aon-co-jp/open-cpu" }
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+# 自動アップデート確認(2026-09-16新設)。デスクトップのみ対応
+# (Android/iOSはストア/APKサイドロードでの更新が前提のため対象外)。
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 # Tauri標準のtauri-plugin-dialogはモバイルでのフォルダ選択を意図的に
