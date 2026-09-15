@@ -174,9 +174,17 @@ jobs:
       # 公開する——CLAUDE.md「Android実機検証」節で実機確認済みの構成と
       # 同じ)。
       - name: build Android universal APK
-        env:
-          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.0.12077973
-        run: npm run tauri android build -- --apk --target aarch64 --target armv7 --target i686 --target x86_64 --debug
+        run: |
+          # `ANDROID_HOME`はGitHub Actionsのubuntu-latestランナーに
+          # 元々設定済みのOS環境変数——ワークフロー式の`${{ env.X }}`
+          # コンテキストでは見えない(`$GITHUB_ENV`へ明示的に書き出した
+          # 変数しか見えない)ため、シェルの変数展開`$ANDROID_HOME`で
+          # 参照する必要がある。`${{ env.ANDROID_HOME }}`と書いていた
+          # v0.1.9では空文字列に展開され`NDK_HOME=/ndk/27.0.12077973`
+          # という壊れた値になり、tauri CLIが
+          # 「Android NDK invalid」で失敗する実バグがあった。
+          export NDK_HOME="$ANDROID_HOME/ndk/27.0.12077973"
+          npm run tauri android build -- --apk --target aarch64 --target armv7 --target i686 --target x86_64 --debug
 
       - name: upload APK to release
         env:
