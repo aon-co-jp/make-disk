@@ -463,3 +463,43 @@ sidecarバイナリ(ffmpeg/ffprobe/rs-ffmpeg/rs-xorriso)の同梱を確認済み
 (3) ユーザーから追加指示のあった「open-directx/open-cuda/aruaru-llmの
 マルチCPU・マルチコア・非同期対応」はこのリポジトリではなく各リポジトリ
 側での横断的な調査・改修が必要な別課題として保留。
+
+## HANDOFF追記(2026-09-16続き) v0.1.7 CI実際の結果確認・Android CI修正・複数ドライブ並列書き込み、v0.1.8 / Follow-up: verified v0.1.7 CI results, fixed Android CI, parallel multi-drive burning, v0.1.8
+
+**v0.1.7の実際のCI結果(前回HANDOFFで「次回確認」としていた項目)**:
+デスクトップ4ジョブ(Windows/macOS×2/Linux)は全て成功
+(`gh release view v0.1.7`で`.sig`署名ファイル・`latest.json`
+アップデーターマニフェスト・`prerelease: false`を実際に確認済み)。
+Linuxジョブは`tauri-action`ステップだけで約24分かかった(v0.1.6の
+約27分と同様の傾向——ffmpeg/ffprobe同梱+LTOビルドのため。ハングでは
+なく正常な所要時間と判断)。VPS(`easy-web.tokyo/make-disk/`)への
+反映も`git pull`+`curl`でのライブ確認まで完了。
+
+**release-androidジョブは失敗**——今回のセッションの変更とは無関係な
+外部要因: `android-actions/setup-android@v3`が
+`Warning: Failed to find package 'tools'`で失敗するようになっていた
+(Googleが非推奨の`tools`パッケージをSDKリポジトリから削除したためと
+見られる)。**修正**: GitHub Actionsの`ubuntu-latest`ランナーには
+元々Android SDK(`cmdline-tools`込み、`ANDROID_HOME=/usr/local/lib/
+android/sdk`)がプリインストールされていることを確認済みだったため、
+`android-actions/setup-android@v3`のステップ自体を削除し、
+プリインストール済みの`sdkmanager`でNDKだけを追加インストールする
+形に簡略化した(次回のタグpushで実際の成否を確認すること)。
+
+**複数ドライブ並列書き込み**: ユーザー指示「ディスクへの書き込みを
+選んで実行すると...書き込みも同時に行なって」への対応。`main.js`の
+書き込みループを、物理ドライブが複数検出された場合はドライブ単位で
+並行実行するよう変更(`Promise.all`)——1台のドライブへ同時に2つの
+書き込みストリームは送れないため、同じドライブへ割り当てられた
+ディスク種別同士は順番に、異なるドライブへの書き込みは互いを待たずに
+並行実行する設計(ドライブ数より種別数が多い場合はラウンドロビンで
+割り当て)。Rust側(`burn.rs`)は無変更——並列度の制御はJS側の
+呼び出しタイミングだけで実現できる(`convertAll`の並列化と同じ設計
+パターン)。
+
+バージョンを0.1.7→0.1.8へ統一。
+
+**次回への引き継ぎ**: (1) Android CI修正(setup-android削除)が
+実際にタグpushで成功するか確認。(2) 複数物理ドライブでの並列書き込みは
+実機検証未実施(この開発機には光学ドライブが1台も無い——既存の
+「実機での書き込み検証は未実施」という制約がここでも該当する)。

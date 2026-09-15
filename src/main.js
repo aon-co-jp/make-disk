@@ -519,7 +519,6 @@ document.getElementById("run-btn").addEventListener("click", async () => {
         if (devices.length === 0) {
           log("エラー: 書き込み可能な光学ドライブが見つかりません。");
         } else {
-          const device = devices[0];
           const speedMode = document.getElementById("write-speed-mode").value;
           const speed =
             speedMode === "fixed"
@@ -527,15 +526,37 @@ document.getElementById("run-btn").addEventListener("click", async () => {
               : speedMode === "max"
                 ? "max"
                 : "auto";
-          for (const discType of discTypes) {
-            log(`書き込み中(${discType}): ${isoPath} -> ${device}`);
-            try {
-              await invoke("burn_image", { imagePath: isoPath, device, disc: discType, speed });
-              log(`書き込み完了(${discType})。`);
-            } catch (e) {
-              log(`エラー(${discType}): ${e}`);
-            }
+
+          // 2026-09-16変更: 複数のディスク種別を選択した場合、物理
+          // ドライブが複数あればドライブごとに並行して書き込む
+          // (1台のドライブへ同時に2つの書き込みストリームは送れない
+          // ため、同じドライブへ割り当てられた種別同士は順番に、
+          // 異なるドライブへの書き込みは互いを待たずに並行実行する
+          // ——ユーザー指示「書き込みも同時に行なって」への対応)。
+          // ドライブより種別数が多い場合はラウンドロビンで割り当てる。
+          const byDevice = new Map();
+          discTypes.forEach((discType, i) => {
+            const device = devices[i % devices.length];
+            if (!byDevice.has(device)) byDevice.set(device, []);
+            byDevice.get(device).push(discType);
+          });
+          if (devices.length < discTypes.length) {
+            log(`ドライブが${devices.length}台のため、一部のディスク種別は同じドライブへ順番に書き込みます。`);
           }
+
+          await Promise.all(
+            Array.from(byDevice.entries()).map(async ([device, types]) => {
+              for (const discType of types) {
+                log(`書き込み中(${discType}): ${isoPath} -> ${device}`);
+                try {
+                  await invoke("burn_image", { imagePath: isoPath, device, disc: discType, speed });
+                  log(`書き込み完了(${discType})。`);
+                } catch (e) {
+                  log(`エラー(${discType}): ${e}`);
+                }
+              }
+            })
+          );
         }
       }
     } catch (e) {

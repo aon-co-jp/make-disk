@@ -134,11 +134,18 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: install Android SDK + NDK
-        uses: android-actions/setup-android@v3
-
+      # 2026-09-16修正: `android-actions/setup-android@v3`が非推奨の
+      # 'tools'パッケージ取得に失敗して落ちるようになった(Googleが
+      # SDKリポジトリから同パッケージを削除したためと見られる、
+      # v0.1.7リリースで実際に確認)。GitHub Actionsの`ubuntu-latest`
+      # ランナーには元々Android SDK(`cmdline-tools`込み)がプリ
+      # インストールされているため、このステップ自体が不要と判断し
+      # 削除、`sdkmanager`(プリインストール済み)でNDKだけを追加で
+      # インストールする形に簡略化した。
       - name: install NDK
         run: sdkmanager --install "ndk;27.0.12077973"
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
 
       - name: install Rust (Android targets)
         uses: dtolnay/rust-toolchain@stable
