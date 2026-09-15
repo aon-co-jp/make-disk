@@ -5,7 +5,38 @@
 詳細な技術的発見・方針決定は[`CLAUDE.md`](CLAUDE.md)にあるので、
 ここでは「今どこまで進んでいて、次に何をするか」だけを簡潔に記す。
 
-## 🔁 再開用メッセージ(2026-09-14続き、最新)
+## 🔁 再開用メッセージ(2026-09-16、最新・PC再起動により中断)
+
+- `rs-FFmpeg`/`rs-xorriso`(既存の姉妹Rustリスペクト版、新規作成は不要
+  だった)をソースからビルドして`src-tauri/binaries/`へ配置する
+  `scripts/build-rs-tribute-sidecars.sh`を新設し、
+  `tauri.windows.conf.json`/`tauri.linux.conf.json`の`externalBin`へ
+  `binaries/rs-ffmpeg`・`binaries/rs-xorriso`を追加した。ローカルで
+  スクリプト単体の動作(ビルド成功・正しい命名での配置)は確認済み。
+  **`npm run tauri build`によるインストーラー全体のビルド検証はPCの
+  再起動により中断**——次回、まず`npm run tauri build`を最後まで実行し、
+  `target/release/`に`rs-ffmpeg.exe`/`rs-xorriso.exe`(bareな名前、
+  `sidecar.rs`のモジュールdoc「実機検証で発見・修正した実装ミス」と
+  同じ命名規則のはず)が実際に配置されるか確認してから、
+  ドキュメント更新・コミット・タグpushへ進むこと。
+- ユーザーから「open-directx/open-cuda/aruaru-llmをmake-diskへ
+  AI付きGPU支援機能として同梱してほしい」との追加指示があった。
+  調査の結果、**本自前H.264/HEVCエンコードのGPUシェーダー実装は
+  既にこのファイル内で非推奨と結論済み**(GT730にVulkan Video拡張が
+  無い、CABACの逐次エントロピー符号化がGPU並列化に不向き——上記
+  「H.264/H.265/HEVCの自前シェーダー実装は...非推奨」節参照)。
+  実際に動いているGPU支援は`convert.rs`の`detect_hw_video_encoder`
+  (ffmpeg自身のNVENC/QuickSync/AMF)経由のものであり、これは既に
+  実装済み。aruaru-llmの統合(AIアシスタント機能)は、サーバー
+  プロセスの起動・IPC・チャットUI・モデル選択という相応の設計が
+  必要な別機能として、次回セッションで正式に設計してから着手する
+  方針とし、拙速な実装は避けた(ユーザーもこの方針に同意済み:
+  「その様に進めて」)。aruaru-llmは`ARUARU_LLM_BIND`環境変数で
+  bindアドレスを指定可能(既定`0.0.0.0:4600`、ローカル単体運用時は
+  `127.0.0.1`限定にできる設計が既にコード内にコメントで存在)——
+  sidecarとして起動する場合の設計に使える情報として記録。
+
+## 🔁 再開用メッセージ(2026-09-14続き)
 
 - **ffmpeg/ffprobeのsidecar同梱化(Windows/Linux)を実装・実機検証・
   リリース完了**(v0.1.6)。詳細設計・実機検証で発見したバグ(当初
