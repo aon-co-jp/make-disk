@@ -124,6 +124,12 @@ jobs:
           args: ${{ matrix.args }}
 
   release-android:
+    # 2026-09-16修正: `release`(デスクトップ)ジョブがリリース本体を
+    # 作成するため、それより先にAndroidジョブが完了してAPKを
+    # アップロードしようとすると"release not found"で失敗する
+    # (v0.1.10で実際に確認したレースコンディション)。`needs: release`で
+    # デスクトップ側(全マトリクス)の完了を待ってから実行するようにした。
+    needs: release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
