@@ -79,6 +79,13 @@
         <input id="bitrate-fixed" type="number" min="1" value="192" /> kbps
         <br />
         <label><input type="radio" name="bitrate-mode" value="auto" /> ディスク容量から自動で最大ビットレートを算出(ディスク種別を選択時)</label>
+        <br />
+        <label>
+          <input type="radio" name="bitrate-mode" value="max_quality" />
+          最高音質・最高画質で記録する(音声/動画フォーマット未選択でも可——未選択時はMP4などの動画をCDのISOに変換する場合は、自動でロスレスWAVでかつISO同時変換化)
+          <br />Record at maximum audio &amp; video quality (works even with no format checked — e.g. converting a video like MP4 to a CD ISO with no format checked automatically uses lossless WAV and builds the ISO at the same time)
+        </label>
+        <p id="max-quality-estimate" class="hint" hidden></p>
       </section>
 
       <section>

@@ -356,3 +356,110 @@ v0.1.6としてタグpush、CI(`release.yml`)で全プラットフォーム
 ビルド・GitHub Release公開・VPS紹介ページへの反映まで実施予定
 (このHANDOFF記載時点でCI実行前——次回このメッセージを読む人は
 実際の成否を`gh run list`で確認すること)。
+
+## HANDOFF追記(2026-09-16) 自動アップデート確認・rs-FFmpeg/rs-xorriso追加同梱・最高音質モード・変換の並列化、v0.1.7リリース / Follow-up: startup update-check, rs-FFmpeg/rs-xorriso bundling, max-quality mode, parallel conversion, v0.1.7
+
+ユーザーからの複数の指示に対応した、今回のセッションでの主な変更点。
+
+### 1. 自動アップデート確認機能
+
+アプリ起動時に一度だけGitHub Releasesの最新版を確認し、新しいバージョンが
+あれば「新しいバージョン`<version>`があります。バージョンアップします
+か？」(日英併記)のダイアログを出し、選択実行できる機能を追加した
+(ユーザー指示通りの文言)。
+
+- `tauri-plugin-updater`・`tauri-plugin-process`をデスクトップのみ
+  (`#[cfg(not(any(target_os = "android", target_os = "ios")))]`)で
+  追加。モバイルは対象外(ストア/APKサイドロードでの更新が前提)。
+- 署名鍵ペアを`npx tauri signer generate`で生成
+  (`src-tauri/updater.key`はgit管理外、`src-tauri/updater.key.pub`は
+  `tauri.conf.json`の`plugins.updater.pubkey`へ埋め込み済み)。
+  秘密鍵はGitHub Secrets(`TAURI_SIGNING_PRIVATE_KEY`)へ登録済み。
+- `tauri.conf.json`に`plugins.updater.endpoints`
+  (`https://github.com/aon-co-jp/make-disk/releases/latest/download/latest.json`)
+  と`bundle.createUpdaterArtifacts: true`を追加。
+- **正直な開示・重要な設計変更**: GitHubの`/releases/latest/download/...`
+  エイリアスは**prerelease扱いのリリースを除外する**仕様のため、
+  `release.yml`の`prerelease`を`true`→**`false`**へ変更した——これに
+  より`v0.1.7`以降のリリースはGitHub上で通常のリリース(pre-release
+  ラベル無し)として表示されるようになる。アプリ自体の完成度が
+  変わったわけではなく、あくまでアップデーター機構を正しく動かす
+  ための技術的な必要変更である点に注意。
+- `main.js`に`checkForUpdatesOnStartup()`を追加、起動時に自動実行。
+- **実機検証で発見した2つの罠**: (1) `plugins.updater`を設定しただけ
+  では`.sig`署名アーティファクトは生成されない——`bundle.
+  createUpdaterArtifacts: true`を明示的に設定する必要があった
+  (最初のローカルビルドでは`.sig`が生成されずハマった)。(2) ローカル
+  ビルドでは`TAURI_SIGNING_PRIVATE_KEY`環境変数が無いと
+  `failed to build app`という手掛かりの薄いエラーで失敗する
+  (署名ステップの失敗が汎用エラーメッセージに丸められる)——
+  実際に`export TAURI_SIGNING_PRIVATE_KEY=$(cat src-tauri/updater.key)`
+  してから再ビルドし、`.sig`ファイル生成まで実機確認して解決した。
+
+### 2. rs-FFmpeg/rs-xorrisoの追加同梱
+
+ユーザー指示「作成したRust版(rs-FFmpeg・rs-xorriso、共にMITライセンス・
+新規作成は不要で既存)も同梱して」への対応。`scripts/
+build-rs-tribute-sidecars.sh`新設(隣にcloneされた`rs-FFmpeg`/
+`rs-xorriso`をソースからビルドし`src-tauri/binaries/`へ配置)、
+`tauri.windows.conf.json`/`tauri.linux.conf.json`の`externalBin`へ
+`binaries/rs-ffmpeg`・`binaries/rs-xorriso`を追加。実際に
+`npm run tauri build`でインストーラーへ同梱され、`target/release/`に
+`rs-ffmpeg.exe`/`rs-xorriso.exe`(bareな名前、既存の`sidecar.rs`の
+命名規則通り)として配置されることを実機確認済み。`release.yml`にも
+rs-FFmpeg/rs-xorrisoをcheckout+ビルドするステップを追加。
+
+**正直な開示**: これらのバイナリは同梱されるが、アプリ本体のロジックは
+これらを自動選択・呼び出さない(既存のCLAUDE.md「早期WIPで本家の
+完全な代替にはならない」という開示は変わらず——あくまで「試したい人が
+使える実験的な追加バイナリ」の位置づけ)。
+
+### 3. 「最高音質・最高画質で記録する」モード
+
+ユーザー指示「音声や画像フォーマットを選択する代わりに最高音質＆最高
+画質で記録するを選択可能として」「未選択時はMP4などの動画をCDのISOに
+変換する場合は、自動でロスレスWAVでかつISO同時変換化」への対応。
+
+- `bitrate-mode`ラジオボタンに`max_quality`を追加。
+- 音声/動画フォーマットが1つも選択されていない場合、自動的にWAV
+  (ロスレスPCM)を選択し、常にISO化する。
+- `capacity.rs`に`estimate_lossless_audio_fit`(CD品質ロスレスWAVで
+  指定ディスクに収まるかどうか、収まらない場合は代わりに何秒までなら
+  収まるかを算出)を新設——ユーザー指示「必要な時間やデータサイズを
+  自動で割り出す」に対応。新規テスト3本(短い尺は収まる/長すぎる尺は
+  収まらず代替秒数を返す/より大きいディスクなら収まる、の3パターン)。
+- 実行時に「[cd700] 収録時間(...)はロスレスWAVで収まります(必要:
+  ...MB / 容量: ...MB)」のような見積もりを日英併記でログ表示する。
+
+### 4. 変換処理の並列化(非同期・マルチスレッド)
+
+ユーザー指示「MP4をWAVでかつISOに同時変換などいくつかの代表的な
+組み合わせも非同期でマルチスレッドで同時に行える様に」への対応。
+`main.js`の`convertAll`を、逐次`await`のfor文から
+`runWithConcurrencyLimit`(単純なワーカープール、外部ライブラリ不要、
+`navigator.hardwareConcurrency`の半分を目安の同時実行数にする)へ
+変更。音声変換・動画変換自体も`Promise.all`で互いを待たず並行に開始
+するようにした。**設計メモ**: `convert_media`は非asyncな
+`#[tauri::command]`のため、Tauri v2は内部で`spawn_blocking`相当の
+スレッドプール実行にしており、JS側で複数の`invoke`を逐次`await`せず
+同時に発行すれば、複数のffmpegプロセスが実際に並列実行される
+(Rust側の追加変更は不要だった)。
+
+### バージョン
+
+`package.json`/`src-tauri/Cargo.toml`/`src-tauri/tauri.conf.json`を
+0.1.6→0.1.7へ統一。クレート全体テスト18本成功(新規4本:
+`estimate_lossless_audio_fit`系3本+既存の再検証)、clippy警告は
+既存の無関係な1件のみ。実機で`npm run tauri build`成功・`.msi`/
+`.exe`インストーラー生成・`.sig`署名アーティファクト生成・全4種の
+sidecarバイナリ(ffmpeg/ffprobe/rs-ffmpeg/rs-xorriso)の同梱を確認済み。
+
+**次回への引き継ぎ**: (1) `v0.1.7`タグpush後のCI実際の成否確認
+(特に`prerelease: false`への変更・`TAURI_SIGNING_PRIVATE_KEY`
+シークレットを使った署名付きビルドがCI環境でも成功するか)。
+(2) 実機での自動アップデート機能そのもののエンドツーエンド確認
+(v0.1.7インストール後、v0.1.8のような次のリリースを出して実際に
+「アップデートがあります」ダイアログが出て更新できるか)。
+(3) ユーザーから追加指示のあった「open-directx/open-cuda/aruaru-llmの
+マルチCPU・マルチコア・非同期対応」はこのリポジトリではなく各リポジトリ
+側での横断的な調査・改修が必要な別課題として保留。
