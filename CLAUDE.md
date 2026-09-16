@@ -655,3 +655,53 @@ iPhone/iPad対応——iOS/iPadOSは実機無しの制約が既存)、(3) 複数
 の要確認)。この順で着手予定。また、自動アップデート機能自体は
 ビルド・署名基盤の検証は済んでいるが、実際にインストール済みの
 旧バージョンが新バージョンを検知・適用するE2E動作確認はまだ未実施。
+
+## HANDOFF追記(2026-09-16続き5) PDF見開き対応(右綴じ/左綴じ、最大4K)を実装、v0.1.13 / Follow-up: implemented PDF spread support (right/left binding, up to 4K), v0.1.13
+
+積み上げ要望の2番目に着手した:
+
+> 「音声、静止画、動画の他に、最大4Kの見開きPDF対応で、右綴じ、
+> 左綴じ選択可能で、選択によって左右も入れ替える機能も搭載させて
+> Windows、MAC、LINUC、Android、iPhone、iPAD対応して」
+
+**実装内容**:
+- 新規モジュール`src-tauri/src/engine/pdf.rs`: `BindingDirection`
+  (RightToLeft/LeftToRight)、`compose_spread()`(2ページを横に並べ、
+  綴じ方向に応じて左右を入れ替え、4K上限〈3840px〉を超える場合は
+  縦横比を保って縮小)、`render_pdf_as_spreads()`(PDF全体を見開き画像
+  群として書き出す)。
+- **正直な開示・設計判断**: 見開き合成そのもの(`compose_spread`)は
+  純Rustの`image` crateのみで実装し、外部ネイティブ依存が無いため
+  Android/iOSを含む全ターゲットでコンパイル・実行できる。実際に
+  合成ロジックを5件の単体テストで検証済み(左綴じ/右綴じでの左右配置、
+  高さの異なるページの拡縮、4K超過時の縮小、4K以内では無変更)——
+  全26テストがパス、clippyも(既存の無関係な1件を除き)クリーン。
+  一方、PDFのラスタライズ(ページ→画像)自体はpoppler-utils
+  (`pdftoppm`/`pdfinfo`)をffmpeg/xorrisoと同じsidecarパターンで
+  呼ぶ設計にしたが、**poppler-utilsはまだこのリポジトリのCIで
+  sidecarバイナリとして同梱・検証されていない**(現時点では実行環境の
+  PATHに別途インストールされている前提。ffmpeg同様の取得スクリプト
+  〈`scripts/fetch-ffmpeg-sidecars.sh`に相当するもの〉は次の増分で
+  追加予定)。iOS/iPadOSは既存の「実機無し」の制約により、そもそも
+  Tauriモバイルビルド自体がこのセッションでは未検証のまま。
+- `src-tauri/src/lib.rs`: `convert_pdf_to_spreads`を`#[tauri::command]`
+  として追加・両invoke_handlerへ登録。4K超過指定は常に4Kへ丸める
+  (ユーザー指示「最大4K」の厳密な適用)。
+- `src/index.html`: 「4.5. PDF見開き変換」セクションを新設
+  (右綴じ/左綴じのラジオボタン、poppler-utils未同梱である旨の
+  日英併記の注記)。
+- `src/main.js`: run-btnハンドラの先頭でソース内のPDFファイルを検出し、
+  見開き変換を実行。ソースが全てPDFの場合は音声/動画フォーマット
+  必須のバリデーションをスキップしてPDF変換のみで完了とする。
+  音声/動画変換(`convertAll`)からはPDFファイルを除外(ffmpegへ渡さない)。
+
+バージョンを0.1.12→0.1.13へ更新。
+
+**次回への引き継ぎ**: (1) poppler-utils(pdftoppm/pdfinfo)の
+Windows/Linux向け静的ビルド取得スクリプトを追加し、真に「同梱・
+単体で動く」状態にする、(2) 実際のPDFファイルを使ったE2E動作確認
+(このセッションでは合成ロジックの単体テストのみ、実PDFでの
+pdftoppm呼び出し経路は未検証)、(3) Android/iOS向けのUI導線確認
+(PDF選択→見開き変換→出力先確認)、(4) 残る積み上げ要望
+(複数の音声・静止画・動画・PDFの合成編集・等間隔/サイズ指定分割+
+余りの自動ディスクフィット、将来的なゲーム機対応)への着手。
