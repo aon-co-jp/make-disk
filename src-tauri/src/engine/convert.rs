@@ -287,6 +287,71 @@ fn push_bitrate_args(args: &mut Vec<String>, bitrate: &Option<BitrateMode>) {
     }
 }
 
+/// 「AI判断で自動カット」モード(2026-09-16新設)で使う、無音区間の
+/// 自動検出結果。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SilenceRange {
+    pub start_secs: f64,
+    pub end_secs: f64,
+}
+
+/// ffmpegの`silencedetect`フィルタで無音区間を検出し、[`CutRange`]として
+/// 使える形で返す(2026-09-16新設)。
+///
+/// **正直な開示(誇張しない)**: これはユーザー指示にある「AI判断で
+/// 自動カット」の実装だが、実際にはLLM/画像認識モデルによる意味的な
+/// 判断ではなく、ffmpeg内蔵の**音量ベースの無音検出**という
+/// ヒューリスティックである。無音部分(既定: -30dB未満が0.5秒以上
+/// 続く区間)を「重要度が低く、削っても画質・音質への影響が少ない
+/// 部分」とみなして自動的にカット候補にする、という単純だが実用的な
+/// 近似——本当の意味でのシーン重要度判定(退屈な場面の検出等)は
+/// 行っていない。
+pub fn detect_silence_ranges(path: &str, silence_threshold_db: f64, min_silence_secs: f64) -> Result<Vec<SilenceRange>, String> {
+    let output = resolve_tool("ffmpeg")
+        .args([
+            "-i",
+            path,
+            "-af",
+            &format!("silencedetect=noise={silence_threshold_db}dB:d={min_silence_secs}"),
+            "-f",
+            "null",
+            "-",
+        ])
+        .output()
+        .map_err(|e| format!("ffmpegの起動に失敗しました(未インストールの可能性): {e}"))?;
+
+    // silencedetectはstderrへログを出す(ffmpegの一般的な挙動、
+    // exit codeは正常終了する)。
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut ranges = Vec::new();
+    let mut pending_start: Option<f64> = None;
+    for line in stderr.lines() {
+        if let Some(idx) = line.find("silence_start: ") {
+            let rest = &line[idx + "silence_start: ".len()..];
+            if let Some(v) = rest.split_whitespace().next().and_then(|s| s.parse::<f64>().ok()) {
+                pending_start = Some(v);
+            }
+        } else if let Some(idx) = line.find("silence_end: ") {
+            let rest = &line[idx + "silence_end: ".len()..];
+            if let (Some(start), Some(end)) = (pending_start.take(), rest.split_whitespace().next().and_then(|s| s.parse::<f64>().ok())) {
+                ranges.push(SilenceRange { start_secs: start, end_secs: end });
+            }
+        }
+    }
+    Ok(ranges)
+}
+
+/// 「サイズ指定」モード(2026-09-16新設)向け: 目標ファイルサイズ
+/// (バイト)と総尺(秒)から、そのサイズに収まる平均ビットレート(kbps)を
+/// 算出する。ディスク容量ではなく任意の目標サイズを指定できる点が
+/// `capacity::max_bitrate_for_capacity`(ディスク種別限定)との違い。
+pub fn bitrate_for_target_size_kbps(target_bytes: u64, total_duration_secs: f64) -> u64 {
+    if total_duration_secs <= 0.0 {
+        return 0;
+    }
+    ((target_bytes as f64 * 8.0) / total_duration_secs / 1000.0) as u64
+}
+
 fn run_ffmpeg(args: &[String]) -> Result<(), String> {
     let output = resolve_tool("ffmpeg")
         .args(args)
@@ -302,6 +367,18 @@ fn run_ffmpeg(args: &[String]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bitrate_for_target_size_kbps_computes_expected_value() {
+        // 10MB(=80,000,000ビット)を100秒に収めるなら800kbps。
+        let kbps = bitrate_for_target_size_kbps(10_000_000, 100.0);
+        assert_eq!(kbps, 800);
+    }
+
+    #[test]
+    fn bitrate_for_target_size_kbps_returns_zero_for_zero_duration() {
+        assert_eq!(bitrate_for_target_size_kbps(10_000_000, 0.0), 0);
+    }
 
     #[test]
     fn no_cuts_keeps_whole_file() {
@@ -377,6 +454,42 @@ mod tests {
             .expect("ffmpeg should run");
         assert!(status.status.success(), "test fixture generation failed: {}", String::from_utf8_lossy(&status.stderr));
         path
+    }
+
+    /// 音声の途中(2〜4秒)だけ無音にした6秒のテスト音声ファイルを作る
+    /// (`detect_silence_ranges`の実機E2Eテスト用)。
+    fn make_test_audio_with_silence_gap(dir: &Path, name: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let status = Command::new("ffmpeg")
+            .args([
+                "-y", "-f", "lavfi", "-i", "sine=frequency=1000:duration=6",
+                "-af", "volume=enable='between(t,2,4)':volume=0",
+                path.to_str().unwrap(),
+            ])
+            .output()
+            .expect("ffmpeg should run");
+        assert!(status.status.success(), "test fixture generation failed: {}", String::from_utf8_lossy(&status.stderr));
+        path
+    }
+
+    #[test]
+    fn real_ffmpeg_silence_detection_finds_the_expected_gap() {
+        if !ffmpeg_available() {
+            eprintln!("ffmpegが見つからないためスキップ / skipping: ffmpeg not found on PATH");
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_silence_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let source = make_test_audio_with_silence_gap(&tmp, "source_with_gap.wav");
+
+        let ranges = detect_silence_ranges(source.to_str().unwrap(), -30.0, 0.5).expect("detect_silence_ranges should succeed");
+        let _ = fs::remove_dir_all(&tmp);
+
+        assert_eq!(ranges.len(), 1, "expected exactly one silence range, got {ranges:?}");
+        let r = &ranges[0];
+        assert!((r.start_secs - 2.0).abs() < 0.2, "silence should start around 2.0s, got {}", r.start_secs);
+        assert!((r.end_secs - 4.0).abs() < 0.2, "silence should end around 4.0s, got {}", r.end_secs);
     }
 
     #[test]
