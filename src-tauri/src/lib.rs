@@ -17,6 +17,22 @@ fn convert_media(job: ConvertJob) -> Result<(), String> {
     convert::run_convert(&job)
 }
 
+/// 「AI判断で自動カット」モード(2026-09-16新設)向け: 無音区間を検出する。
+/// **正直な開示**: 実際にはffmpegの音量ベースの無音検出であり、LLM/
+/// 画像認識等の意味的なAI判断ではない(`convert::detect_silence_ranges`
+/// のdocコメント参照)。
+#[tauri::command]
+fn detect_silence_ranges(path: String, silence_threshold_db: f64, min_silence_secs: f64) -> Result<Vec<convert::SilenceRange>, String> {
+    convert::detect_silence_ranges(&path, silence_threshold_db, min_silence_secs)
+}
+
+/// 「サイズ指定」モード(2026-09-16新設)向け: 目標ファイルサイズと
+/// 総尺から平均ビットレート(kbps)を算出する。
+#[tauri::command]
+fn calc_bitrate_for_target_size_kbps(target_bytes: u64, total_duration_secs: f64) -> u64 {
+    convert::bitrate_for_target_size_kbps(target_bytes, total_duration_secs)
+}
+
 #[tauri::command]
 fn calc_auto_bitrate_kbps(disc: DiscType, total_duration_secs: f64, reserved_bytes: u64) -> u64 {
     capacity::max_bitrate_for_capacity(disc, total_duration_secs, reserved_bytes) / 1000
@@ -88,6 +104,8 @@ pub fn run() {
             list_burn_devices,
             estimate_cpu_encode_speed,
             estimate_lossless_audio_fit,
+            detect_silence_ranges,
+            calc_bitrate_for_target_size_kbps,
             pick_output_tree,
         ]);
 
@@ -102,6 +120,8 @@ pub fn run() {
         list_burn_devices,
         estimate_cpu_encode_speed,
         estimate_lossless_audio_fit,
+        detect_silence_ranges,
+        calc_bitrate_for_target_size_kbps,
     ]);
 
     builder.run(tauri::generate_context!()).expect("error while running tauri application");

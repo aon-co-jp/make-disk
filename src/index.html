@@ -89,6 +89,31 @@
       </section>
 
       <section>
+        <h2>7.5. 収まらない分の自動調整方法 / How to fit content that's too long</h2>
+        <p class="hint">
+          ディスク容量や目標サイズに収まらない場合、どのように調整するかを選べます。<br />
+          Choose how to handle content that doesn't fit the disc capacity or target size.
+        </p>
+        <label><input type="radio" name="fit-strategy" value="disk_full" checked /> ディスクいっぱいにビットレートを自動調整(既定) / Auto-adjust bitrate to fill the disc (default)</label>
+        <br />
+        <label><input type="radio" name="fit-strategy" value="target_size" /> サイズを指定 / Specify a target size</label>
+        <input id="fit-target-size-mb" type="number" min="1" placeholder="例: 700 (MB) / e.g. 700 (MB)" />
+        <br />
+        <label><input type="radio" name="fit-strategy" value="target_duration" /> 時間を指定(先頭から) / Specify a target duration (from the start)</label>
+        <span>
+          <input id="fit-duration-h" type="number" min="0" value="0" style="width:3.5em" />時
+          <input id="fit-duration-m" type="number" min="0" value="0" style="width:3.5em" />分
+          <input id="fit-duration-s" type="number" min="0" value="0" style="width:3.5em" />秒
+        </span>
+        <br />
+        <label><input type="radio" name="fit-strategy" value="ai_auto_cut" /> AI判断で自動カット(画質・音質への影響が少ない範囲で無音部分等を自動検出して削る) / AI-judged auto-cut (detects low-impact segments like silence and trims them)</label>
+        <p class="hint">
+          ※「AI判断」はffmpegの無音検出(音量ベース)による近似です。実際の意味的なシーン解析は行いません。<br />
+          Note: "AI-judged" is an approximation using ffmpeg's volume-based silence detection — it does not perform true semantic scene analysis.
+        </p>
+      </section>
+
+      <section>
         <h2>8. 時間指定・トリミング(区間カット)</h2>
         <p class="hint">
           各ファイルの「編集...」から、カットしたい区間(最初・途中・最後、いくつでも)を

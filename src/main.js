@@ -494,6 +494,63 @@ document.getElementById("run-btn").addEventListener("click", async () => {
     }
   }
 
+  // ── 収まらない分の自動調整方法(2026-09-16新設) ──────────────────
+  // ユーザー指示「サイズか、時分秒か、ディスクいっぱいか、AI判断で
+  // 自動カットのいずれかを選択可能」への対応。「ディスクいっぱい」
+  // (既定)は上のbitrate-modeの挙動をそのまま使うため、ここでは
+  // それ以外の3つだけを扱う。
+  const fitStrategy = document.querySelector('input[name="fit-strategy"]:checked').value;
+
+  if (fitStrategy === "target_size") {
+    const targetMb = parseFloat(document.getElementById("fit-target-size-mb").value);
+    if (!targetMb || targetMb <= 0) {
+      log("エラー: 目標サイズ(MB)を入力してください。 / Error: enter a target size in MB.");
+      return;
+    }
+    let totalDuration = 0;
+    for (const f of sourceFiles) {
+      totalDuration += await effectiveDurationSecs(f);
+    }
+    bitrateKbps = await invoke("calc_bitrate_for_target_size_kbps", {
+      targetBytes: Math.round(targetMb * 1024 * 1024),
+      totalDurationSecs: totalDuration,
+    });
+    log(`サイズ指定モード: 目標${targetMb}MBに収めるためのビットレートを算出しました: ${bitrateKbps} kbps / Target-size mode: computed ${bitrateKbps} kbps to fit ${targetMb}MB.`);
+  } else if (fitStrategy === "target_duration") {
+    const targetSecs = hmsToSecs(document.getElementById("fit-duration-h").value, document.getElementById("fit-duration-m").value, document.getElementById("fit-duration-s").value);
+    if (!targetSecs || targetSecs <= 0) {
+      log("エラー: 目標の時間(時分秒)を入力してください。 / Error: enter a target duration.");
+      return;
+    }
+    for (const f of sourceFiles) {
+      if (f.cutRanges.length === 0) {
+        f.cutRanges = [{ startSecs: targetSecs, endSecs: null }];
+      }
+    }
+    log(`時間指定モード: 先頭から${targetSecs}秒までに自動トリムしました(既に編集済みのファイルは変更していません)。 / Target-duration mode: auto-trimmed to the first ${targetSecs}s (files with existing manual edits were left untouched).`);
+  } else if (fitStrategy === "ai_auto_cut") {
+    // 「AI判断」の正直な開示: 実際にはffmpegの音量ベースの無音検出
+    // (silencedetect)による近似であり、意味的なシーン解析ではない
+    // (index.htmlの注記・convert::detect_silence_ranges参照)。
+    for (const f of sourceFiles) {
+      if (f.cutRanges.length > 0) {
+        continue; // 既に手動編集済みのファイルは上書きしない
+      }
+      log(`無音区間を検出中: ${f.path} ... / Detecting silence in: ${f.path} ...`);
+      try {
+        const silences = await invoke("detect_silence_ranges", { path: f.path, silenceThresholdDb: -30.0, minSilenceSecs: 0.5 });
+        if (silences.length > 0) {
+          f.cutRanges = silences.map((s) => ({ startSecs: s.start_secs, endSecs: s.end_secs }));
+          log(`  ${silences.length}箇所の無音区間を自動カット対象にしました。 / marked ${silences.length} silent range(s) for auto-cut.`);
+        } else {
+          log(`  無音区間は見つかりませんでした(カット無し)。 / no silence found (nothing to cut).`);
+        }
+      } catch (e) {
+        log(`  エラー: ${e}`);
+      }
+    }
+  }
+
   // 音声変換・動画変換もお互いを待たず並行して進める(2026-09-16変更、
   // 「MP4をWAVに変換しつつISO化」のような組み合わせも含め、全体として
   // 非同期・マルチスレッドに実行する)。
