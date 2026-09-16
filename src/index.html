@@ -144,6 +144,31 @@
       </section>
 
       <section>
+        <h2>8.5. 複数ファイルの合成・分割編集 / Composite &amp; split editing across multiple files</h2>
+        <p class="hint">
+          ソースの音声/動画ファイルを選択した順に結合(合成)したり、1本の長い動画/音声を
+          等間隔またはサイズ指定で複数ファイルに分割したりできます(静止画・PDFの合成は
+          「4.5」のPDF見開き変換を参照)。<br />
+          Concatenate the source audio/video files (in list order) into one, or split one long
+          file into multiple parts at equal intervals or by target size (image/PDF compositing
+          is handled separately in section 4.5).
+        </p>
+        <button id="concat-btn">選択した順に結合(合成)して1つの出力にする / Concatenate in list order into one file</button>
+
+        <h3>分割 / Split</h3>
+        <label><input type="radio" name="split-mode" value="equal" checked /> 等間隔でN分割 / Split into N equal parts</label>
+        <input id="split-equal-count" type="number" min="2" value="2" style="width:5em" />
+        <br />
+        <label><input type="radio" name="split-mode" value="size" /> サイズ指定(MBごと) / By target size (MB each)</label>
+        <input id="split-size-mb" type="number" min="1" placeholder="例: 700 (MB) / e.g. 700 (MB)" />
+        <br />
+        <label><input type="checkbox" id="split-remainder-disk-fit" checked /> あまりをディスクいっぱいに自動フィット(要ディスク種別選択) / Auto-fit the remainder to fill the disc (requires a disc type selected in section 6)</label>
+        <br />
+        <button id="split-btn">選択した最初のファイルを分割して実行 / Split the first selected file</button>
+        <p class="hint">分割対象は、ソースの先頭にある音声/動画ファイル1本です。 / Splitting applies to the first audio/video file in the source list.</p>
+      </section>
+
+      <section>
         <button id="run-btn" class="primary">実行</button>
         <pre id="log"></pre>
       </section>
