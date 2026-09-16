@@ -377,6 +377,9 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
   for (const format of formats) {
     const codecArgs = codecMap[format];
     for (const f of sourceFiles) {
+      if (f.path.toLowerCase().endsWith(".pdf")) {
+        continue; // PDFは上のPDF見開き変換で個別に処理済み、ffmpeg変換の対象外
+      }
       const outputPath = `${outputFolder}/${baseName(f.path)}.${format}`;
       jobs.push({ outputPath, f, format, codecArgs });
     }
@@ -416,6 +419,32 @@ document.getElementById("run-btn").addEventListener("click", async () => {
   }
   if (!outputFolder) {
     log("エラー: 出力先フォルダを選択してください。");
+    return;
+  }
+
+  // PDF見開き変換(2026-09-16新設)。音声/動画とは独立して、ソースに
+  // 含まれるPDFがあれば見開き画像として先に書き出す。
+  const pdfFiles = sourceFiles.filter((f) => f.path.toLowerCase().endsWith(".pdf"));
+  if (pdfFiles.length > 0) {
+    const binding = document.querySelector('input[name="pdf-binding"]:checked').value;
+    for (const f of pdfFiles) {
+      const baseName = f.path.replace(/\\/g, "/").split("/").pop().replace(/\.pdf$/i, "");
+      const pdfOutDir = `${outputFolder}/pdf-spreads-${baseName}`;
+      log(`PDF見開き変換中: ${f.path} ... / Converting PDF spreads: ${f.path} ...`);
+      try {
+        const outputs = await invoke("convert_pdf_to_spreads", { pdfPath: f.path, outputDir: pdfOutDir, binding, maxDimension: 3840 });
+        log(`  ${outputs.length}枚の見開き画像を書き出しました: ${pdfOutDir} / wrote ${outputs.length} spread image(s) to: ${pdfOutDir}`);
+      } catch (e) {
+        log(`  エラー: ${e}`);
+      }
+    }
+  }
+
+  // ソースが全てPDFの場合(音声/動画の変換対象が無い)は、PDF見開き変換
+  // だけで完了とする——音声/動画フォーマット必須のバリデーションを
+  // 誤って適用しないようにする。
+  if (pdfFiles.length === sourceFiles.length) {
+    log("すべての処理が完了しました。");
     return;
   }
 

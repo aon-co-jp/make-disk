@@ -48,6 +48,21 @@
       </section>
 
       <section>
+        <h2>4.5. PDF見開き変換(最大4K、右綴じ/左綴じ) / PDF spread conversion (up to 4K, right/left binding)</h2>
+        <p class="hint">
+          ソースファイルに含まれるPDF(1で追加)を、見開き2ページを1枚に合成した画像として書き出します。<br />
+          Converts PDFs (added in section 1) into images with two facing pages composited into one spread.
+        </p>
+        <label><input type="radio" name="pdf-binding" value="right_to_left" checked /> 右綴じ(日本式・右から左へ読む) / Right-bound (read right to left)</label>
+        <br />
+        <label><input type="radio" name="pdf-binding" value="left_to_right" /> 左綴じ(欧米式・左から右へ読む) / Left-bound (read left to right)</label>
+        <p class="hint">
+          ※PDFのラスタライズにはpoppler-utils(pdftoppm/pdfinfo)が必要です(現時点では未同梱、実行環境に別途インストールされている場合のみ動作します)。<br />
+          Note: rendering PDFs currently requires poppler-utils (pdftoppm/pdfinfo) to already be installed on the system — it is not yet bundled.
+        </p>
+      </section>
+
+      <section>
         <h2>5. ISOイメージ出力</h2>
         <label><input type="checkbox" id="output-iso" /> 選択した音声/動画をISOイメージとして出力する</label>
       </section>

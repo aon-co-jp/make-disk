@@ -5,6 +5,7 @@ use engine::capacity::{self, DiscType, MediaKind, QualityWarning};
 use engine::convert::{self, ConvertJob};
 use engine::cpu::{self, CpuEncodeEstimate};
 use engine::iso;
+use engine::pdf::{self, BindingDirection};
 use engine::probe;
 
 #[tauri::command]
@@ -49,6 +50,17 @@ fn check_bitrate_quality(bitrate_kbps: u64, kind: MediaKind) -> Option<QualityWa
 #[tauri::command]
 fn estimate_lossless_audio_fit(disc: DiscType, total_duration_secs: f64, reserved_bytes: u64) -> capacity::LosslessFitEstimate {
     capacity::estimate_lossless_audio_fit(disc, total_duration_secs, reserved_bytes)
+}
+
+/// PDF見開き対応(2026-09-16新設): PDFを見開き画像群に変換して
+/// `output_dir`へ出力する。`pdf::render_pdf_as_spreads`のdocコメントに
+/// 記載の通り、現時点ではpoppler-utils(`pdftoppm`/`pdfinfo`)が
+/// 実行環境のPATHに存在する必要がある(まだsidecar同梱は未対応)。
+#[tauri::command]
+fn convert_pdf_to_spreads(pdf_path: String, output_dir: String, binding: BindingDirection, max_dimension: u32) -> Result<Vec<String>, String> {
+    // ユーザー指示「最大4Kの見開きPDF対応」通り、4Kを超える指定は常に4Kへ丸める。
+    let clamped = max_dimension.min(pdf::MAX_4K_DIMENSION);
+    pdf::render_pdf_as_spreads(&pdf_path, &output_dir, binding, clamped)
 }
 
 #[tauri::command]
@@ -106,6 +118,7 @@ pub fn run() {
             estimate_lossless_audio_fit,
             detect_silence_ranges,
             calc_bitrate_for_target_size_kbps,
+            convert_pdf_to_spreads,
             pick_output_tree,
         ]);
 
@@ -122,6 +135,7 @@ pub fn run() {
         estimate_lossless_audio_fit,
         detect_silence_ranges,
         calc_bitrate_for_target_size_kbps,
+        convert_pdf_to_spreads,
     ]);
 
     builder.run(tauri::generate_context!()).expect("error while running tauri application");
