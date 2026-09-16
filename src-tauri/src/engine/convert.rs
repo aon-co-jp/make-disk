@@ -17,7 +17,7 @@ pub enum BitrateMode {
     AutoMaxForCapacity(u64),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrimRange {
     /// 開始位置(秒)。省略時は先頭から。
     pub start_secs: Option<f64>,
@@ -352,6 +352,90 @@ pub fn bitrate_for_target_size_kbps(target_bytes: u64, total_duration_secs: f64)
     ((target_bytes as f64 * 8.0) / total_duration_secs / 1000.0) as u64
 }
 
+/// 「等間隔分割」(2026-09-16新設): `total_secs`を`segment_count`個の
+/// 等しい長さの区間に分割する。各区間は既存の`TrimRange`(開始+長さ)
+/// として返すため、呼び出し側は`convert_media`を区間ごとに呼ぶだけで
+/// 分割出力できる(新しい抽出処理を実装する必要が無い)。
+pub fn equal_interval_segments(total_secs: f64, segment_count: u32) -> Vec<TrimRange> {
+    if segment_count == 0 || total_secs <= 0.0 {
+        return Vec::new();
+    }
+    let segment_len = total_secs / segment_count as f64;
+    (0..segment_count)
+        .map(|i| TrimRange {
+            start_secs: Some(segment_len * i as f64),
+            duration_secs: Some(segment_len),
+        })
+        .collect()
+}
+
+/// 「サイズ指定分割」(2026-09-16新設): `segment_secs`ごとに区切る。
+/// 割り切れない最後の区間は、その分だけ短い「あまり」として返す
+/// (呼び出し側で、この最後の区間だけディスク容量いっぱいに
+/// ビットレートを自動調整することを想定——ユーザー指示「あまりは、
+/// DISKいっぱいにビットレートを自動変更して自動編集して」への対応)。
+pub fn fixed_length_segments(total_secs: f64, segment_secs: f64) -> Vec<TrimRange> {
+    if segment_secs <= 0.0 || total_secs <= 0.0 {
+        return Vec::new();
+    }
+    let mut segments = Vec::new();
+    let mut start = 0.0;
+    while start < total_secs {
+        let remaining = total_secs - start;
+        let len = remaining.min(segment_secs);
+        segments.push(TrimRange { start_secs: Some(start), duration_secs: Some(len) });
+        start += segment_secs;
+    }
+    segments
+}
+
+/// 複数の音声/動画ファイルを結合(合成)する(2026-09-16新設)。
+/// ユーザー指示「複数の音声・静止画・動画・PDFの合成編集」のうち、
+/// 静止画・PDFの合成は別機能(PDF見開き対応)で扱うため、ここでは
+/// 音声/動画同士の結合を担う。ffmpegの`concat`フィルタを使うため、
+/// 入力同士のコーデック・解像度が揃っていなくても(再エンコードで)
+/// 結合できる。`has_video`は呼び出し側(フロントエンド)が入力の
+/// 拡張子から判定して渡す(全入力が動画か、全て音声かのどちらかを
+/// 前提とする——動画と音声の混在結合は現時点で未対応)。
+pub fn concat_media(input_paths: &[String], output_path: &str, has_video: bool) -> Result<(), String> {
+    if input_paths.len() < 2 {
+        return Err("結合には2つ以上のファイルが必要です / concatenation needs at least 2 files".to_string());
+    }
+
+    let mut cmd = resolve_tool("ffmpeg");
+    for p in input_paths {
+        cmd.args(["-i", p]);
+    }
+
+    let n = input_paths.len();
+    let mut filter = String::new();
+    for i in 0..n {
+        if has_video {
+            filter.push_str(&format!("[{i}:v][{i}:a]"));
+        } else {
+            filter.push_str(&format!("[{i}:a]"));
+        }
+    }
+    if has_video {
+        filter.push_str(&format!("concat=n={n}:v=1:a=1[outv][outa]"));
+    } else {
+        filter.push_str(&format!("concat=n={n}:v=0:a=1[outa]"));
+    }
+    cmd.args(["-filter_complex", &filter]);
+    if has_video {
+        cmd.args(["-map", "[outv]", "-map", "[outa]"]);
+    } else {
+        cmd.args(["-map", "[outa]"]);
+    }
+    cmd.args(["-y", output_path]);
+
+    let output = cmd.output().map_err(|e| format!("ffmpegの起動に失敗しました(未インストールの可能性): {e}"))?;
+    if !output.status.success() {
+        return Err(format!("ffmpegによる結合が失敗しました: {}", String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(())
+}
+
 fn run_ffmpeg(args: &[String]) -> Result<(), String> {
     let output = resolve_tool("ffmpeg")
         .args(args)
@@ -566,6 +650,84 @@ mod tests {
             (result_duration - 5.0).abs() < 0.5,
             "frame-accurate cut should be close to exact (expected ~5s), got {result_duration}s"
         );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn equal_interval_segments_splits_into_n_equal_parts() {
+        let segments = equal_interval_segments(100.0, 4);
+        assert_eq!(segments.len(), 4);
+        assert_eq!(segments[0], TrimRange { start_secs: Some(0.0), duration_secs: Some(25.0) });
+        assert_eq!(segments[1], TrimRange { start_secs: Some(25.0), duration_secs: Some(25.0) });
+        assert_eq!(segments[3], TrimRange { start_secs: Some(75.0), duration_secs: Some(25.0) });
+    }
+
+    #[test]
+    fn equal_interval_segments_returns_empty_for_zero_count_or_duration() {
+        assert!(equal_interval_segments(100.0, 0).is_empty());
+        assert!(equal_interval_segments(0.0, 4).is_empty());
+    }
+
+    #[test]
+    fn fixed_length_segments_splits_with_a_shorter_remainder_at_the_end() {
+        let segments = fixed_length_segments(250.0, 100.0);
+        assert_eq!(segments, vec![
+            TrimRange { start_secs: Some(0.0), duration_secs: Some(100.0) },
+            TrimRange { start_secs: Some(100.0), duration_secs: Some(100.0) },
+            TrimRange { start_secs: Some(200.0), duration_secs: Some(50.0) },
+        ]);
+    }
+
+    #[test]
+    fn fixed_length_segments_exact_division_has_no_remainder() {
+        let segments = fixed_length_segments(200.0, 100.0);
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[1], TrimRange { start_secs: Some(100.0), duration_secs: Some(100.0) });
+    }
+
+    #[test]
+    fn concat_media_requires_at_least_two_files() {
+        let result = concat_media(&["only-one.mp4".to_string()], "out.mp4", true);
+        assert!(result.is_err());
+    }
+
+    /// `concat_media`は音声トラックも結合対象にするため、`make_test_video`
+    /// (映像のみ)ではなく、無音の音声トラックも持つテスト動画を作る。
+    fn make_test_video_with_audio(dir: &Path, name: &str, duration_secs: u32) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let status = Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-f", "lavfi", "-i", &format!("testsrc=duration={duration_secs}:size=320x240:rate=10"),
+                "-f", "lavfi", "-i", &format!("anullsrc=r=44100:cl=stereo:d={duration_secs}"),
+                "-c:v", "libx264", "-g", "10", "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                path.to_str().unwrap(),
+            ])
+            .output()
+            .expect("ffmpeg should run");
+        assert!(status.status.success(), "test fixture generation failed: {}", String::from_utf8_lossy(&status.stderr));
+        path
+    }
+
+    #[test]
+    fn real_ffmpeg_concat_produces_the_expected_total_duration() {
+        if !ffmpeg_available() {
+            eprintln!("ffmpegが見つからないためスキップ / skipping: ffmpeg not found on PATH");
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_concat_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let a = make_test_video_with_audio(&tmp, "a.mp4", 3);
+        let b = make_test_video_with_audio(&tmp, "b.mp4", 4);
+        let output = tmp.join("concat_output.mp4");
+
+        concat_media(&[a.to_string_lossy().to_string(), b.to_string_lossy().to_string()], output.to_str().unwrap(), true).expect("concat_media should succeed");
+
+        let result_duration = probe_duration_secs(&output);
+        assert!((result_duration - 7.0).abs() < 0.5, "結合後の尺は3秒+4秒=7秒に近いはず、実際: {result_duration}s");
 
         let _ = fs::remove_dir_all(&tmp);
     }

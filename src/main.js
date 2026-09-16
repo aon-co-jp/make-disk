@@ -434,6 +434,111 @@ document.getElementById("rebind-pdfs-btn").addEventListener("click", async () =>
   log("すべての処理が完了しました。");
 });
 
+document.getElementById("concat-btn").addEventListener("click", async () => {
+  logEl.textContent = "";
+  const targets = sourceFiles.filter((f) => !f.path.toLowerCase().endsWith(".pdf"));
+  if (targets.length < 2) {
+    log("エラー: 結合には2つ以上の音声/動画ファイルが必要です。 / Error: concatenation needs at least 2 audio/video files.");
+    return;
+  }
+  if (!outputFolder) {
+    log("エラー: 出力先フォルダを選択してください。 / Error: choose an output folder.");
+    return;
+  }
+  const videoExts = Object.keys(VIDEO_CODEC_ARGS);
+  const hasVideo = targets.some((f) => videoExts.some((ext) => f.path.toLowerCase().endsWith(`.${ext}`)));
+  const outputPath = `${outputFolder}/composite-output.${hasVideo ? "mp4" : "mp3"}`;
+  log(`${targets.length}件のファイルをソース順に結合中... / Concatenating ${targets.length} file(s) in list order...`);
+  try {
+    await invoke("concat_media_files", { inputPaths: targets.map((f) => f.path), outputPath, hasVideo });
+    log(`完了: ${outputPath}`);
+  } catch (e) {
+    log(`エラー: ${e}`);
+  }
+});
+
+/** 動画/音声の分割(2026-09-16新設)。等間隔かサイズ指定で複数ファイルに
+ * 分割する——既存の`convert_media`の`trim`(開始+長さ)をそのまま使うため、
+ * 新しい抽出処理は不要。「あまり」(サイズ指定分割で割り切れない最後の
+ * 区間)だけディスク容量いっぱいのビットレートへ自動調整することで、
+ * ユーザー指示「あまりは、DISKいっぱいにビットレートを自動変更して
+ * 自動編集して」に対応する。 */
+document.getElementById("split-btn").addEventListener("click", async () => {
+  logEl.textContent = "";
+  const target = sourceFiles.find((f) => !f.path.toLowerCase().endsWith(".pdf"));
+  if (!target) {
+    log("エラー: 分割対象の音声/動画ファイルが見つかりません。 / Error: no audio/video file found to split.");
+    return;
+  }
+  if (!outputFolder) {
+    log("エラー: 出力先フォルダを選択してください。 / Error: choose an output folder.");
+    return;
+  }
+
+  const totalSecs = await effectiveDurationSecs(target);
+  if (totalSecs <= 0) {
+    log("エラー: 対象ファイルの尺を取得できませんでした。 / Error: could not determine the file's duration.");
+    return;
+  }
+
+  const splitMode = document.querySelector('input[name="split-mode"]:checked').value;
+  const fixedBitrateKbps = parseInt(document.getElementById("bitrate-fixed").value, 10) || 192;
+  let segments;
+  let nominalSegmentSecs = null;
+  if (splitMode === "equal") {
+    const count = parseInt(document.getElementById("split-equal-count").value, 10);
+    segments = await invoke("calc_equal_interval_segments", { totalSecs, segmentCount: count });
+  } else {
+    const targetMb = parseFloat(document.getElementById("split-size-mb").value);
+    if (!targetMb || targetMb <= 0) {
+      log("エラー: 分割サイズ(MB)を入力してください。 / Error: enter a split size in MB.");
+      return;
+    }
+    // 現在のビットレート設定(section 7の固定値)から、目標サイズに相当する区間長(秒)を逆算する。
+    nominalSegmentSecs = (targetMb * 1024 * 1024 * 8) / (fixedBitrateKbps * 1000);
+    segments = await invoke("calc_fixed_length_segments", { totalSecs, segmentSecs: nominalSegmentSecs });
+  }
+
+  if (segments.length === 0) {
+    log("エラー: 分割区間を計算できませんでした。 / Error: could not compute split segments.");
+    return;
+  }
+
+  const discTypes = checkedValues("disc-type");
+  const autoFitRemainder = document.getElementById("split-remainder-disk-fit").checked;
+  const ext = target.path.split(".").pop();
+  const base = baseName(target.path);
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const isRemainder = nominalSegmentSecs !== null && i === segments.length - 1 && seg.duration_secs < nominalSegmentSecs - 0.01;
+    let bitrateKbpsForSegment = fixedBitrateKbps;
+    if (isRemainder && autoFitRemainder && discTypes.length > 0) {
+      bitrateKbpsForSegment = await invoke("calc_auto_bitrate_kbps", { disc: discTypes[0], totalDurationSecs: seg.duration_secs, reservedBytes: 50 * 1024 * 1024 });
+      log(`あまり区間(${i + 1}/${segments.length}、${discTypes[0]})をディスクいっぱいのビットレート(${bitrateKbpsForSegment} kbps)に自動調整します。 / Auto-fitting the remainder segment (${i + 1}/${segments.length}, ${discTypes[0]}) to ${bitrateKbpsForSegment} kbps to fill the disc.`);
+    }
+    const outputPath = `${outputFolder}/${base}-part${String(i + 1).padStart(3, "0")}.${ext}`;
+    log(`分割中(${i + 1}/${segments.length}): ${outputPath} ...`);
+    try {
+      await invoke("convert_media", {
+        job: {
+          input_path: target.path,
+          output_path: outputPath,
+          codec_args: [],
+          bitrate: { fixed: bitrateKbpsForSegment },
+          trim: { start_secs: seg.start_secs, duration_secs: seg.duration_secs },
+          cut_ranges: null,
+          frame_accurate: false,
+        },
+      });
+      log(`完了: ${outputPath}`);
+    } catch (e) {
+      log(`エラー: ${e}`);
+    }
+  }
+  log("すべての処理が完了しました。");
+});
+
 document.getElementById("run-btn").addEventListener("click", async () => {
   logEl.textContent = "";
   if (sourceFiles.length === 0) {

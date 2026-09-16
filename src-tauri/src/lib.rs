@@ -2,7 +2,7 @@ mod engine;
 
 use engine::burn::{self, WriteSpeed};
 use engine::capacity::{self, DiscType, MediaKind, QualityWarning};
-use engine::convert::{self, ConvertJob};
+use engine::convert::{self, ConvertJob, TrimRange as ConvertTrimRange};
 use engine::cpu::{self, CpuEncodeEstimate};
 use engine::iso;
 use engine::pdf::{self, BindingDirection};
@@ -61,6 +61,27 @@ fn convert_pdf_to_spreads(pdf_path: String, output_dir: String, binding: Binding
     // ユーザー指示「最大4Kの見開きPDF対応」通り、4Kを超える指定は常に4Kへ丸める。
     let clamped = max_dimension.min(pdf::MAX_4K_DIMENSION);
     pdf::render_pdf_as_spreads(&pdf_path, &output_dir, binding, clamped)
+}
+
+/// 複数の音声/動画ファイルを結合(合成)する(2026-09-16新設)。
+#[tauri::command]
+fn concat_media_files(input_paths: Vec<String>, output_path: String, has_video: bool) -> Result<(), String> {
+    convert::concat_media(&input_paths, &output_path, has_video)
+}
+
+/// 等間隔分割(2026-09-16新設): 総尺を指定個数の等しい区間に分割する。
+#[tauri::command]
+fn calc_equal_interval_segments(total_secs: f64, segment_count: u32) -> Vec<ConvertTrimRange> {
+    convert::equal_interval_segments(total_secs, segment_count)
+}
+
+/// サイズ指定分割(2026-09-16新設): 指定した長さごとに区切り、
+/// 割り切れない最後の「あまり」は短い区間としてそのまま返す
+/// (呼び出し側〈フロントエンド〉で、あまりの区間だけディスク容量
+/// いっぱいにビットレートを自動調整する想定)。
+#[tauri::command]
+fn calc_fixed_length_segments(total_secs: f64, segment_secs: f64) -> Vec<ConvertTrimRange> {
+    convert::fixed_length_segments(total_secs, segment_secs)
 }
 
 /// PDFの綴じ方向一括変換(2026-09-16新設): 複数のPDFのページ順序を
@@ -136,6 +157,9 @@ pub fn run() {
             calc_bitrate_for_target_size_kbps,
             convert_pdf_to_spreads,
             rebind_pdfs,
+            concat_media_files,
+            calc_equal_interval_segments,
+            calc_fixed_length_segments,
             pick_output_tree,
         ]);
 
@@ -154,6 +178,9 @@ pub fn run() {
         calc_bitrate_for_target_size_kbps,
         convert_pdf_to_spreads,
         rebind_pdfs,
+        concat_media_files,
+        calc_equal_interval_segments,
+        calc_fixed_length_segments,
     ]);
 
     builder.run(tauri::generate_context!()).expect("error while running tauri application");
