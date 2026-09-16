@@ -1,6 +1,6 @@
 [package]
 name = "make-disk"
-version = "0.1.13"
+version = "0.1.14"
 description = "Cross-platform CD/DVD/Blu-ray writing & format conversion GUI"
 authors = ["aon-co-jp"]
 edition = "2021"
@@ -33,6 +33,10 @@ open-cpu = { git = "https://github.com/aon-co-jp/open-cpu" }
 # ラスタライズはpoppler等の外部ツール〈sidecar〉に任せ、この crate は
 # 見開き合成〈2ページ横連結・綴じ方向による左右入替・4K上限縮小〉のみに使う)。
 image = { version = "0.25", default-features = false, features = ["png"] }
+# PDFの綴じ方向一括変換(2026-09-16新設、ページ順序反転による右綴じ⇄
+# 左綴じ変換)。純Rust実装でネイティブ依存が無く、上のimage crateと
+# 同じ理由でAndroid/iOSクロスコンパイルにも問題無い。
+lopdf = "0.36"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 # 自動アップデート確認(2026-09-16新設)。デスクトップのみ対応

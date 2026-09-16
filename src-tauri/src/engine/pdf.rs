@@ -170,6 +170,58 @@ pub fn render_pdf_as_spreads(pdf_path: &str, output_dir: &str, binding: BindingD
     Ok(outputs)
 }
 
+/// PDFの綴じ方向を一括変換して保存する(2026-09-16新設)。
+///
+/// ユーザー指示「PDFが左綴じを右綴じや右綴じを左綴じなどに一括編集して
+/// 保存も可能にして」への対応。綴じ方向の変換は、ページの並び順を
+/// 反転することと等価(反転操作はどちら向きにも同じ操作で自己逆元)
+/// なので、目的の方向を都度指定する必要は無い——このPDFの
+/// ページ順序をそのまま反転して`output_path`へ保存する。
+///
+/// **既知の制限**: このPDFのページツリー(`/Pages`の`/Kids`)が
+/// フラット(直接ページオブジェクトのみ)であることを前提とする。
+/// スキャナ出力の単純なPDFはほぼこの構造だが、章ごとに入れ子の
+/// ページツリーを持つ複雑なPDFには現時点で未対応で、その場合は
+/// 明確なエラーを返す(黙って壊れたPDFを作らないことを優先)。
+pub fn reverse_pdf_page_order(input_path: &str, output_path: &str) -> Result<(), String> {
+    let mut doc = lopdf::Document::load(input_path).map_err(|e| format!("PDFの読み込みに失敗しました: {e}"))?;
+
+    let pages_id = doc
+        .catalog()
+        .map_err(|e| format!("PDFのカタログ取得に失敗しました: {e}"))?
+        .get(b"Pages")
+        .map_err(|e| format!("Pagesツリーの取得に失敗しました: {e}"))?
+        .as_reference()
+        .map_err(|e| format!("Pagesツリーの参照解決に失敗しました: {e}"))?;
+
+    let kids_ids: Vec<lopdf::ObjectId> = {
+        let kids = doc
+            .get_dictionary(pages_id)
+            .map_err(|e| format!("Pages辞書の取得に失敗しました: {e}"))?
+            .get(b"Kids")
+            .map_err(|e| format!("Kids配列の取得に失敗しました: {e}"))?
+            .as_array()
+            .map_err(|e| format!("Kids配列の型が不正です: {e}"))?;
+        kids.iter()
+            .map(|o| o.as_reference().map_err(|e| format!("Kidsの参照解決に失敗しました: {e}")))
+            .collect::<Result<Vec<_>, String>>()?
+    };
+
+    for &kid_id in &kids_ids {
+        let is_nested_pages_node = doc.get_dictionary(kid_id).ok().and_then(|d| d.get(b"Type").ok()).and_then(|o| o.as_name().ok()) == Some(b"Pages");
+        if is_nested_pages_node {
+            return Err("入れ子のページツリー構造を持つPDFには現時点で未対応です(スキャナ出力等の単純な構造のPDFのみ対応)。/ PDFs with a nested page tree are not yet supported (only flat, scanner-style PDFs work).".to_string());
+        }
+    }
+
+    let reversed: lopdf::Object = lopdf::Object::Array(kids_ids.iter().rev().map(|id| lopdf::Object::Reference(*id)).collect());
+
+    doc.get_dictionary_mut(pages_id).map_err(|e| format!("Pages辞書の取得(更新用)に失敗しました: {e}"))?.set("Kids", reversed);
+
+    doc.save(output_path).map_err(|e| format!("PDFの保存に失敗しました: {e}"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,5 +294,99 @@ mod tests {
 
         assert_eq!(spread.width(), 200);
         assert_eq!(spread.height(), 200);
+    }
+
+    /// テスト用に、ページごとにMediaBoxの幅を変えた最小限のPDFを
+    /// メモリ上に構築する(ページ順序を後で判別するための目印として、
+    /// 実際のPDF構造〈Pages/Kids/Page/Contents〉を組み立てる——
+    /// 文字列描画やフォント埋め込みが不要な最小構成)。
+    fn build_test_pdf_with_page_widths(widths: &[f64]) -> lopdf::Document {
+        use lopdf::{dictionary, Object, Stream};
+
+        let mut doc = lopdf::Document::with_version("1.5");
+        let pages_id = doc.new_object_id();
+        let mut kids = Vec::new();
+        for &w in widths {
+            let content_id = doc.add_object(Stream::new(dictionary! {}, vec![]));
+            let page_id = doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![Object::Integer(0), Object::Integer(0), Object::Real(w as f32), Object::Integer(300)],
+                "Contents" => content_id,
+            });
+            kids.push(Object::Reference(page_id));
+        }
+        let pages_dict = dictionary! {
+            "Type" => "Pages",
+            "Kids" => kids,
+            "Count" => widths.len() as i64,
+        };
+        doc.objects.insert(pages_id, Object::Dictionary(pages_dict));
+        let catalog_id = doc.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        doc.trailer.set("Root", catalog_id);
+        doc
+    }
+
+    fn page_widths_in_order(pdf_path: &str) -> Vec<i64> {
+        let doc = lopdf::Document::load(pdf_path).unwrap();
+        doc.get_pages()
+            .values()
+            .map(|&id| {
+                let page = doc.get_dictionary(id).unwrap();
+                let media_box = page.get(b"MediaBox").unwrap().as_array().unwrap();
+                media_box[2].as_float().unwrap().round() as i64
+            })
+            .collect()
+    }
+
+    #[test]
+    fn reverse_pdf_page_order_reverses_a_flat_page_tree() {
+        let dir = std::env::temp_dir();
+        let input_path = dir.join(format!("make-disk-test-reverse-input-{}.pdf", std::process::id()));
+        let output_path = dir.join(format!("make-disk-test-reverse-output-{}.pdf", std::process::id()));
+
+        let mut doc = build_test_pdf_with_page_widths(&[100.0, 200.0, 300.0]);
+        doc.save(&input_path).unwrap();
+
+        let result = reverse_pdf_page_order(input_path.to_str().unwrap(), output_path.to_str().unwrap());
+
+        let widths = page_widths_in_order(output_path.to_str().unwrap());
+
+        let _ = std::fs::remove_file(&input_path);
+        let _ = std::fs::remove_file(&output_path);
+
+        result.expect("reverse_pdf_page_order should succeed for a flat page tree");
+        assert_eq!(widths, vec![300, 200, 100], "ページ順序が反転しているはず(綴じ方向の変換)");
+    }
+
+    #[test]
+    fn reverse_pdf_page_order_rejects_a_nested_page_tree() {
+        use lopdf::{dictionary, Object};
+
+        let dir = std::env::temp_dir();
+        let input_path = dir.join(format!("make-disk-test-nested-input-{}.pdf", std::process::id()));
+
+        let mut doc = build_test_pdf_with_page_widths(&[100.0, 200.0]);
+        // 既存のフラットなKidsの1件を、意図的に入れ子のPagesノードへ差し替える。
+        let nested_pages_id = doc.add_object(dictionary! {
+            "Type" => "Pages",
+            "Kids" => Vec::<Object>::new(),
+            "Count" => 0,
+        });
+        let root_pages_id = doc.catalog().unwrap().get(b"Pages").unwrap().as_reference().unwrap();
+        let kids = doc.get_dictionary(root_pages_id).unwrap().get(b"Kids").unwrap().as_array().unwrap().clone();
+        let mut new_kids = kids;
+        new_kids[0] = Object::Reference(nested_pages_id);
+        doc.get_dictionary_mut(root_pages_id).unwrap().set("Kids", new_kids);
+        doc.save(&input_path).unwrap();
+
+        let result = reverse_pdf_page_order(input_path.to_str().unwrap(), &format!("{}-out.pdf", input_path.to_str().unwrap()));
+        let _ = std::fs::remove_file(&input_path);
+        let _ = std::fs::remove_file(format!("{}-out.pdf", input_path.to_str().unwrap()));
+
+        assert!(result.is_err(), "入れ子のページツリーは明確なエラーになるはず(黙って壊れたPDFを作らない)");
     }
 }

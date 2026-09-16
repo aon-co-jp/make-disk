@@ -411,6 +411,29 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
   return results.filter((p) => p !== null);
 }
 
+document.getElementById("rebind-pdfs-btn").addEventListener("click", async () => {
+  logEl.textContent = "";
+  const pdfFiles = sourceFiles.filter((f) => f.path.toLowerCase().endsWith(".pdf"));
+  if (pdfFiles.length === 0) {
+    log("エラー: PDFファイルをソースに追加してください。 / Error: add at least one PDF to the source list.");
+    return;
+  }
+  if (!outputFolder) {
+    log("エラー: 出力先フォルダを選択してください。 / Error: choose an output folder.");
+    return;
+  }
+  log(`${pdfFiles.length}件のPDFの綴じ方向を変換中... / Converting binding direction for ${pdfFiles.length} PDF(s)...`);
+  const results = await invoke("rebind_pdfs", { pdfPaths: pdfFiles.map((f) => f.path), outputDir: outputFolder });
+  results.forEach((result, i) => {
+    if (result && typeof result === "object" && "Ok" in result) {
+      log(`完了: ${pdfFiles[i].path} -> ${result.Ok}`);
+    } else {
+      log(`エラー(${pdfFiles[i].path}): ${result && result.Err ? result.Err : result}`);
+    }
+  });
+  log("すべての処理が完了しました。");
+});
+
 document.getElementById("run-btn").addEventListener("click", async () => {
   logEl.textContent = "";
   if (sourceFiles.length === 0) {
