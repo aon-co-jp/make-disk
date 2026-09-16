@@ -60,6 +60,12 @@
           ※PDFのラスタライズにはpoppler-utils(pdftoppm/pdfinfo)が必要です(現時点では未同梱、実行環境に別途インストールされている場合のみ動作します)。<br />
           Note: rendering PDFs currently requires poppler-utils (pdftoppm/pdfinfo) to already be installed on the system — it is not yet bundled.
         </p>
+        <hr />
+        <button id="rebind-pdfs-btn">選択したPDFの綴じ方向を一括変換して保存(ページ順序を反転) / Bulk-convert selected PDFs' binding direction (reverses page order) and save</button>
+        <p class="hint">
+          元のPDFはそのまま保持し、出力先フォルダへ「元のファイル名-rebind.pdf」として別名保存します。PDF自体(画像化せず)を編集するため、スキャナ出力等の単純な構造のPDFのみ対応します。<br />
+          The original PDF is left untouched; the result is saved as "&lt;original filename&gt;-rebind.pdf" in the output folder. This edits the PDF itself (no rasterization), so it only supports simple, flat page-tree PDFs such as scanner output.
+        </p>
       </section>
 
       <section>

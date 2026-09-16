@@ -63,6 +63,22 @@ fn convert_pdf_to_spreads(pdf_path: String, output_dir: String, binding: Binding
     pdf::render_pdf_as_spreads(&pdf_path, &output_dir, binding, clamped)
 }
 
+/// PDFの綴じ方向一括変換(2026-09-16新設): 複数のPDFのページ順序を
+/// まとめて反転し、`output_dir`へ`<元のファイル名>-rebind.pdf`として保存する。
+/// 失敗したファイルはエラーメッセージ付きで結果に含め、他のファイルの
+/// 処理は継続する(1件の失敗で全体を止めない)。
+#[tauri::command]
+fn rebind_pdfs(pdf_paths: Vec<String>, output_dir: String) -> Vec<Result<String, String>> {
+    pdf_paths
+        .into_iter()
+        .map(|input_path| {
+            let stem = std::path::Path::new(&input_path).file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
+            let output_path = format!("{output_dir}/{stem}-rebind.pdf");
+            pdf::reverse_pdf_page_order(&input_path, &output_path).map(|_| output_path)
+        })
+        .collect()
+}
+
 #[tauri::command]
 fn create_iso(source_dir: String, output_iso: String, volume_label: String) -> Result<(), String> {
     iso::create_iso(&source_dir, &output_iso, &volume_label)
@@ -119,6 +135,7 @@ pub fn run() {
             detect_silence_ranges,
             calc_bitrate_for_target_size_kbps,
             convert_pdf_to_spreads,
+            rebind_pdfs,
             pick_output_tree,
         ]);
 
@@ -136,6 +153,7 @@ pub fn run() {
         detect_silence_ranges,
         calc_bitrate_for_target_size_kbps,
         convert_pdf_to_spreads,
+        rebind_pdfs,
     ]);
 
     builder.run(tauri::generate_context!()).expect("error while running tauri application");
