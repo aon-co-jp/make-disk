@@ -66,6 +66,24 @@ pub struct ConvertJob {
     /// falseなら`-c copy`でキーフレーム単位の高速カットを行う。
     #[serde(default)]
     pub frame_accurate: bool,
+    /// 出力解像度(2026-09-17新設)。ユーザー指示「DVDは通常解像度
+    /// 720×480とフルHDを選択可能に、ブルーレイはフルHDと4Kを選べる
+    /// ようにして、ビデオ出力は、720X480から4Kや5Kや8Kも指定可能に」
+    /// への対応。`None`なら元の解像度のまま(無変換)。
+    #[serde(default)]
+    pub resolution: Option<Resolution>,
+    /// 出力フレームレート(fps、2026-09-17新設)。ユーザー指示
+    /// 「FPSは、最低不明、24FPS、30FPS 60FPS 120FPなども選択や指定可能に」
+    /// への対応。`None`(「不明」=元のフレームレートのまま)なら無変換。
+    #[serde(default)]
+    pub fps: Option<u32>,
+}
+
+/// 出力動画の解像度(幅×高さ、ピクセル)。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Resolution {
+    pub width: u32,
+    pub height: u32,
 }
 
 /// カットしたい範囲の一覧から、残す(keepする)区間の一覧を求める。
@@ -126,6 +144,8 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
 
     args.extend(job.codec_args.clone());
     push_bitrate_args(&mut args, &job.bitrate);
+    push_resolution_args(&mut args, &job.resolution);
+    push_fps_args(&mut args, &job.fps);
 
     args.push("-y".into());
     args.push(job.output_path.clone());
@@ -222,14 +242,17 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
         list_path.to_string_lossy().to_string(),
     ];
 
-    // フォーマット変換・ビットレート指定が無ければ、結合も-c copyで
-    // 完全に再エンコード無しにする(最速・無劣化)。
-    if job.codec_args.is_empty() && job.bitrate.is_none() {
+    // フォーマット変換・ビットレート・解像度・フレームレートいずれの
+    // 指定も無ければ、結合も-c copyで完全に再エンコード無しにする
+    // (最速・無劣化)。
+    if job.codec_args.is_empty() && job.bitrate.is_none() && job.resolution.is_none() && job.fps.is_none() {
         concat_args.push("-c".into());
         concat_args.push("copy".into());
     } else {
         concat_args.extend(job.codec_args.clone());
         push_bitrate_args(&mut concat_args, &job.bitrate);
+        push_resolution_args(&mut concat_args, &job.resolution);
+        push_fps_args(&mut concat_args, &job.fps);
     }
 
     concat_args.push("-y".into());
@@ -284,6 +307,23 @@ fn push_bitrate_args(args: &mut Vec<String>, bitrate: &Option<BitrateMode>) {
             args.push(format!("{kbps}k"));
         }
         None => {}
+    }
+}
+
+/// 出力解像度の指定があれば`-vf scale=W:H`を追加する(2026-09-17新設)。
+fn push_resolution_args(args: &mut Vec<String>, resolution: &Option<Resolution>) {
+    if let Some(r) = resolution {
+        args.push("-vf".into());
+        args.push(format!("scale={}:{}", r.width, r.height));
+    }
+}
+
+/// フレームレート指定があれば`-r <fps>`を追加する(2026-09-17新設)。
+/// 「不明」(未指定)の場合は元のフレームレートのまま変換しない。
+fn push_fps_args(args: &mut Vec<String>, fps: &Option<u32>) {
+    if let Some(f) = fps {
+        args.push("-r".into());
+        args.push(f.to_string());
     }
 }
 
@@ -532,6 +572,31 @@ mod tests {
         Command::new("ffmpeg").arg("-version").output().map(|o| o.status.success()).unwrap_or(false)
     }
 
+    /// (幅, 高さ, フレームレート)を実ffprobeで取得する
+    /// (解像度/FPS指定〈2026-09-17新設〉の実機E2E検証用)。
+    fn probe_video_dimensions_and_fps(path: &Path) -> (u32, u32, f64) {
+        let output = Command::new("ffprobe")
+            .args([
+                "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height,r_frame_rate",
+                "-of", "csv=p=0",
+                path.to_str().unwrap(),
+            ])
+            .output()
+            .expect("ffprobe should run");
+        let text = String::from_utf8_lossy(&output.stdout);
+        let parts: Vec<&str> = text.trim().split(',').collect();
+        let width: u32 = parts[0].parse().expect("width should parse");
+        let height: u32 = parts[1].parse().expect("height should parse");
+        let fps = parts[2]
+            .split('/')
+            .map(|s| s.parse::<f64>().unwrap())
+            .reduce(|num, den| num / den)
+            .expect("r_frame_rate should parse as a fraction");
+        (width, height, fps)
+    }
+
     fn probe_duration_secs(path: &Path) -> f64 {
         let output = Command::new("ffprobe")
             .args(["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path.to_str().unwrap()])
@@ -616,6 +681,8 @@ mod tests {
                 CutRange { start_secs: 16.0, end_secs: None },
             ]),
             frame_accurate: false,
+            resolution: None,
+            fps: None,
         };
 
         run_convert(&job).expect("run_convert with cut_ranges should succeed");
@@ -655,6 +722,8 @@ mod tests {
                 CutRange { start_secs: 7.0, end_secs: None },
             ]),
             frame_accurate: true,
+            resolution: None,
+            fps: None,
         };
 
         run_convert(&job).expect("run_convert with frame_accurate should succeed");
@@ -666,6 +735,41 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn real_ffmpeg_applies_resolution_and_fps() {
+        if !ffmpeg_available() {
+            eprintln!("ffmpegが見つからないためスキップ / skipping: ffmpeg not found on PATH");
+            return;
+        }
+
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_res_fps_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let source = make_test_video(&tmp, "source.mp4", 2);
+        let output = tmp.join("output.mp4");
+
+        // DVDフルHD相当(1920x1080)・30fpsへの変換を指定(2026-09-17新設の
+        // 解像度/FPS指定機能)。
+        let job = ConvertJob {
+            input_path: source.to_string_lossy().to_string(),
+            output_path: output.to_string_lossy().to_string(),
+            codec_args: vec!["-c:v".to_string(), "libx264".to_string(), "-pix_fmt".to_string(), "yuv420p".to_string()],
+            bitrate: None,
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: Some(Resolution { width: 1920, height: 1080 }),
+            fps: Some(30),
+        };
+
+        run_convert(&job).expect("run_convert with resolution/fps should succeed");
+
+        let (width, height, fps) = probe_video_dimensions_and_fps(&output);
+        let _ = fs::remove_dir_all(&tmp);
+
+        assert_eq!((width, height), (1920, 1080), "指定した解像度(1920x1080)に変換されているはず");
+        assert!((fps - 30.0).abs() < 0.1, "指定したフレームレート(30fps)に変換されているはず、実際: {fps}");
     }
 
     #[test]

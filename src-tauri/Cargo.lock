@@ -2268,7 +2268,7 @@ dependencies = [
 
 [[package]]
 name = "make-disk"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "image",
  "lopdf",

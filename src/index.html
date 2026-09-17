@@ -48,6 +48,52 @@
       </section>
 
       <section>
+        <h2>4.2. 解像度・フレームレート(動画) / Resolution &amp; frame rate (video)</h2>
+        <p class="hint">
+          DVDは通常解像度(720×480)とフルHD、ブルーレイはフルHDと4Kが選べます。
+          カスタムで720×480〜5K/8Kまで自由に指定することもできます。<br />
+          DVD supports standard (720x480) or Full HD; Blu-ray supports Full HD or 4K.
+          Custom lets you specify anything from 720x480 up to 5K/8K.
+        </p>
+        <h3>解像度 / Resolution</h3>
+        <select id="resolution-preset">
+          <option value="unspecified" selected>無指定(元の解像度のまま) / Unspecified (keep original)</option>
+          <option value="720x480">720×480(DVD標準 / DVD standard)</option>
+          <option value="1920x1080">1920×1080(フルHD / Full HD)</option>
+          <option value="3840x2160">3840×2160(4K)</option>
+          <option value="5120x2880">5120×2880(5K)</option>
+          <option value="7680x4320">7680×4320(8K)</option>
+          <option value="custom">カスタム指定 / Custom</option>
+          <option value="ai">AI最適化 / AI-optimized</option>
+        </select>
+        <span id="resolution-custom-inputs" hidden>
+          <input id="resolution-custom-width" type="number" min="1" placeholder="幅 / width (px)" style="width:7em" />
+          ×
+          <input id="resolution-custom-height" type="number" min="1" placeholder="高さ / height (px)" style="width:7em" />
+        </span>
+        <p id="resolution-ai-hint" class="hint" hidden>
+          ※「AI最適化」は元動画の解像度を検出し、4Kを超える場合のみ4Kへ抑える簡易的な処理です(意味的な画質判断は行いません)。<br />
+          Note: "AI-optimized" detects the source resolution and only caps it at 4K when it exceeds that — it does not perform semantic quality analysis.
+        </p>
+
+        <h3>フレームレート(FPS) / Frame rate (FPS)</h3>
+        <select id="fps-preset">
+          <option value="unspecified" selected>不明・無指定(元のフレームレートのまま) / Unspecified (keep original)</option>
+          <option value="24">24 FPS</option>
+          <option value="30">30 FPS</option>
+          <option value="60">60 FPS</option>
+          <option value="120">120 FPS</option>
+          <option value="custom">カスタム指定 / Custom</option>
+          <option value="ai">AI最適化 / AI-optimized</option>
+        </select>
+        <input id="fps-custom-value" type="number" min="1" placeholder="例: 50 / e.g. 50" hidden />
+        <p id="fps-ai-hint" class="hint" hidden>
+          ※「AI最適化」は元動画のフレームレートを検出し、24/30/60/120のうち最も近い値へ合わせる簡易的な処理です(意味的な動き解析は行いません)。<br />
+          Note: "AI-optimized" detects the source frame rate and snaps it to the nearest of 24/30/60/120 — it does not perform semantic motion analysis.
+        </p>
+      </section>
+
+      <section>
         <h2>4.5. PDF見開き変換(最大4K、右綴じ/左綴じ) / PDF spread conversion (up to 4K, right/left binding)</h2>
         <p class="hint">
           ソースファイルに含まれるPDF(1で追加)を、見開き2ページを1枚に合成した画像として書き出します。<br />
