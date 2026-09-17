@@ -1,5 +1,17 @@
 //! ffprobeでメディア情報(尺・コーデック等)を取得する。
-
+//!
+//! ## rs-ffmpegへのフォールバック(2026-09-17新設)
+//!
+//! ユーザー指示「もう一つのオープンソースのRust版も同梱して呼び出す
+//! ように修正して」への対応(`engine::iso`でxorriso→rs-xorrisoの
+//! フォールバックを実装したのに合わせて、ffmpeg/ffprobe→rs-ffmpegにも
+//! 同じパターンを適用する)。**正直な開示**: `rs-ffmpeg`は非圧縮WAVの
+//! probe専用(`scripts/build-rs-tribute-sidecars.sh`のdocコメント参照)
+//! なので、本家ffprobeが見つからずWAV以外のファイルをprobeしようと
+//! した場合はrs-ffmpeg側が明確なエラーを返す(黙って嘘の結果を返さない、
+//! rs-ffmpeg自身の設計方針)。`format_name`/`bit_rate`はrs-ffmpegの出力
+//! (サンプルレート・チャンネル数・ビット深度)から非圧縮WAVとして
+//! 妥当な値を合成する。
 use crate::engine::sidecar::resolve_tool;
 use serde::{Deserialize, Serialize};
 
@@ -11,32 +23,53 @@ pub struct MediaInfo {
 }
 
 pub fn probe(path: &str) -> Result<MediaInfo, String> {
-    let output = resolve_tool("ffprobe")
-        .args([
-            "-v", "error",
-            "-show_entries", "format=duration,format_name,bit_rate",
-            "-of", "json",
-            path,
-        ])
+    match resolve_tool("ffprobe")
+        .args(["-v", "error", "-show_entries", "format=duration,format_name,bit_rate", "-of", "json", path])
         .output()
-        .map_err(|e| format!("ffprobeの起動に失敗しました(未インストールの可能性): {e}"))?;
+    {
+        Ok(output) if output.status.success() => parse_ffprobe_json(&output.stdout),
+        Ok(output) => Err(String::from_utf8_lossy(&output.stderr).to_string()),
+        Err(_) => probe_with_rs_ffmpeg(path),
+    }
+}
+
+fn parse_ffprobe_json(stdout: &[u8]) -> Result<MediaInfo, String> {
+    let json: serde_json::Value = serde_json::from_slice(stdout).map_err(|e| format!("ffprobe出力の解析に失敗しました: {e}"))?;
+
+    let format = &json["format"];
+    let duration_secs: f64 = format["duration"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    let format_name = format["format_name"].as_str().unwrap_or("unknown").to_string();
+    let bit_rate = format["bit_rate"].as_str().and_then(|s| s.parse().ok());
+
+    Ok(MediaInfo { duration_secs, format_name, bit_rate })
+}
+
+/// `rs-ffmpeg probe <path>`の出力
+/// (`sample_rate=44100 channels=2 bits_per_sample=16 duration_secs=1.234`)
+/// を解析し、非圧縮WAVとして妥当な`MediaInfo`を合成する。
+fn probe_with_rs_ffmpeg(path: &str) -> Result<MediaInfo, String> {
+    let output = resolve_tool("rs-ffmpeg")
+        .args(["probe", path])
+        .output()
+        .map_err(|e| format!("ffprobe・rs-ffmpegともに起動に失敗しました(いずれも未インストール/未同梱の可能性): {e}"))?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
 
-    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("ffprobe出力の解析に失敗しました: {e}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let field = |key: &str| -> Option<&str> { stdout.split_whitespace().find_map(|tok| tok.strip_prefix(&format!("{key}="))) };
 
-    let format = &json["format"];
-    let duration_secs: f64 = format["duration"]
-        .as_str()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.0);
-    let format_name = format["format_name"].as_str().unwrap_or("unknown").to_string();
-    let bit_rate = format["bit_rate"].as_str().and_then(|s| s.parse().ok());
+    let sample_rate: u64 = field("sample_rate").and_then(|s| s.parse().ok()).ok_or("rs-ffmpeg probe出力の解析に失敗しました(sample_rate)")?;
+    let channels: u64 = field("channels").and_then(|s| s.parse().ok()).ok_or("rs-ffmpeg probe出力の解析に失敗しました(channels)")?;
+    let bits_per_sample: u64 = field("bits_per_sample").and_then(|s| s.parse().ok()).ok_or("rs-ffmpeg probe出力の解析に失敗しました(bits_per_sample)")?;
+    let duration_secs: f64 = field("duration_secs").and_then(|s| s.parse().ok()).unwrap_or(0.0);
 
-    Ok(MediaInfo { duration_secs, format_name, bit_rate })
+    Ok(MediaInfo {
+        duration_secs,
+        format_name: "wav".to_string(),
+        bit_rate: Some(sample_rate * channels * bits_per_sample),
+    })
 }
 
 #[cfg(test)]
@@ -106,5 +139,52 @@ mod tests {
 
         let info = result.expect("probe() should succeed using the bundled ffprobe sidecar");
         assert!((info.duration_secs - 2.0).abs() < 0.5, "expected ~2s duration from the bundled sidecar, got {}", info.duration_secs);
+    }
+
+    /// 実際にビルドした`rs-ffmpeg`バイナリを実行ファイルの隣へ配置し、
+    /// `probe_with_rs_ffmpeg`(本家ffprobeが無い場合のフォールバック経路の
+    /// 中身)が本物のWAVファイルを正しく解析することを検証する
+    /// (2026-09-17新設、ユーザー指示「もう一つのオープンソースのRust版
+    /// も同梱して呼び出すように」への対応の直接検証——モックに頼らない
+    /// 実機E2E)。実ffmpegでWAVを生成し、実rs-ffmpegでprobeする。
+    /// `F:\rs-FFmpeg`をcloneしてリリースビルド済みでない環境ではスキップする。
+    #[test]
+    fn probe_with_rs_ffmpeg_actually_parses_a_real_wav_via_the_bundled_binary() {
+        let rs_ffmpeg_release = std::path::PathBuf::from("F:\\rs-FFmpeg\\target\\release\\rs-ffmpeg.exe");
+        if !rs_ffmpeg_release.is_file() {
+            eprintln!("F:\\rs-FFmpeg のリリースビルドが無いためスキップ / skipping: build rs-FFmpeg first");
+            return;
+        }
+        if !Command::new("ffmpeg").arg("-version").output().map(|o| o.status.success()).unwrap_or(false) {
+            eprintln!("ffmpegが見つからないためスキップ(テスト用WAV生成に必要) / skipping: ffmpeg not found (needed to generate the test WAV)");
+            return;
+        }
+
+        let exe = std::env::current_exe().unwrap();
+        let dir = exe.parent().unwrap().to_path_buf();
+        let sidecar_path = dir.join(format!("rs-ffmpeg{}", std::env::consts::EXE_SUFFIX));
+        std::fs::copy(&rs_ffmpeg_release, &sidecar_path).expect("failed to place rs-ffmpeg sidecar next to the test binary");
+
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_rsffmpeg_probe_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let wav_path = tmp.join("test.wav");
+        let gen_status = Command::new("ffmpeg")
+            .args(["-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", wav_path.to_str().unwrap()])
+            .output();
+
+        let result = if gen_status.is_ok() && gen_status.as_ref().unwrap().status.success() {
+            Some(probe_with_rs_ffmpeg(wav_path.to_str().unwrap()))
+        } else {
+            None
+        };
+
+        let _ = std::fs::remove_file(&sidecar_path);
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        let result = result.expect("failed to generate the test WAV fixture with ffmpeg");
+        let info = result.expect("probe_with_rs_ffmpeg should succeed using the bundled rs-ffmpeg binary");
+        assert_eq!(info.format_name, "wav");
+        assert!((info.duration_secs - 3.0).abs() < 0.2, "expected ~3s duration from rs-ffmpeg probe, got {}", info.duration_secs);
+        assert_eq!(info.bit_rate, Some(44100 * 2 * 16), "非圧縮WAVのビットレートはsample_rate*channels*bits_per_sampleのはず");
     }
 }

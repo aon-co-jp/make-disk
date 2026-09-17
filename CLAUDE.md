@@ -826,3 +826,64 @@ CI安定化を優先して積み上げていた4件の機能要望のうち、1�
 特に緊急の未完了タスクは無い(自動アップデートのE2E動作確認、
 poppler-utilsのsidecar同梱化等、各HANDOFFに記載した細かい
 フォローアップ項目はあるが、いずれも致命的ではない改善点)。
+
+## HANDOFF追記(2026-09-17) 実バグ修正: ISO作成が本家xorriso未同梱により必ず失敗する問題+rs-ffmpeg/rs-xorrisoフォールバック実装、v0.1.16 / Follow-up: fixed a real bug where ISO creation always failed (real xorriso was never bundled) and wired rs-ffmpeg/rs-xorriso as fallbacks, v0.1.16
+
+ユーザーが実機(v0.1.15)で実際にISO作成を試したところ、下記のエラーで
+必ず失敗することが判明した:
+
+```
+エラー: xorrisoの起動に失敗しました(未インストールの可能性): program not found
+```
+
+**根本原因(実機ログから特定)**: `scripts/fetch-ffmpeg-sidecars.sh`は
+コメントに明記の通りffmpeg/ffprobeのみを取得し、**本家xorrisoは
+Windows/Linux/macOSいずれもsidecarとして一切同梱していなかった**。
+一方、`scripts/build-rs-tribute-sidecars.sh`で`rs-xorriso`(このプロジェクト
+用の純Rust実装、ISO生成のみ対応)はWindows/Linux向けに実際に同梱
+されていたにもかかわらず、`engine/iso.rs`は常に`xorriso`(本家)だけを
+呼んでおり`rs-xorriso`を一度も試していなかった——同梱していても
+呼び出し側が使っていない、という単純だが致命的な配線ミスだった。
+
+**ユーザーからの追加指示**: 「もう一つのオープンソースのRust版
+(rs-ffmpeg)も同梱して呼び出すように修正して」「rs-ffmpeg.exe/
+rs-xorriso.exeの二つは同梱して呼び出して利用して」
+
+**修正内容**:
+- `engine/iso.rs`: `create_iso`を、本家`xorriso`を優先して試し、
+  起動自体に失敗した場合(PATH上に無い場合)のみ同梱の`rs-xorriso`へ
+  フォールバックするように修正。実際にビルドした`rs-xorriso.exe`を
+  テスト実行ファイルの隣へ配置し、本当にISOファイルを書き出せることを
+  検証する実機E2Eテストを追加(モックに頼らない、このプロジェクトの
+  既存方針通り)。
+- `engine/burn.rs`: 同じフォールバックパターンを`burn_image`・
+  `list_devices`にも適用。**正直な開示**: rs-xorrisoは実際のディスク
+  書き込み(`-as cdrecord`)・ドライブ列挙(`-devices`)を明示的に
+  「未実装、本家xorrisoを使ってください」と拒否する設計のため、
+  ここでのフォールバックは実際の書き込みを可能にはしないが、OS
+  レベルの生の「program not found」より分かりやすいエラーになる。
+- `engine/probe.rs`: `probe()`を、本家`ffprobe`が起動できない場合に
+  同梱の`rs-ffmpeg probe`へフォールバックするように修正。**正直な
+  開示**: rs-ffmpegは非圧縮WAV専用のprobeのみ対応のため、WAV以外の
+  ファイルでは分かりやすいエラーになる(黙って嘘の結果を返さない、
+  rs-ffmpeg自身の設計方針)。実際にビルドした`rs-ffmpeg.exe`と実ffmpegで
+  生成した本物のWAVファイルを使い、フォールバック経路(`probe_with_rs_ffmpeg`)
+  が正しく解析することを検証する実機E2Eテストを追加。
+- `engine/convert.rs`の`run_ffmpeg`(通常変換・カット処理の共通実行点)にも
+  同じフォールバックを追加。**正直な開示**: rs-ffmpegはコーデック指定・
+  ビットレート指定・トリミング等のフラグを自身で明確に拒否する設計
+  (未対応フラグを黙って無視して壊れたファイルを作らない)なので、
+  この経路は「本家ffmpegが無く、かつ単純なWAVのサンプルレート/
+  チャンネル変換のみ」の場合にのみ実際に成功し、それ以外は分かりやすい
+  エラーで終わる。
+- 全37テストがパス(新規追加した実バイナリE2Eテスト2件含む)、
+  clippyも既存の無関係な1件を除きクリーン。
+
+バージョンを0.1.15→0.1.16へ更新。
+
+**次回への引き継ぎ**: (1) macOSにも本家xorriso/ffmpegの何らかの取得
+手段(Homebrew前提の案内、または静的ビルドの取得)を検討する、
+(2) 「自動算出ビットレート: 10003421 kbps」のような明らかに異常な値が
+ユーザーのログで観測された件は未調査(probe結果が極端に短い尺を
+返した可能性が高いが、該当ファイルでの再現待ち)——次回セッションで
+優先して調査すること。
