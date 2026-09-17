@@ -1,9 +1,29 @@
 //! ディスク書き込み(xorriso -as cdrecord/growisofs 経由で統一)。
 //! xorrisoはcdrtools(cdrecord)・cdrdao・libburn/growisofs相当の書き込み経路を
 //! 内包しているため、CD/DVD/Blu-rayを単一コマンド体系で扱える。
+//!
+//! ## rs-xorrisoについて(2026-09-17)
+//!
+//! `engine::iso`のISO生成とは異なり、実際のディスクへの書き込み
+//! (`-as cdrecord`)・ドライブ列挙(`-devices`)はrs-xorriso側が
+//! 明示的に「未実装、本家xorrisoを使ってください」という分かりやすい
+//! エラーを返す設計になっている(ISO生成のみ対応、正直な開示)。
+//! そのため本家xorrisoが無い環境でここへフォールバックしても実際の
+//! 書き込みは行えないが、OSレベルの生の「program not found」より
+//! ずっと分かりやすいエラーメッセージになる。
 
 use crate::engine::capacity::DiscType;
 use crate::engine::sidecar::resolve_tool;
+
+fn run_xorriso(args: &[String]) -> Result<std::process::Output, String> {
+    match resolve_tool("xorriso").args(args).output() {
+        Ok(output) => Ok(output),
+        Err(_) => resolve_tool("rs-xorriso")
+            .args(args)
+            .output()
+            .map_err(|e| format!("xorriso・rs-xorrisoともに起動に失敗しました(いずれも未インストール/未同梱の可能性): {e}")),
+    }
+}
 
 /// 書き込み速度。`Auto`は指定を省略し、ドライブ・メディアの自動判定に委ねる。
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -37,10 +57,7 @@ pub fn burn_image(image_path: &str, device: &str, disc: DiscType, speed: WriteSp
 
     args.push(image_path.to_string());
 
-    let output = resolve_tool("xorriso")
-        .args(&args)
-        .output()
-        .map_err(|e| format!("xorrisoの起動に失敗しました(未インストールの可能性): {e}"))?;
+    let output = run_xorriso(&args)?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
@@ -50,10 +67,7 @@ pub fn burn_image(image_path: &str, device: &str, disc: DiscType, speed: WriteSp
 
 /// 利用可能な光学ドライブの一覧(device文字列)。
 pub fn list_devices() -> Result<Vec<String>, String> {
-    let output = resolve_tool("xorriso")
-        .args(["-devices"])
-        .output()
-        .map_err(|e| format!("xorrisoの起動に失敗しました: {e}"))?;
+    let output = run_xorriso(&["-devices".to_string()])?;
 
     let text = String::from_utf8_lossy(&output.stdout);
     let mut devices = Vec::new();

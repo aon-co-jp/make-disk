@@ -436,16 +436,30 @@ pub fn concat_media(input_paths: &[String], output_path: &str, has_video: bool) 
     Ok(())
 }
 
+/// 本家ffmpegを優先して実行し、起動自体に失敗した場合(PATH上に無い場合)
+/// のみ同梱の`rs-ffmpeg`へフォールバックする(2026-09-17新設、
+/// `engine::iso`のxorriso→rs-xorrisoと同じパターン)。**正直な開示**:
+/// `rs-ffmpeg`は非圧縮WAVの単純なサンプルレート/チャンネル変換専用
+/// (`-i in.wav [-ar rate] [-ac channels] out.wav`のみ)で、コーデック
+/// 指定・トリミング・ビットレート指定等の引数は自身で明確に拒否する
+/// 設計になっている(黙って無視して壊れたファイルを作らない)ため、
+/// このフォールバックは「本家ffmpegが無く、かつ単純なWAV処理」の
+/// 場合のみ実際に成功し、それ以外は分かりやすいエラーで終わる。
 fn run_ffmpeg(args: &[String]) -> Result<(), String> {
-    let output = resolve_tool("ffmpeg")
-        .args(args)
-        .output()
-        .map_err(|e| format!("ffmpegの起動に失敗しました(未インストールの可能性): {e}"))?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    match resolve_tool("ffmpeg").args(args).output() {
+        Ok(output) if output.status.success() => Ok(()),
+        Ok(output) => Err(String::from_utf8_lossy(&output.stderr).to_string()),
+        Err(_) => {
+            let output = resolve_tool("rs-ffmpeg")
+                .args(args)
+                .output()
+                .map_err(|e| format!("ffmpeg・rs-ffmpegともに起動に失敗しました(いずれも未インストール/未同梱の可能性): {e}"))?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).to_string());
+            }
+            Ok(())
+        }
     }
-    Ok(())
 }
 
 #[cfg(test)]
