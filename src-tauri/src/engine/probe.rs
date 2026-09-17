@@ -20,11 +20,23 @@ pub struct MediaInfo {
     pub duration_secs: f64,
     pub format_name: String,
     pub bit_rate: Option<u64>,
+    /// 動画ストリームの幅・高さ・フレームレート(2026-09-17新設、
+    /// 「AIが最適化」する解像度/FPS指定〈main.js側のヒューリスティック〉の
+    /// 判断材料。音声ファイル等、動画ストリームが無い場合は`None`)。
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub fps: Option<f64>,
 }
 
 pub fn probe(path: &str) -> Result<MediaInfo, String> {
     match resolve_tool("ffprobe")
-        .args(["-v", "error", "-show_entries", "format=duration,format_name,bit_rate", "-of", "json", path])
+        .args([
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "format=duration,format_name,bit_rate:stream=width,height,r_frame_rate",
+            "-of", "json",
+            path,
+        ])
         .output()
     {
         Ok(output) if output.status.success() => parse_ffprobe_json(&output.stdout),
@@ -41,7 +53,22 @@ fn parse_ffprobe_json(stdout: &[u8]) -> Result<MediaInfo, String> {
     let format_name = format["format_name"].as_str().unwrap_or("unknown").to_string();
     let bit_rate = format["bit_rate"].as_str().and_then(|s| s.parse().ok());
 
-    Ok(MediaInfo { duration_secs, format_name, bit_rate })
+    let stream = json["streams"].get(0);
+    let width = stream.and_then(|s| s["width"].as_u64()).map(|v| v as u32);
+    let height = stream.and_then(|s| s["height"].as_u64()).map(|v| v as u32);
+    let fps = stream.and_then(|s| s["r_frame_rate"].as_str()).and_then(parse_frame_rate_fraction);
+
+    Ok(MediaInfo { duration_secs, format_name, bit_rate, width, height, fps })
+}
+
+/// ffprobeの`r_frame_rate`(例: `"30000/1001"`や`"25/1"`)を`f64`に変換する。
+fn parse_frame_rate_fraction(s: &str) -> Option<f64> {
+    let (num, den) = s.split_once('/')?;
+    let (num, den): (f64, f64) = (num.parse().ok()?, den.parse().ok()?);
+    if den == 0.0 {
+        return None;
+    }
+    Some(num / den)
 }
 
 /// `rs-ffmpeg probe <path>`の出力
@@ -69,6 +96,9 @@ fn probe_with_rs_ffmpeg(path: &str) -> Result<MediaInfo, String> {
         duration_secs,
         format_name: "wav".to_string(),
         bit_rate: Some(sample_rate * channels * bits_per_sample),
+        width: None,
+        height: None,
+        fps: None,
     })
 }
 
@@ -76,6 +106,14 @@ fn probe_with_rs_ffmpeg(path: &str) -> Result<MediaInfo, String> {
 mod tests {
     use super::*;
     use std::process::Command;
+
+    #[test]
+    fn parse_frame_rate_fraction_handles_common_ffprobe_values() {
+        assert_eq!(parse_frame_rate_fraction("25/1"), Some(25.0));
+        assert!((parse_frame_rate_fraction("30000/1001").unwrap() - 29.97).abs() < 0.01);
+        assert_eq!(parse_frame_rate_fraction("0/0"), None);
+        assert_eq!(parse_frame_rate_fraction("not-a-fraction"), None);
+    }
 
     /// `scripts/fetch-ffmpeg-sidecars.sh`で取得した実バイナリ(ソース側は
     /// `<name>-<target-triple>[.exe]`という`externalBin`規約の名前)を、

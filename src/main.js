@@ -372,6 +372,61 @@ async function runWithConcurrencyLimit(tasks, limit) {
  * した(1トラック変換完了を待ってから次へ、という無駄な直列待ちを
  * 無くす——例: 「MP4をWAVへ」+「ISO化」のような組み合わせでも、
  * 複数ファイル・複数フォーマットの変換自体は並列に進む)。 */
+/** 解像度指定(2026-09-17新設)。「無指定」はnull(元のまま)、「カスタム」は
+ * 入力欄の値、「AI最適化」はソースの解像度を検出し4Kを超える場合のみ
+ * 4Kへ抑える簡易ヒューリスティック(意味的な画質判断は行わない、
+ * 正直な開示——index.htmlの注記参照)。動画ファイルにのみ適用する。 */
+async function resolveResolutionSetting(f) {
+  const preset = document.getElementById("resolution-preset").value;
+  if (preset === "unspecified") return null;
+  if (preset === "custom") {
+    const width = parseInt(document.getElementById("resolution-custom-width").value, 10);
+    const height = parseInt(document.getElementById("resolution-custom-height").value, 10);
+    return width > 0 && height > 0 ? { width, height } : null;
+  }
+  if (preset === "ai") {
+    try {
+      const info = await invoke("probe_media", { path: f.path });
+      const max4k = 3840 * 2160;
+      if (info.width && info.height && info.width * info.height > max4k) {
+        const scale = Math.sqrt(max4k / (info.width * info.height));
+        return { width: Math.round((info.width * scale) / 2) * 2, height: Math.round((info.height * scale) / 2) * 2 };
+      }
+      return null; // 4K以下ならそのまま(不要な再エンコードを避ける)
+    } catch (e) {
+      log(`警告: AI最適化の解像度判定に失敗しました(${f.path}): ${e}`);
+      return null;
+    }
+  }
+  const [w, h] = preset.split("x").map((s) => parseInt(s, 10));
+  return { width: w, height: h };
+}
+
+/** フレームレート指定(2026-09-17新設)。「AI最適化」はソースのfpsを検出し
+ * 24/30/60/120のうち最も近い値へ合わせる簡易ヒューリスティック
+ * (意味的な動き解析は行わない、正直な開示)。動画ファイルにのみ適用する。 */
+async function resolveFpsSetting(f) {
+  const preset = document.getElementById("fps-preset").value;
+  if (preset === "unspecified") return null;
+  if (preset === "custom") {
+    const value = parseInt(document.getElementById("fps-custom-value").value, 10);
+    return value > 0 ? value : null;
+  }
+  if (preset === "ai") {
+    try {
+      const info = await invoke("probe_media", { path: f.path });
+      if (!info.fps) return null;
+      const standardFps = [24, 30, 60, 120];
+      const nearest = standardFps.reduce((a, b) => (Math.abs(b - info.fps) < Math.abs(a - info.fps) ? b : a));
+      return Math.abs(nearest - info.fps) < 0.5 ? null : nearest; // 既に標準値に近ければ無変換
+    } catch (e) {
+      log(`警告: AI最適化のFPS判定に失敗しました(${f.path}): ${e}`);
+      return null;
+    }
+  }
+  return parseInt(preset, 10);
+}
+
 async function convertAll(formats, codecMap, mode, bitrateKbps) {
   const jobs = [];
   for (const format of formats) {
@@ -388,6 +443,9 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
   const tasks = jobs.map(({ outputPath, f, format, codecArgs }) => async () => {
     log(`変換中: ${f.path} -> ${outputPath}`);
     try {
+      const isVideo = format in VIDEO_CODEC_ARGS;
+      const resolution = isVideo ? await resolveResolutionSetting(f) : null;
+      const fps = isVideo ? await resolveFpsSetting(f) : null;
       await invoke("convert_media", {
         job: {
           input_path: f.path,
@@ -397,6 +455,8 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           trim: null,
           cut_ranges: f.cutRanges.length > 0 ? f.cutRanges.map((r) => ({ start_secs: r.startSecs, end_secs: r.endSecs })) : null,
           frame_accurate: f.frameAccurate,
+          resolution,
+          fps,
         },
       });
       log(`完了: ${outputPath}`);
@@ -410,6 +470,15 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
   const results = await runWithConcurrencyLimit(tasks, conversionConcurrency());
   return results.filter((p) => p !== null);
 }
+
+document.getElementById("resolution-preset").addEventListener("change", (e) => {
+  document.getElementById("resolution-custom-inputs").hidden = e.target.value !== "custom";
+  document.getElementById("resolution-ai-hint").hidden = e.target.value !== "ai";
+});
+document.getElementById("fps-preset").addEventListener("change", (e) => {
+  document.getElementById("fps-custom-value").hidden = e.target.value !== "custom";
+  document.getElementById("fps-ai-hint").hidden = e.target.value !== "ai";
+});
 
 document.getElementById("rebind-pdfs-btn").addEventListener("click", async () => {
   logEl.textContent = "";
