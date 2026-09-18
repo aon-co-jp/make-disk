@@ -939,3 +939,22 @@ GPU推論ランタイムの新規同梱、設計・検証に複数セッショ�
 
 全39テストがパス、clippyも既存の無関係な1件を除きクリーン。
 バージョンを0.1.16→0.1.17へ更新。
+
+## HANDOFF追記(2026-09-19) 実バグ修正: Windowsで光学ドライブを検出できず書き込み不可、v0.1.18 / Fix: Windows could not detect optical drives or burn, v0.1.18
+
+v0.1.16でISO作成は成功するようになったが、ユーザー実機(D:にBD-REドライブ)で
+「エラー: 書き込み可能な光学ドライブが見つかりません。」が出て、ISOへ変換後の
+ディスク書き込みができなかった。**原因**: `list_devices`/`burn_image`が本家
+`xorriso -devices`/`-as cdrecord`頼みで、Windowsには本家xorrisoが同梱されて
+おらず(rs-xorrisoも列挙・書き込みを明示的に未実装として拒否)、列挙も書き込みも
+原理的に不可能だった。
+**修正(`engine/burn.rs`)**: Windowsでは(1)`Get-CimInstance Win32_CDROMDrive`
+(Capabilitiesに4=書き込み対応を含むもの)でドライブレターを列挙、(2)`D:`形式の
+デバイスにはWindows標準の`isoburn.exe /Q D: <iso>`で書き込む。実機で
+`list_devices()`が`["D:"]`を返すことを実テストで確認。
+**正直な開示(未検証)**: 実際にディスクを焼くE2Eは未実施(空きメディアが必要で
+このセッションでは焼いていない)。isoburn.exeは速度・ディスク種別の指定を
+受け付けず(メディア自動判定)、終了コードでしか成否が分からない。Linux/macOSは
+従来通り本家xorriso前提のまま(macOS/Linuxの本家xorriso同梱は未対応)。
+**未調査の残課題**: ログにあった「自動算出ビットレート: 10003421 kbps」の異常値
+(尺が極端に短く誤検出された疑い、要再現)。

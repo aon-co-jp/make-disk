@@ -34,7 +34,42 @@ pub enum WriteSpeed {
     Fixed(u32),
 }
 
+/// `"D:"`のようなWindowsドライブレター形式か。
+fn is_windows_drive_letter(device: &str) -> bool {
+    let b = device.as_bytes();
+    b.len() == 2 && b[0].is_ascii_alphabetic() && b[1] == b':'
+}
+
+/// PowerShell(`Get-CimInstance Win32_CDROMDrive`)の出力からドライブレターを抽出する。
+fn parse_windows_drive_list(stdout: &str) -> Vec<String> {
+    stdout.lines().map(|l| l.trim()).filter(|l| is_windows_drive_letter(l)).map(|l| l.to_ascii_uppercase()).collect()
+}
+
+/// Windows標準の`isoburn.exe`でISOを書き込む(2026-09-19新設)。
+/// 本家xorrisoを同梱していないWindowsでも実際に書き込めるようにするための
+/// 経路。**正直な開示**: isoburn.exeは書き込み速度・ディスク種別の指定を
+/// 受け付けない(メディアに応じて自動判定)ため`speed`/`disc`は無視される。
+#[cfg(windows)]
+fn burn_with_isoburn(image_path: &str, drive: &str) -> Result<(), String> {
+    let output = std::process::Command::new("isoburn.exe")
+        .args(["/Q", drive, image_path])
+        .output()
+        .map_err(|e| format!("isoburn.exeの起動に失敗しました: {e}"))?;
+    if !output.status.success() {
+        return Err(format!("isoburn.exeが失敗しました(終了コード: {:?})", output.status.code()));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn burn_with_isoburn(_image_path: &str, _drive: &str) -> Result<(), String> {
+    Err("isoburn.exeはWindows専用です".to_string())
+}
+
 pub fn burn_image(image_path: &str, device: &str, disc: DiscType, speed: WriteSpeed) -> Result<(), String> {
+    if is_windows_drive_letter(device) {
+        return burn_with_isoburn(image_path, device);
+    }
     let mut args: Vec<String> = vec!["-as".into(), "cdrecord".into()];
 
     match speed {
@@ -67,6 +102,29 @@ pub fn burn_image(image_path: &str, device: &str, disc: DiscType, speed: WriteSp
 
 /// 利用可能な光学ドライブの一覧(device文字列)。
 pub fn list_devices() -> Result<Vec<String>, String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // 書き込み対応(Capabilitiesに4=Supports Writingを含む)の光学ドライブのみ列挙する。
+        let output = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance Win32_CDROMDrive | Where-Object { $_.Capabilities -contains 4 } | ForEach-Object { $_.Drive }",
+            ])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .output()
+            .map_err(|e| format!("光学ドライブの列挙に失敗しました: {e}"))?;
+        Ok(parse_windows_drive_list(&String::from_utf8_lossy(&output.stdout)))
+    }
+    #[cfg(not(windows))]
+    {
+        list_devices_xorriso()
+    }
+}
+
+#[cfg(not(windows))]
+fn list_devices_xorriso() -> Result<Vec<String>, String> {
     let output = run_xorriso(&["-devices".to_string()])?;
 
     let text = String::from_utf8_lossy(&output.stdout);
@@ -79,4 +137,32 @@ pub fn list_devices() -> Result<Vec<String>, String> {
         }
     }
     Ok(devices)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_windows_drive_list_extracts_drive_letters_only() {
+        assert_eq!(parse_windows_drive_list("D:\r\ne:\r\n\r\ngarbage\r\n"), vec!["D:", "E:"]);
+        assert!(parse_windows_drive_list("").is_empty());
+    }
+
+    #[test]
+    fn windows_drive_letter_detection() {
+        assert!(is_windows_drive_letter("D:"));
+        assert!(!is_windows_drive_letter("/dev/sr0"));
+        assert!(!is_windows_drive_letter("D:\\"));
+    }
+
+    /// 実機のWindowsで本当にPowerShell経由で光学ドライブを列挙できることを検証する
+    /// (ドライブが無い環境では空でも成功とする)。
+    #[cfg(windows)]
+    #[test]
+    fn list_devices_actually_queries_windows_optical_drives() {
+        let devices = list_devices().expect("list_devices should not fail on Windows");
+        eprintln!("detected writable optical drives: {devices:?}");
+        assert!(devices.iter().all(|d| is_windows_drive_letter(d)));
+    }
 }
