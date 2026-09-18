@@ -958,3 +958,26 @@ v0.1.16でISO作成は成功するようになったが、ユーザー実機(D:�
 従来通り本家xorriso前提のまま(macOS/Linuxの本家xorriso同梱は未対応)。
 **未調査の残課題**: ログにあった「自動算出ビットレート: 10003421 kbps」の異常値
 (尺が極端に短く誤検出された疑い、要再現)。
+
+## HANDOFF追記(2026-09-19続き) IMAPI2化(日本語ファイル名保持・成否判定)・ビットレート上限、v0.1.19 / IMAPI2 rewrite (Unicode filenames, reliable result) and bitrate cap, v0.1.19
+
+実機(BD-REドライブ+空きCD-R)テストで判明したこと:
+- v0.1.18のisoburn.exe経路は、**実際にはディスクへ書き込めていた**(D:に
+  データ確認)が、終了コードは1で成否をコードから判定できなかった。
+- rs-xorrisoが日本語ファイル名を`________.WAV`に潰していた(8.3のみ対応)。
+- `create_iso`の元フォルダが出力フォルダ自身のため、前回の`output.iso`が次回の
+  ISOに混入する。
+- 「自動算出ビットレート 10003421 kbps」の原因: **元MP4が0.533秒しかない**
+  (ffprobeで確認)。変換の不具合ではなく、極端に短い尺で容量逆算した結果。
+
+対応:
+- 新規`engine/windows_imapi.rs`+`scripts/imapi_*.ps1`(ASCIIのみ厳守:
+  PowerShell 5.1はBOM無しUTF-8をANSI読みし、日本語コメントが次行を巻き込んで
+  自己除外処理を無効化する実バグを実際に踏んだ。回帰テストあり)。Windowsでは
+  IMAPI2FSでISO9660+JolietのISO作成(日本語名保持を実テストで確認)、IMAPI2で
+  書き込み(例外メッセージ取得、成功後に排出)。失敗時のみ従来のxorriso系へ。
+- ISO作成時に出力ISO自身を除外(一時ファイル経由で差し替え)。
+- `main.js`: 自動/最高品質モードのビットレートを元ファイルのビットレートで頭打ち。
+**正直な開示(未検証)**: IMAPI2書き込み(`imapi_burn.ps1`)は空きメディアでの
+E2E未実施(前回のCDは書き込み済みのため)。手動テスト
+`MAKE_DISK_TEST_ISO=<iso> cargo test --lib real_disc_tests -- --ignored`で実施できる。

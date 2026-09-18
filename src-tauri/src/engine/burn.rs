@@ -45,30 +45,22 @@ fn parse_windows_drive_list(stdout: &str) -> Vec<String> {
     stdout.lines().map(|l| l.trim()).filter(|l| is_windows_drive_letter(l)).map(|l| l.to_ascii_uppercase()).collect()
 }
 
-/// Windows標準の`isoburn.exe`でISOを書き込む(2026-09-19新設)。
-/// 本家xorrisoを同梱していないWindowsでも実際に書き込めるようにするための
-/// 経路。**正直な開示**: isoburn.exeは書き込み速度・ディスク種別の指定を
-/// 受け付けない(メディアに応じて自動判定)ため`speed`/`disc`は無視される。
+/// WindowsではIMAPI2でISOを書き込む(2026-09-19新設)。本家xorrisoを同梱
+/// していないWindowsでも実際に書き込める経路。**正直な開示**: 書き込み速度・
+/// ディスク種別の指定は現状無視される(メディアに応じて自動判定)。
 #[cfg(windows)]
-fn burn_with_isoburn(image_path: &str, drive: &str) -> Result<(), String> {
-    let output = std::process::Command::new("isoburn.exe")
-        .args(["/Q", drive, image_path])
-        .output()
-        .map_err(|e| format!("isoburn.exeの起動に失敗しました: {e}"))?;
-    if !output.status.success() {
-        return Err(format!("isoburn.exeが失敗しました(終了コード: {:?})", output.status.code()));
-    }
-    Ok(())
+fn burn_with_imapi(image_path: &str, drive: &str) -> Result<(), String> {
+    crate::engine::windows_imapi::burn_iso(image_path, drive)
 }
 
 #[cfg(not(windows))]
-fn burn_with_isoburn(_image_path: &str, _drive: &str) -> Result<(), String> {
-    Err("isoburn.exeはWindows専用です".to_string())
+fn burn_with_imapi(_image_path: &str, _drive: &str) -> Result<(), String> {
+    Err("IMAPI2はWindows専用です".to_string())
 }
 
 pub fn burn_image(image_path: &str, device: &str, disc: DiscType, speed: WriteSpeed) -> Result<(), String> {
     if is_windows_drive_letter(device) {
-        return burn_with_isoburn(image_path, device);
+        return burn_with_imapi(image_path, device);
     }
     let mut args: Vec<String> = vec!["-as".into(), "cdrecord".into()];
 
@@ -164,5 +156,21 @@ mod tests {
         let devices = list_devices().expect("list_devices should not fail on Windows");
         eprintln!("detected writable optical drives: {devices:?}");
         assert!(devices.iter().all(|d| is_windows_drive_letter(d)));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod real_disc_tests {
+    use super::*;
+
+    /// 実際に空きメディアへ書き込む手動テスト(`cargo test -- --ignored`)。
+    /// 環境変数`MAKE_DISK_TEST_ISO`にISOのパスを指定する。
+    #[test]
+    #[ignore]
+    fn burn_image_actually_burns_a_real_disc_on_windows() {
+        let iso = std::env::var("MAKE_DISK_TEST_ISO").expect("set MAKE_DISK_TEST_ISO");
+        let devices = list_devices().unwrap();
+        assert!(!devices.is_empty(), "no writable optical drive");
+        burn_image(&iso, &devices[0], DiscType::Cd700, WriteSpeed::Auto).expect("burn should succeed");
     }
 }

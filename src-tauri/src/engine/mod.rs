@@ -6,3 +6,5 @@ pub mod iso;
 pub mod pdf;
 pub mod probe;
 pub mod sidecar;
+#[cfg(windows)]
+pub mod windows_imapi;
