@@ -981,3 +981,26 @@ v0.1.16でISO作成は成功するようになったが、ユーザー実機(D:�
 **正直な開示(未検証)**: IMAPI2書き込み(`imapi_burn.ps1`)は空きメディアでの
 E2E未実施(前回のCDは書き込み済みのため)。手動テスト
 `MAKE_DISK_TEST_ISO=<iso> cargo test --lib real_disc_tests -- --ignored`で実施できる。
+
+## HANDOFF追記(2026-09-19続き2) CD書き込みE2E成功・AV1/Opus・Dolby/サラウンド保持・音声ビットレート修正 / Real CD burn E2E OK, AV1/Opus, Dolby/surround preservation, audio bitrate fix
+
+- **実機E2E**(空きCD-R): 元MP4(AV1 1080p・3.56時間・2GB)→AAC(CD容量いっぱい
+  約397kbps、655MB)→IMAPI2FSでISO(666MB、日本語名保持)→IMAPI2で書き込み、を
+  `windows_imapi::full_flow`(`--ignored`の手動テスト)で実行し**書き込み成功**
+  (221秒)。途中で発見・修正した実バグ: (1) PowerShellの`[ref]`でIStreamを受け取れず
+  書き込みが必ず失敗→C#側`NativeStream.Open`で開いて返す形に修正、(2) ビットレート指定が
+  常に`-b:v`で**音声のみ出力では無視されていた**→`is_audio_only_output`で`-b:a`に、
+  音声専用出力には`-vn`。書き込み後のディスク内容確認は未実施(トレイ排出のため)。
+- **AV1/Opus**(`convert.rs`): 疑似指定`-c:v av1`を、ffmpegの`-encoders`から選んだ
+  libsvtav1(優先)/libaom-av1へ置換(`detect_av1_encoder`)。UIに Opus・AV1+Opus(MKV/WebM)・
+  AV1+AAC(MP4)を追加。実ffmpegでAV1映像+Opus音声を出力して検証。
+- **Dolby/サラウンド**: Dolby Vision/Atmos/Dolby Cinema/IMAX Enhanced/4DXは各社
+  ライセンス制で**新規生成(エンコード)は不可**と明示。対応するのは(1)`-map 0 -c copy`の
+  無変換コピー(DV RPU・Atmos・5.1/7.1保持、ビットレート/解像度/fps指定は付けない)、
+  (2)互換下位形式(HEVC 10bit HDR10〔DVの動的メタデータは落ちる〕、AC-3/E-AC-3)、
+  (3)`probe_media`が`dolby_vision`/`audio_codec`/`audio_channels`/`audio_profile`を返し
+  変換時に検出結果をログ表示。実ffmpegで5.1がE-AC-3変換・無変換コピーで保持されることを検証。
+- **著作権保護(CSS/AACS等)の回避は実装しない**と回答済み(違法となり得るため)。
+  保護なしディスクの取り込みと、保護検出時の日英案内で設計予定(未着手)。
+- 未着手の要望: DVD/BDディスクの取り込み(リッピング、保護なしのみ)→アップコンバート、
+  AI超解像(open-cpu→open-directx→open-cuda→aruaru-llm、tract/ort調査済み)。

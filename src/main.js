@@ -26,6 +26,15 @@ const VIDEO_CODEC_ARGS = {
   avi: ["-c:v", "mpeg4", "-c:a", "libmp3lame"],
   mov: ["-c:v", "libx264", "-c:a", "aac"],
   webm: ["-c:v", "libvpx-vp9", "-c:a", "libopus"],
+  // AV1(2026-09-19新設)。"-c:v av1"は疑似指定で、Rust側が使えるエンコーダ
+  // (libsvtav1優先、無ければlibaom-av1)へ置き換える。出力名は`<名前>.av1.<拡張子>`。
+  "av1-mkv": ["-c:v", "av1", "-c:a", "libopus"],
+  "av1-webm": ["-c:v", "av1", "-c:a", "libopus"],
+  "av1-mp4": ["-c:v", "av1", "-c:a", "aac"],
+  // HEVC 10bit(HDR10互換のベースレイヤー)。音声は無変換でサラウンド/Atmosを保持。
+  "hevc-hdr10-mkv": ["-c:v", "libx265", "-pix_fmt", "yuv420p10le", "-c:a", "copy"],
+  // 全ストリーム無変換コピー(Dolby Vision RPU・Atmos・字幕等を保持)。
+  "passthrough-mkv": ["-map", "0", "-c", "copy"],
 };
 
 const AUDIO_CODEC_ARGS = {
@@ -34,6 +43,9 @@ const AUDIO_CODEC_ARGS = {
   flac: ["-c:a", "flac"],
   aac: ["-c:a", "aac"],
   ogg: ["-c:a", "libvorbis"],
+  opus: ["-c:a", "libopus"],
+  ac3: ["-c:a", "ac3"],
+  eac3: ["-c:a", "eac3"],
 };
 
 function secsToHms(totalSecs) {
@@ -427,6 +439,26 @@ async function resolveFpsSetting(f) {
   return parseInt(preset, 10);
 }
 
+/** 元素材のDolby Vision/Atmos/サラウンドの検出結果をログに出す(1ファイル1回)。 */
+const traitsLogged = new Set();
+async function logSourceTraits(f) {
+  if (traitsLogged.has(f.path)) return;
+  traitsLogged.add(f.path);
+  try {
+    const info = await invoke("probe_media", { path: f.path });
+    const traits = [];
+    if (info.dolby_vision) traits.push("Dolby Vision");
+    if (info.audio_profile && /atmos/i.test(info.audio_profile)) traits.push("Dolby Atmos");
+    else if (info.audio_codec === "truehd") traits.push("TrueHD(Atmosの可能性 / may carry Atmos)");
+    if (info.audio_channels && info.audio_channels > 2) traits.push(`ch サラウンド / surround`);
+    if (traits.length > 0) {
+      log(`検出:  — 。保持するには「無変換コピー」を選択してください。 / Detected: . Choose "Lossless copy" to keep them.`);
+    }
+  } catch (e) {
+    // 検出は参考情報なので失敗しても続行する
+  }
+}
+
 async function convertAll(formats, codecMap, mode, bitrateKbps) {
   const jobs = [];
   for (const format of formats) {
@@ -435,13 +467,15 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
       if (f.path.toLowerCase().endsWith(".pdf")) {
         continue; // PDFは上のPDF見開き変換で個別に処理済み、ffmpeg変換の対象外
       }
-      const outputPath = `${outputFolder}/${baseName(f.path)}.${format}`;
+      const av1Match = /^(av1|hevc-hdr10|passthrough)-(.+)$/.exec(format);
+      const outputPath = av1Match ? `${outputFolder}/${baseName(f.path)}.${av1Match[1]}.${av1Match[2]}` : `${outputFolder}/${baseName(f.path)}.${format}`;
       jobs.push({ outputPath, f, format, codecArgs });
     }
   }
 
   const tasks = jobs.map(({ outputPath, f, format, codecArgs }) => async () => {
     log(`変換中: ${f.path} -> ${outputPath}`);
+    await logSourceTraits(f);
     try {
       // 自動/最高品質モードのビットレートは、元ファイル自身のビットレートを
       // 超えても画質は上がらない(尺が極端に短いと容量逆算が数Gbpsになる、

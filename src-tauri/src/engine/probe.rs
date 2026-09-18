@@ -26,14 +26,20 @@ pub struct MediaInfo {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub fps: Option<f64>,
+    /// 音声ストリームの情報(2026-09-19新設、Dolby Atmos/サラウンド素材の検出用)。
+    pub audio_codec: Option<String>,
+    pub audio_channels: Option<u32>,
+    /// ffprobeの`profile`(例: "Dolby Digital Plus + Dolby Atmos")。
+    pub audio_profile: Option<String>,
+    /// 映像にDolby Vision設定(DOVI configuration record)があるか。
+    pub dolby_vision: bool,
 }
 
 pub fn probe(path: &str) -> Result<MediaInfo, String> {
     match resolve_tool("ffprobe")
         .args([
             "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "format=duration,format_name,bit_rate:stream=width,height,r_frame_rate",
+            "-show_format", "-show_streams",
             "-of", "json",
             path,
         ])
@@ -53,12 +59,20 @@ fn parse_ffprobe_json(stdout: &[u8]) -> Result<MediaInfo, String> {
     let format_name = format["format_name"].as_str().unwrap_or("unknown").to_string();
     let bit_rate = format["bit_rate"].as_str().and_then(|s| s.parse().ok());
 
-    let stream = json["streams"].get(0);
+    let streams = json["streams"].as_array().cloned().unwrap_or_default();
+    let stream = streams.iter().find(|s| s["codec_type"] == "video");
+    let audio = streams.iter().find(|s| s["codec_type"] == "audio");
+    let dolby_vision = stream
+        .and_then(|s| s["side_data_list"].as_array())
+        .is_some_and(|l| l.iter().any(|d| d["side_data_type"].as_str().is_some_and(|t| t.contains("DOVI"))));
+    let audio_codec = audio.and_then(|a| a["codec_name"].as_str()).map(String::from);
+    let audio_channels = audio.and_then(|a| a["channels"].as_u64()).map(|c| c as u32);
+    let audio_profile = audio.and_then(|a| a["profile"].as_str()).map(String::from);
     let width = stream.and_then(|s| s["width"].as_u64()).map(|v| v as u32);
     let height = stream.and_then(|s| s["height"].as_u64()).map(|v| v as u32);
     let fps = stream.and_then(|s| s["r_frame_rate"].as_str()).and_then(parse_frame_rate_fraction);
 
-    Ok(MediaInfo { duration_secs, format_name, bit_rate, width, height, fps })
+    Ok(MediaInfo { duration_secs, format_name, bit_rate, width, height, fps, audio_codec, audio_channels, audio_profile, dolby_vision })
 }
 
 /// ffprobeの`r_frame_rate`(例: `"30000/1001"`や`"25/1"`)を`f64`に変換する。
@@ -99,6 +113,10 @@ fn probe_with_rs_ffmpeg(path: &str) -> Result<MediaInfo, String> {
         width: None,
         height: None,
         fps: None,
+        audio_codec: Some("pcm".to_string()),
+        audio_channels: Some(channels as u32),
+        audio_profile: None,
+        dolby_vision: false,
     })
 }
 

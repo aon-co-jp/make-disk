@@ -33,6 +33,9 @@
           <label><input type="checkbox" name="audio-format" value="flac" /> FLAC</label>
           <label><input type="checkbox" name="audio-format" value="aac" /> AAC (M4A)</label>
           <label><input type="checkbox" name="audio-format" value="ogg" /> OGG (Vorbis)</label>
+          <label><input type="checkbox" name="audio-format" value="opus" /> Opus(高効率・新コーデック / efficient, modern)</label>
+          <label><input type="checkbox" name="audio-format" value="ac3" /> Dolby Digital (AC-3, 5.1)</label>
+          <label><input type="checkbox" name="audio-format" value="eac3" /> Dolby Digital Plus (E-AC-3, 7.1可 / up to 7.1)</label>
         </div>
       </section>
 
@@ -44,11 +47,25 @@
           <label><input type="checkbox" name="video-format" value="avi" /> AVI</label>
           <label><input type="checkbox" name="video-format" value="mov" /> MOV (QuickTime)</label>
           <label><input type="checkbox" name="video-format" value="webm" /> WebM</label>
+          <label><input type="checkbox" name="video-format" value="av1-mkv" /> AV1 + Opus (MKV)</label>
+          <label><input type="checkbox" name="video-format" value="av1-webm" /> AV1 + Opus (WebM)</label>
+          <label><input type="checkbox" name="video-format" value="av1-mp4" /> AV1 + AAC (MP4)</label>
+          <label><input type="checkbox" name="video-format" value="hevc-hdr10-mkv" /> HEVC 10bit HDR10 (MKV、音声は無変換 / audio copied)</label>
+          <label><input type="checkbox" name="video-format" value="passthrough-mkv" /> 無変換コピー(MKV) — Dolby Vision/Atmos/サラウンドをそのまま保持 / Lossless copy, keeps Dolby Vision/Atmos</label>
         </div>
       </section>
 
       <section>
-        <h2>4.2. 解像度・フレームレート(動画) / Resolution &amp; frame rate (video)</h2>
+        <h2>4.1. Dolby/サラウンド対応の範囲 / Dolby &amp; surround support</h2>
+        <p class="hint">
+          Dolby Vision / Dolby Atmos / Dolby Cinema / IMAX Enhanced / 4DX は各社のライセンス制フォーマットで、make-diskがこれらを新規に生成(エンコード)することはできません。代わりに、(1)元素材に含まれるDolby Vision・Atmos・5.1/7.1サラウンドを壊さない「無変換コピー」、(2)互換性のある下位形式(HDR10、Dolby Digital / Digital Plus、AAC/Opusのサラウンド)への変換、(3)元素材の検出結果のログ表示、に対応します。<br />
+          These are licensed formats; make-disk cannot newly encode Dolby Vision / Atmos / IMAX / 4DX. It can (1) losslessly copy existing Dolby Vision / Atmos / surround tracks, (2) convert to compatible lower formats (HDR10, Dolby Digital / Plus, surround AAC/Opus), and (3) report what it detects in the source. HDR10 conversion keeps the base layer; Dolby Vision dynamic metadata is dropped.
+        </p>
+      </section>
+
+      <section>
+        <h2>4.2. 
+解像度・フレームレート(動画) / Resolution &amp; frame rate (video)</h2>
         <p class="hint">
           DVDは通常解像度(720×480)とフルHD、ブルーレイはフルHDと4Kが選べます。
           カスタムで720×480〜5K/8Kまで自由に指定することもできます。<br />

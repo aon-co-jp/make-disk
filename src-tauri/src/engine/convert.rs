@@ -123,6 +123,38 @@ pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
     run_convert_simple(job)
 }
 
+/// 使えるAV1エンコーダを選ぶ(2026-09-19新設)。高速なlibsvtav1が使えればそれを、
+/// 無ければlibaom-av1を、どちらも無ければNone。ffmpegのビルドごとに含まれる
+/// エンコーダが違うため、実際に`-encoders`の一覧を見て判断する。
+fn detect_av1_encoder() -> Option<(&'static str, Vec<&'static str>)> {
+    static CACHE: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+    let name = CACHE.get_or_init(|| {
+        let out = resolve_tool("ffmpeg").args(["-hide_banner", "-encoders"]).output().ok()?;
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        ["libsvtav1", "libaom-av1"].into_iter().find(|e| text.contains(e))
+    });
+    name.map(|n| (n, if n == "libaom-av1" { vec!["-cpu-used", "6", "-row-mt", "1"] } else { vec!["-preset", "8"] }))
+}
+
+/// codec_args内の疑似コーデック`-c:v av1`を、実際に使えるAV1エンコーダへ置き換える。
+fn resolve_av1_codec_args(codec_args: &[String]) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < codec_args.len() {
+        if codec_args[i] == "-c:v" && codec_args.get(i + 1).map(String::as_str) == Some("av1") {
+            let (enc, extra) = detect_av1_encoder().ok_or("このffmpegにはAV1エンコーダ(libsvtav1/libaom-av1)がありません / this ffmpeg build has no AV1 encoder")?;
+            out.push("-c:v".to_string());
+            out.push(enc.to_string());
+            out.extend(extra.into_iter().map(String::from));
+            i += 2;
+        } else {
+            out.push(codec_args[i].clone());
+            i += 1;
+        }
+    }
+    Ok(out)
+}
+
 fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
     let mut args: Vec<String> = Vec::new();
 
@@ -142,10 +174,18 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
         args.push(job.input_path.clone());
     }
 
-    args.extend(job.codec_args.clone());
-    push_bitrate_args(&mut args, &job.bitrate);
-    push_resolution_args(&mut args, &job.resolution);
-    push_fps_args(&mut args, &job.fps);
+    if is_audio_only_output(&job.output_path) {
+        args.push("-vn".into()); // 動画入力から音声だけを取り出す場合に映像ストリームを含めない
+    }
+    args.extend(resolve_av1_codec_args(&job.codec_args)?);
+    if codec_args_are_stream_copy(&job.codec_args) {
+        // 無変換コピー(Dolby Vision/Atmos等の保持)では、再エンコード系の指定
+        // (ビットレート・拡縮・fps)は矛盾するので付けない。
+    } else {
+        push_bitrate_args(&mut args, &job.bitrate, &job.output_path);
+        push_resolution_args(&mut args, &job.resolution);
+        push_fps_args(&mut args, &job.fps);
+    }
 
     args.push("-y".into());
     args.push(job.output_path.clone());
@@ -249,8 +289,14 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
         concat_args.push("-c".into());
         concat_args.push("copy".into());
     } else {
-        concat_args.extend(job.codec_args.clone());
-        push_bitrate_args(&mut concat_args, &job.bitrate);
+        match resolve_av1_codec_args(&job.codec_args) {
+            Ok(a) => concat_args.extend(a),
+            Err(e) => {
+                cleanup(&tmp_dir);
+                return Err(e);
+            }
+        }
+        push_bitrate_args(&mut concat_args, &job.bitrate, &job.output_path);
         push_resolution_args(&mut concat_args, &job.resolution);
         push_fps_args(&mut concat_args, &job.fps);
     }
@@ -300,10 +346,23 @@ fn hw_encoder_actually_works(encoder: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn push_bitrate_args(args: &mut Vec<String>, bitrate: &Option<BitrateMode>) {
+/// `-c copy`(全ストリーム無変換コピー)指定か。Dolby Vision/Atmos等を壊さず保持するモード。
+fn codec_args_are_stream_copy(codec_args: &[String]) -> bool {
+    codec_args.windows(2).any(|w| w[0] == "-c" && w[1] == "copy")
+}
+
+/// 出力が音声専用のコンテナ/拡張子か。
+fn is_audio_only_output(output_path: &str) -> bool {
+    let ext = std::path::Path::new(output_path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    matches!(ext.as_str(), "mp3" | "wav" | "flac" | "aac" | "m4a" | "ogg" | "opus" | "ac3" | "eac3" | "mka")
+}
+
+/// ビットレート指定を追加する。音声専用出力には`-b:a`、動画には`-b:v`を使う
+/// (以前は常に`-b:v`で、音声のみの出力ではビットレート指定が無視されていた実バグ)。
+fn push_bitrate_args(args: &mut Vec<String>, bitrate: &Option<BitrateMode>, output_path: &str) {
     match bitrate {
         Some(BitrateMode::Fixed(kbps)) | Some(BitrateMode::AutoMaxForCapacity(kbps)) => {
-            args.push("-b:v".into());
+            args.push(if is_audio_only_output(output_path) { "-b:a" } else { "-b:v" }.into());
             args.push(format!("{kbps}k"));
         }
         None => {}
@@ -770,6 +829,134 @@ mod tests {
 
         assert_eq!((width, height), (1920, 1080), "指定した解像度(1920x1080)に変換されているはず");
         assert!((fps - 30.0).abs() < 0.1, "指定したフレームレート(30fps)に変換されているはず、実際: {fps}");
+    }
+
+    #[test]
+    fn real_ffmpeg_applies_audio_bitrate_to_audio_only_output() {
+        if !ffmpeg_available() {
+            eprintln!("ffmpegが見つからないためスキップ");
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_abr_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let source = make_test_video_with_audio(&tmp, "src.mp4", 6);
+        let output = tmp.join("out.mp3");
+        let job = ConvertJob {
+            input_path: source.to_string_lossy().to_string(),
+            output_path: output.to_string_lossy().to_string(),
+            codec_args: vec!["-c:a".into(), "libmp3lame".into()],
+            bitrate: Some(BitrateMode::Fixed(64)),
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: None,
+            fps: None,
+        };
+        run_convert(&job).expect("audio-only conversion from a video input should succeed");
+        let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=bit_rate", "-of", "default=nw=1:nk=1", output.to_str().unwrap()]).output().unwrap();
+        let kbps: f64 = String::from_utf8_lossy(&out.stdout).trim().parse::<f64>().unwrap() / 1000.0;
+        let _ = fs::remove_dir_all(&tmp);
+        assert!((kbps - 64.0).abs() < 8.0, "指定した64kbpsが音声出力に効いているはず(実際: {kbps} kbps)");
+    }
+
+    #[test]
+    fn real_ffmpeg_encodes_av1_video_with_opus_audio() {
+        if !ffmpeg_available() || detect_av1_encoder().is_none() {
+            eprintln!("ffmpegまたはAV1エンコーダが無いためスキップ");
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_av1_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let source = make_test_video_with_audio(&tmp, "src.mp4", 2);
+        let output = tmp.join("out.webm");
+        let job = ConvertJob {
+            input_path: source.to_string_lossy().to_string(),
+            output_path: output.to_string_lossy().to_string(),
+            codec_args: vec!["-c:v".into(), "av1".into(), "-c:a".into(), "libopus".into()],
+            bitrate: Some(BitrateMode::Fixed(200)),
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: None,
+            fps: None,
+        };
+        run_convert(&job).expect("AV1+Opus conversion should succeed");
+        let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
+        let codecs = String::from_utf8_lossy(&out.stdout).to_string();
+        let _ = fs::remove_dir_all(&tmp);
+        assert!(codecs.contains("av1") && codecs.contains("opus"), "出力はAV1+Opusのはず(実際: {codecs})");
+    }
+
+    #[test]
+    fn real_ffmpeg_encodes_opus_audio_only() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_opus_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let source = make_test_video_with_audio(&tmp, "src.mp4", 3);
+        let output = tmp.join("out.opus");
+        let job = ConvertJob {
+            input_path: source.to_string_lossy().to_string(),
+            output_path: output.to_string_lossy().to_string(),
+            codec_args: vec!["-c:a".into(), "libopus".into()],
+            bitrate: Some(BitrateMode::Fixed(96)),
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: None,
+            fps: None,
+        };
+        run_convert(&job).expect("Opus conversion should succeed");
+        let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
+        let codecs = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let _ = fs::remove_dir_all(&tmp);
+        assert_eq!(codecs, "opus");
+    }
+
+    fn make_surround_video(dir: &Path, name: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        let st = Command::new("ffmpeg")
+            .args(["-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=320x240:rate=10", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-filter_complex", "[1:a]pan=5.1|c0=c0|c1=c0|c2=c0|c3=c0|c4=c0|c5=c0[a]", "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "ac3", path.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(st.status.success(), "{}", String::from_utf8_lossy(&st.stderr));
+        path
+    }
+
+    #[test]
+    fn real_ffmpeg_preserves_surround_with_eac3_and_stream_copy() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_surround_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let source = make_surround_video(&tmp, "src.mkv");
+        let mk = |out: &Path, codec: Vec<&str>| ConvertJob {
+            input_path: source.to_string_lossy().to_string(),
+            output_path: out.to_string_lossy().to_string(),
+            codec_args: codec.into_iter().map(String::from).collect(),
+            bitrate: Some(BitrateMode::Fixed(500)),
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: Some(Resolution { width: 640, height: 480 }),
+            fps: Some(30),
+        };
+        let channels = |p: &Path| -> String {
+            let o = Command::new("ffprobe").args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels,codec_name", "-of", "csv=p=0", p.to_str().unwrap()]).output().unwrap();
+            String::from_utf8_lossy(&o.stdout).trim().to_string()
+        };
+        let eac3 = tmp.join("out.eac3");
+        run_convert(&mk(&eac3, vec!["-c:a", "eac3"])).expect("E-AC-3");
+        let copy = tmp.join("out.mkv");
+        run_convert(&mk(&copy, vec!["-map", "0", "-c", "copy"])).expect("stream copy must ignore bitrate/resolution/fps");
+        let (e, c) = (channels(&eac3), channels(&copy));
+        let dims = probe_video_dimensions_and_fps(&copy);
+        let _ = fs::remove_dir_all(&tmp);
+        assert_eq!(e, "eac3,6", "E-AC-3は5.1を保持するはず");
+        assert_eq!(c, "ac3,6", "無変換コピーは音声コーデックとチャンネル数をそのまま保持するはず");
+        assert_eq!((dims.0, dims.1), (320, 240), "無変換コピーでは解像度指定は適用されず元のまま");
     }
 
     #[test]
