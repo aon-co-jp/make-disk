@@ -22,6 +22,12 @@
 use crate::engine::sidecar::resolve_tool;
 
 pub fn create_iso(source_dir: &str, output_iso: &str, volume_label: &str) -> Result<(), String> {
+    // Windowsでは標準のIMAPI2FSを優先する(Unicodeファイル名を保持できる。
+    // rs-xorrisoは非ASCII名を8.3へ潰す)。失敗時のみ従来のxorriso系へ。
+    #[cfg(windows)]
+    if crate::engine::windows_imapi::create_iso(source_dir, output_iso, volume_label).is_ok() {
+        return Ok(());
+    }
     let build_args = || -> Vec<String> {
         ["-as", "mkisofs", "-iso-level", "3", "-J", "-R", "-V", volume_label, "-o", output_iso, source_dir]
             .iter()

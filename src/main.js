@@ -443,6 +443,24 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
   const tasks = jobs.map(({ outputPath, f, format, codecArgs }) => async () => {
     log(`変換中: ${f.path} -> ${outputPath}`);
     try {
+      // 自動/最高品質モードのビットレートは、元ファイル自身のビットレートを
+      // 超えても画質は上がらない(尺が極端に短いと容量逆算が数Gbpsになる、
+      // 実機で「10003421 kbps」を確認)ため、元のビットレートで頭打ちにする。
+      let effectiveBitrateKbps = bitrateKbps;
+      if ((mode === "auto" || mode === "max_quality") && format !== "wav" && format !== "flac") {
+        try {
+          const srcInfo = await invoke("probe_media", { path: f.path });
+          if (srcInfo.bit_rate) {
+            const srcKbps = Math.floor(srcInfo.bit_rate / 1000);
+            if (srcKbps > 0 && srcKbps < effectiveBitrateKbps) {
+              log(`ビットレートを元ファイルの${srcKbps} kbpsに制限しました(${effectiveBitrateKbps} kbpsは元より高く無意味なため)。 / Capped bitrate at the source's ${srcKbps} kbps.`);
+              effectiveBitrateKbps = srcKbps;
+            }
+          }
+        } catch (e) {
+          log(`警告: 元ファイルのビットレート取得に失敗(${f.path}): ${e}`);
+        }
+      }
       const isVideo = format in VIDEO_CODEC_ARGS;
       const resolution = isVideo ? await resolveResolutionSetting(f) : null;
       const fps = isVideo ? await resolveFpsSetting(f) : null;
@@ -451,7 +469,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           input_path: f.path,
           output_path: outputPath,
           codec_args: codecArgs,
-          bitrate: format === "wav" || format === "flac" ? null : { [mode === "auto" || mode === "max_quality" ? "auto_max_for_capacity" : "fixed"]: bitrateKbps },
+          bitrate: format === "wav" || format === "flac" ? null : { [mode === "auto" || mode === "max_quality" ? "auto_max_for_capacity" : "fixed"]: effectiveBitrateKbps },
           trim: null,
           cut_ranges: f.cutRanges.length > 0 ? f.cutRanges.map((r) => ({ start_secs: r.startSecs, end_secs: r.endSecs })) : null,
           frame_accurate: f.frameAccurate,
