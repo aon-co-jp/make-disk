@@ -77,6 +77,43 @@ pub struct ConvertJob {
     /// への対応。`None`(「不明」=元のフレームレートのまま)なら無変換。
     #[serde(default)]
     pub fps: Option<u32>,
+    /// AIノイズ除去(2026-09-19新設)。本物のニューラルネット(RNNoise、ffmpegの
+    /// `arnndn`フィルタ)で音声のノイズを低減する。`None`なら無効。
+    #[serde(default)]
+    pub ai_denoise: Option<AiDenoise>,
+}
+
+/// AIノイズ除去の設定。`mix`は原音とのブレンド(-1.0〜1.0、1.0で完全適用、
+/// 負値は除去した「ノイズ成分」側)。RNNoiseは主に音声で学習されたモデルで、
+/// 音楽では効果が控えめ・高域が鈍る場合があるため、既定は弱め。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiDenoise {
+    pub mix: f32,
+}
+
+/// 同梱のRNNoise学習済みモデル(GregorR/rnnoise-models の marathon-prescription、
+/// 作者が「著作権の対象外」と明記)。バイナリへ埋め込み、使用時に一時ファイルへ書き出す
+/// (ffmpegの`arnndn`はファイルパスを要求するため。Tauriのリソース配置に依存せず
+/// 全OSで同じ動作にできる)。
+static RNNOISE_MODEL: &[u8] = include_bytes!("../../models/rnnoise-general.rnnn");
+
+fn rnnoise_model_path() -> Result<std::path::PathBuf, String> {
+    let path = std::env::temp_dir().join(format!("make-disk-rnnoise-general-{}.rnnn", RNNOISE_MODEL.len()));
+    if fs::metadata(&path).map(|m| m.len() as usize).ok() != Some(RNNOISE_MODEL.len()) {
+        fs::write(&path, RNNOISE_MODEL).map_err(|e| format!("AIモデルの展開に失敗しました: {e}"))?;
+    }
+    Ok(path)
+}
+
+/// `-af arnndn=...`を追加する。フィルタ文字列内のパスでは`:`をバックスラッシュで
+/// エスケープする必要があり、`\`はパス区切りと紛らわしいため`/`へ置き換える。
+fn push_ai_denoise_args(args: &mut Vec<String>, denoise: &Option<AiDenoise>) -> Result<(), String> {
+    if let Some(d) = denoise {
+        let p = rnnoise_model_path()?.to_string_lossy().replace('\\', "/").replace(':', "\\\\:");
+        args.push("-af".into());
+        args.push(format!("arnndn=m={p}:mix={}", d.mix.clamp(-1.0, 1.0)));
+    }
+    Ok(())
 }
 
 /// 出力動画の解像度(幅×高さ、ピクセル)。
@@ -185,6 +222,7 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
         push_bitrate_args(&mut args, &job.bitrate, &job.output_path);
         push_resolution_args(&mut args, &job.resolution);
         push_fps_args(&mut args, &job.fps);
+        push_ai_denoise_args(&mut args, &job.ai_denoise)?;
     }
 
     args.push("-y".into());
@@ -285,7 +323,7 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
     // フォーマット変換・ビットレート・解像度・フレームレートいずれの
     // 指定も無ければ、結合も-c copyで完全に再エンコード無しにする
     // (最速・無劣化)。
-    if job.codec_args.is_empty() && job.bitrate.is_none() && job.resolution.is_none() && job.fps.is_none() {
+    if job.codec_args.is_empty() && job.bitrate.is_none() && job.resolution.is_none() && job.fps.is_none() && job.ai_denoise.is_none() {
         concat_args.push("-c".into());
         concat_args.push("copy".into());
     } else {
@@ -299,6 +337,10 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
         push_bitrate_args(&mut concat_args, &job.bitrate, &job.output_path);
         push_resolution_args(&mut concat_args, &job.resolution);
         push_fps_args(&mut concat_args, &job.fps);
+        if let Err(e) = push_ai_denoise_args(&mut concat_args, &job.ai_denoise) {
+            cleanup(&tmp_dir);
+            return Err(e);
+        }
     }
 
     concat_args.push("-y".into());
@@ -742,6 +784,7 @@ mod tests {
             frame_accurate: false,
             resolution: None,
             fps: None,
+            ai_denoise: None,
         };
 
         run_convert(&job).expect("run_convert with cut_ranges should succeed");
@@ -783,6 +826,7 @@ mod tests {
             frame_accurate: true,
             resolution: None,
             fps: None,
+            ai_denoise: None,
         };
 
         run_convert(&job).expect("run_convert with frame_accurate should succeed");
@@ -820,6 +864,7 @@ mod tests {
             frame_accurate: false,
             resolution: Some(Resolution { width: 1920, height: 1080 }),
             fps: Some(30),
+            ai_denoise: None,
         };
 
         run_convert(&job).expect("run_convert with resolution/fps should succeed");
@@ -851,6 +896,7 @@ mod tests {
             frame_accurate: false,
             resolution: None,
             fps: None,
+            ai_denoise: None,
         };
         run_convert(&job).expect("audio-only conversion from a video input should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=bit_rate", "-of", "default=nw=1:nk=1", output.to_str().unwrap()]).output().unwrap();
@@ -879,6 +925,7 @@ mod tests {
             frame_accurate: false,
             resolution: None,
             fps: None,
+            ai_denoise: None,
         };
         run_convert(&job).expect("AV1+Opus conversion should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
@@ -906,6 +953,7 @@ mod tests {
             frame_accurate: false,
             resolution: None,
             fps: None,
+            ai_denoise: None,
         };
         run_convert(&job).expect("Opus conversion should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
@@ -942,6 +990,7 @@ mod tests {
             frame_accurate: false,
             resolution: Some(Resolution { width: 640, height: 480 }),
             fps: Some(30),
+            ai_denoise: None,
         };
         let channels = |p: &Path| -> String {
             let o = Command::new("ffprobe").args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels,codec_name", "-of", "csv=p=0", p.to_str().unwrap()]).output().unwrap();
@@ -957,6 +1006,43 @@ mod tests {
         assert_eq!(e, "eac3,6", "E-AC-3は5.1を保持するはず");
         assert_eq!(c, "ac3,6", "無変換コピーは音声コーデックとチャンネル数をそのまま保持するはず");
         assert_eq!((dims.0, dims.1), (320, 240), "無変換コピーでは解像度指定は適用されず元のまま");
+    }
+
+    fn mean_volume_db(path: &Path) -> f64 {
+        let o = Command::new("ffmpeg").args(["-hide_banner", "-i", path.to_str().unwrap(), "-af", "volumedetect", "-f", "null", "-"]).output().unwrap();
+        let text = String::from_utf8_lossy(&o.stderr).to_string();
+        let line = text.lines().find(|l| l.contains("mean_volume")).expect("mean_volume line");
+        line.split("mean_volume:").nth(1).unwrap().trim().trim_end_matches(" dB").trim().parse().unwrap()
+    }
+
+    #[test]
+    fn real_ffmpeg_ai_denoise_reduces_noise_with_the_rnnoise_model() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_denoise_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        // ホワイトノイズのみの音声(4秒)。ノイズ除去なら大きく下がるはず。
+        let noisy = tmp.join("noise.wav");
+        let st = Command::new("ffmpeg").args(["-y", "-f", "lavfi", "-i", "anoisesrc=d=4:c=white:a=0.3:r=48000", noisy.to_str().unwrap()]).output().unwrap();
+        assert!(st.status.success());
+        let out = tmp.join("clean.wav");
+        let job = ConvertJob {
+            input_path: noisy.to_string_lossy().to_string(),
+            output_path: out.to_string_lossy().to_string(),
+            codec_args: vec!["-c:a".into(), "pcm_s16le".into()],
+            bitrate: None,
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: None,
+            fps: None,
+            ai_denoise: Some(AiDenoise { mix: 1.0 }),
+        };
+        run_convert(&job).expect("AI denoise conversion should succeed");
+        let (before, after) = (mean_volume_db(&noisy), mean_volume_db(&out));
+        let _ = fs::remove_dir_all(&tmp);
+        assert!(after < before - 6.0, "RNNoiseでノイズが6dB以上下がるはず(前: {before} dB, 後: {after} dB)");
     }
 
     #[test]

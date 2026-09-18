@@ -40,7 +40,19 @@
       </section>
 
       <section>
-        <h2>4. 動画フォーマットへ変換(複数選択可)</h2>
+        <h2>3.5. AIノイズ除去(音声) / AI noise reduction (audio)</h2>
+        <label><input type="checkbox" id="ai-denoise" /> AIでノイズを低減する(本物のニューラルネット RNNoise を使用) / Reduce noise with a real neural network (RNNoise)</label>
+        <br />
+        <label>強さ / Strength: <input id="ai-denoise-mix" type="range" min="0.1" max="1" step="0.1" value="0.6" /> <span id="ai-denoise-mix-label">0.6</span></label>
+        <p class="hint">
+          ※これは実際の学習済みAIモデル(RNNoise、リカレントニューラルネットワーク、CPUで動作)による処理で、これまでの「AI最適化」のような簡易ヒューリスティックではありません。ただしRNNoiseは主に人の声で学習されたモデルのため、音楽では効果が控えめで高域がやや鈍る場合があります。強さを下げると原音に近くなります。音声の超解像(高音質化)モデルは未実装です。<br />
+          This uses a real trained neural network (RNNoise, a recurrent network, runs on the CPU) — not a heuristic like the earlier "AI-optimized" options. It is trained mainly on speech, so on music the effect is modest and highs may dull slightly; lower the strength to stay closer to the original. Audio super-resolution is not implemented yet.
+        </p>
+      </section>
+
+      <section>
+        <h2>4. 動画フォーマットへ変換
+(複数選択可)</h2>
         <div class="checkbox-grid">
           <label><input type="checkbox" name="video-format" value="mp4" /> MP4 (H.264/AAC)</label>
           <label><input type="checkbox" name="video-format" value="mkv" /> MKV</label>

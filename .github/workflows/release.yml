@@ -76,6 +76,8 @@ jobs:
       - name: fetch ffmpeg/ffprobe sidecar binaries
         if: matrix.platform == 'windows-latest' || matrix.platform == 'ubuntu-22.04'
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/fetch-ffmpeg-sidecars.sh
 
       # 2026-09-16追加: 姉妹Rustリスペクト版(rs-FFmpeg/rs-xorriso、MIT

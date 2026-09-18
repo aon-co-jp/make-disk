@@ -1004,3 +1004,22 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
   保護なしディスクの取り込みと、保護検出時の日英案内で設計予定(未着手)。
 - 未着手の要望: DVD/BDディスクの取り込み(リッピング、保護なしのみ)→アップコンバート、
   AI超解像(open-cpu→open-directx→open-cuda→aruaru-llm、tract/ort調査済み)。
+
+## HANDOFF追記(2026-09-19続き3) AIノイズ除去(本物のRNNoise)・CI取得スクリプト修正、v0.1.20 / Real-model AI denoise + CI fetch fix, v0.1.20
+
+- **v0.1.19はWindowsジョブがCIで失敗**(ubuntu/mac aarch64のみ成功、リリースは不完全)。
+  原因: `fetch-ffmpeg-sidecars.sh`が未認証でGitHub APIを呼び、共有IPのレート制限で
+  応答が空→`grep`失敗→`set -e`でメッセージ無しのexit 1。修正: `GITHUB_TOKEN`で認証
+  (`release.yml`のステップにenv追加)、5回リトライ、失敗時はAPI応答を表示。**v0.1.20で出し直す**。
+- **AIノイズ除去(ユーザー指示「ヒューリスティックではなく本物のAIモデルで」)**:
+  `ConvertJob.ai_denoise{mix}`→ffmpegの`arnndn`(RNNoise、リカレントNN、CPU動作)。
+  モデルは`src-tauri/models/rnnoise-general.rnnn`(GregorR/rnnoise-models
+  marathon-prescription、作者が「著作権対象外」と明記)を`include_bytes!`で埋め込み、
+  使用時に一時ファイルへ展開(Tauriのリソース配置に依存しない)。Windowsのパスは
+  フィルタ記述で`\:`の二重エスケープが必要(実際に踏んだ)。実ffmpeg+実モデルで
+  ホワイトノイズが6dB以上低下することを検証。UIは「3.5 AIノイズ除去」+強さ。
+  **正直な開示**: RNNoiseは主に音声で学習されており、音楽では効果が控えめで高域が
+  鈍ることがある。**音声の超解像(高音質化)モデルは未実装**(要モデル選定:
+  重い拡散系が多くCPUで数時間素材は非現実的)。
+- 未着手: BD/DVD(保護なし)の取り込み→CD化、本物のAI映像超解像、音楽CD(CD-DA)書き込み
+  (現状はデータCD。CD-DAはIMAPI2のTrackAtOnceが別途必要)。

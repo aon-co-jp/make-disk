@@ -31,11 +31,22 @@ esac
 # なっているらしくエイリアスが機能しないケースがある)。そのため
 # GitHub APIで最新リリースの実際のアセットURLを解決してから
 # ダウンロードする。
-LATEST_RELEASE_JSON=$(curl -sL "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest")
+# 未認証のGitHub APIはCIランナーの共有IPでレート制限されることがある(v0.1.19で
+# 実際に発生: 応答が空になりgrepが失敗、メッセージ無しでexit 1)。GITHUB_TOKENがあれば
+# 認証し、失敗時は数回リトライして、原因が分かるメッセージを出す。
+AUTH_ARGS=()
+if [ -n "${GITHUB_TOKEN:-}" ]; then AUTH_ARGS=(-H "Authorization: Bearer $GITHUB_TOKEN"); fi
+LATEST_RELEASE_JSON=""
+for attempt in 1 2 3 4 5; do
+  LATEST_RELEASE_JSON=$(curl -sL "${AUTH_ARGS[@]}" "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest" || true)
+  if echo "$LATEST_RELEASE_JSON" | grep -q browser_download_url; then break; fi
+  echo "fetch-ffmpeg-sidecars.sh: GitHub API attempt $attempt failed: $(echo "$LATEST_RELEASE_JSON" | head -c 300)" >&2
+  sleep $((attempt * 5))
+done
 
 if [ "$OS" = windows ]; then
   TARGET_TRIPLE="x86_64-pc-windows-msvc"
-  ARCHIVE_URL=$(echo "$LATEST_RELEASE_JSON" | grep -o '"browser_download_url": *"[^"]*win64-gpl\.zip"' | head -1 | sed -E 's/.*"(https[^"]+)"/\1/')
+  ARCHIVE_URL=$(echo "$LATEST_RELEASE_JSON" | grep -o '"browser_download_url": *"[^"]*win64-gpl\.zip"' | head -1 | sed -E 's/.*"(https[^"]+)"/\1/' || true)
   if [ -z "$ARCHIVE_URL" ]; then
     echo "fetch-ffmpeg-sidecars.sh: failed to resolve the win64-gpl.zip asset URL from BtbN/FFmpeg-Builds latest release" >&2
     exit 1
@@ -52,7 +63,7 @@ if [ "$OS" = windows ]; then
   cp "$FFPROBE_SRC" "$BIN_DIR/ffprobe-${TARGET_TRIPLE}.exe"
 else
   TARGET_TRIPLE="x86_64-unknown-linux-gnu"
-  ARCHIVE_URL=$(echo "$LATEST_RELEASE_JSON" | grep -o '"browser_download_url": *"[^"]*linux64-gpl\.tar\.xz"' | head -1 | sed -E 's/.*"(https[^"]+)"/\1/')
+  ARCHIVE_URL=$(echo "$LATEST_RELEASE_JSON" | grep -o '"browser_download_url": *"[^"]*linux64-gpl\.tar\.xz"' | head -1 | sed -E 's/.*"(https[^"]+)"/\1/' || true)
   if [ -z "$ARCHIVE_URL" ]; then
     echo "fetch-ffmpeg-sidecars.sh: failed to resolve the linux64-gpl.tar.xz asset URL from BtbN/FFmpeg-Builds latest release" >&2
     exit 1

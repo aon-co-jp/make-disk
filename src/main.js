@@ -509,6 +509,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           frame_accurate: f.frameAccurate,
           resolution,
           fps,
+          ai_denoise: document.getElementById("ai-denoise").checked && format !== "passthrough-mkv" ? { mix: parseFloat(document.getElementById("ai-denoise-mix").value) } : null,
         },
       });
       log(`完了: ${outputPath}`);
@@ -522,6 +523,10 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
   const results = await runWithConcurrencyLimit(tasks, conversionConcurrency());
   return results.filter((p) => p !== null);
 }
+
+document.getElementById("ai-denoise-mix").addEventListener("input", (e) => {
+  document.getElementById("ai-denoise-mix-label").textContent = e.target.value;
+});
 
 document.getElementById("resolution-preset").addEventListener("change", (e) => {
   document.getElementById("resolution-custom-inputs").hidden = e.target.value !== "custom";
