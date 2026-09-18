@@ -103,3 +103,52 @@ mod tests {
         assert!(err.contains("Z:") || !err.is_empty());
     }
 }
+
+#[cfg(test)]
+mod full_flow {
+    use crate::engine::{burn, capacity::{self, DiscType}, convert::{self, BitrateMode, ConvertJob}, iso, probe};
+
+    /// 手動E2E(`--ignored`): MP4→(CD容量いっぱいの音声)→ISO→書き込み。
+    /// GUIの実行ボタンと同じバックエンド関数を同じ順に呼ぶ。
+    /// 環境変数: MAKE_DISK_E2E_SRC(元動画)、MAKE_DISK_E2E_OUT(空の出力フォルダ)。
+    #[test]
+    #[ignore]
+    fn mp4_to_full_cd_iso_and_burn() {
+        let src = std::env::var("MAKE_DISK_E2E_SRC").expect("MAKE_DISK_E2E_SRC");
+        let out = std::env::var("MAKE_DISK_E2E_OUT").expect("MAKE_DISK_E2E_OUT");
+        std::fs::create_dir_all(&out).unwrap();
+
+        let info = probe::probe(&src).expect("probe");
+        eprintln!("source duration: {:.1}s", info.duration_secs);
+        let kbps = capacity::max_bitrate_for_capacity(DiscType::Cd700, info.duration_secs, 50 * 1024 * 1024) / 1000;
+        eprintln!("disc-full audio bitrate: {kbps} kbps");
+
+        let stem = std::path::Path::new(&src).file_stem().unwrap().to_string_lossy().to_string();
+        let audio = format!("{out}/{stem}.aac");
+        convert::run_convert(&ConvertJob {
+            input_path: src.clone(),
+            output_path: audio.clone(),
+            codec_args: vec!["-c:a".into(), "aac".into()],
+            bitrate: Some(BitrateMode::AutoMaxForCapacity(kbps)),
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: None,
+            fps: None,
+        })
+        .expect("convert");
+        let audio_bytes = std::fs::metadata(&audio).unwrap().len();
+        eprintln!("audio size: {} MB", audio_bytes / 1_000_000);
+
+        let iso_path = format!("{out}/output.iso");
+        iso::create_iso(&out, &iso_path, "MAKE_DISK").expect("create_iso");
+        let iso_bytes = std::fs::metadata(&iso_path).unwrap().len();
+        eprintln!("iso size: {} MB", iso_bytes / 1_000_000);
+        assert!(iso_bytes < 703_000_000, "ISO must fit a 700MB CD");
+
+        let drives = burn::list_devices().expect("list_devices");
+        eprintln!("drives: {drives:?}");
+        burn::burn_image(&iso_path, &drives[0], DiscType::Cd700, burn::WriteSpeed::Auto).expect("burn");
+        eprintln!("BURN OK");
+    }
+}

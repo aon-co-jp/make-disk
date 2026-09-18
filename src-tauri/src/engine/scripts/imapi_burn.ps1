@@ -4,7 +4,8 @@ Add-Type -TypeDefinition @"
 using System; using System.Runtime.InteropServices; using System.Runtime.InteropServices.ComTypes;
 public static class NativeStream {
   [DllImport("shlwapi.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
-  public static extern void SHCreateStreamOnFileEx(string path, uint mode, uint attrs, [MarshalAs(UnmanagedType.Bool)] bool create, IntPtr templ, out IStream stream);
+  private static extern void SHCreateStreamOnFileEx(string path, uint mode, uint attrs, [MarshalAs(UnmanagedType.Bool)] bool create, IntPtr templ, out IStream stream);
+  public static IStream Open(string path) { IStream s; SHCreateStreamOnFileEx(path, 0, 0x80, false, IntPtr.Zero, out s); return s; }
 }
 "@
 try {
@@ -23,8 +24,7 @@ try {
   if (-not $fmt.IsCurrentMediaSupported($recorder)) { throw "no writable blank media is loaded (or the media is not supported/already written)" }
   if (-not $fmt.MediaHeuristicallyBlank) { throw "the loaded disc is not blank" }
   $fmt.ForceMediaToBeClosed = $true
-  [System.Runtime.InteropServices.ComTypes.IStream]$stream = $null
-  [NativeStream]::SHCreateStreamOnFileEx($IsoPath, 0, 0x80, $false, [IntPtr]::Zero, [ref]$stream)
+  $stream = [NativeStream]::Open($IsoPath)
   $fmt.Write($stream)
   $recorder.EjectMedia()
   Write-Output "burn-ok"
