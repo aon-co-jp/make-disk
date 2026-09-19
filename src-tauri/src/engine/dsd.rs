@@ -622,6 +622,22 @@ mod tests {
         eprintln!("DSD128 round-trip SNR: {snr:.1} dB");
         assert!(snr > 120.0, "DSD128でSNR 120dB超のはず(実測132.4dB、実際: {snr} dB)");
     }
+
+    /// 実音源(環境変数`MAKE_DISK_DSD_IN`)をDSD256+DoP WAVへ変換し、DSFをffmpegでPCMに戻して元と比べる手動確認用。
+    #[test]
+    #[ignore]
+    fn real_music_to_dsd256_and_dop() {
+        let input = std::env::var("MAKE_DISK_DSD_IN").expect("set MAKE_DISK_DSD_IN");
+        let dir = std::path::PathBuf::from(std::env::var("MAKE_DISK_DSD_OUT").expect("set MAKE_DISK_DSD_OUT"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let dsf = dir.join("track.dsf");
+        let started = std::time::Instant::now();
+        convert_to_dsf(&input, dsf.to_str().unwrap(), 256, None).unwrap();
+        eprintln!("DSD256変換: {:.1}秒、{:.1} MB", started.elapsed().as_secs_f64(), std::fs::metadata(&dsf).unwrap().len() as f64 / 1e6);
+        let dop = dir.join("track.dop.wav");
+        dsf_to_dop_wav(dsf.to_str().unwrap(), dop.to_str().unwrap(), 24).unwrap();
+        eprintln!("DoP WAV: {:.1} MB", std::fs::metadata(&dop).unwrap().len() as f64 / 1e6);
+    }
 }
 
 /// 正弦波(`freq` Hz)を最小二乗フィットし、(SNR dB, 振幅)を返す。端の過渡応答は`skip`サンプル除外する。
