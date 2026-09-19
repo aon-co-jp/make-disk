@@ -552,6 +552,9 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
   }
 
   const tasks = jobs.map(({ outputPath, f, format, codecArgs }) => async () => {
+    // (ジョブ生成ループ内の定数はここでは見えないため、formatから再度判定する)
+    const dsdMatch = /^dsd(\d+)$/.exec(format);
+    const hiresMatch = /^(dxd352|pcm\d+_\d+)$/.exec(format);
     log(`変換中: ${f.path} -> ${outputPath}`);
     await logSourceTraits(f);
     try {
@@ -959,6 +962,9 @@ document.getElementById("run-btn").addEventListener("click", async () => {
       }
     }
   }
+
+  // どの形式が選択されているかを実行前に必ず表示する(プリセットボタン等で意図せず選択されていた場合に気づけるように)。
+  log(`選択中の出力形式 / Selected formats: 音声=${audioFormats.join(", ") || "なし"} / 動画=${videoFormats.join(", ") || "なし"}`);
 
   // 音声変換・動画変換もお互いを待たず並行して進める(2026-09-16変更、
   // 「MP4をWAVに変換しつつISO化」のような組み合わせも含め、全体として
