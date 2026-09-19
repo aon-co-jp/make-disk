@@ -138,6 +138,8 @@ mod full_flow {
             ai_denoise: None,
             dsd_rate: None,
             dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
             ai_upscale: None,
             audio_bwe: None,
         })

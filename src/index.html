@@ -120,6 +120,20 @@
       </section>
 
       <section>
+        <h2>4.4. MKVの複数音声・字幕トラック / MKV multiple audio &amp; subtitle tracks</h2>
+        <p class="hint">
+          MKVは、1つのファイルに複数の音声(日本語・英語・解説音声など)と字幕をまとめて入れられます。出力がMKVのときだけ働きます。<br />
+          MKV can hold several audio tracks (e.g. Japanese, English, commentary) and subtitles in one file. This applies to MKV output only.
+        </p>
+        <label><input type="checkbox" id="mkv-keep-all" checked /> 元ファイルの全ての音声・字幕・添付を残す / Keep all audio, subtitle and attachment tracks of the source</label>
+        <br />
+        <button id="mkv-add-audio-btn" type="button">音声トラックを追加... / Add audio track...</button>
+        <button id="mkv-add-sub-btn" type="button">字幕トラックを追加... / Add subtitle track...</button>
+        <ul id="mkv-extra-list"></ul>
+        <p class="hint">追加したトラックは、ソース一覧の先頭のファイルのMKV出力に加わります。言語はISOの3文字コード(日本語=jpn、英語=eng、フランス語=fra など)、タイトルは自由(例: 監督解説)。字幕は再エンコードせず、そのまま入ります。MP4など、MKV以外の出力では複数字幕を持てないため無視されます。 / Added tracks are muxed into the MKV output of the first source file. Language is a 3-letter ISO code (jpn, eng, fra ...); the title is free text. Subtitles are copied without re-encoding. Ignored for non-MKV outputs such as MP4.</p>
+      </section>
+
+      <section>
         <h2>4.1. Dolby/サラウンド対応の範囲 / Dolby &amp; surround support</h2>
         <p class="hint">
           Dolby Vision / Dolby Atmos / Dolby Cinema / IMAX Enhanced / 4DX は各社のライセンス制フォーマットで、make-diskがこれらを新規に生成(エンコード)することはできません。代わりに、(1)元素材に含まれるDolby Vision・Atmos・5.1/7.1サラウンドを壊さない「無変換コピー」、(2)互換性のある下位形式(HDR10、Dolby Digital / Digital Plus、AAC/Opusのサラウンド)への変換、(3)元素材の検出結果のログ表示、に対応します。<br />

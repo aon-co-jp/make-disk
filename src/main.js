@@ -327,6 +327,46 @@ document.getElementById("cdda-rip-btn").addEventListener("click", async () => {
   }
 });
 
+// MKVの追加トラック(別ファイルの音声・字幕)。ソース一覧の先頭ファイルのMKV出力に多重化する。
+const mkvExtraTracks = [];
+function renderMkvExtraTracks() {
+  const ul = document.getElementById("mkv-extra-list");
+  ul.innerHTML = "";
+  mkvExtraTracks.forEach((t, i) => {
+    const li = document.createElement("li");
+    const kindLabel = t.kind === "subtitle" ? "字幕 / subtitle" : "音声 / audio";
+    li.append(`${kindLabel}: ${t.path} `);
+    const lang = document.createElement("input");
+    lang.placeholder = "言語 jpn / eng ...";
+    lang.size = 10;
+    lang.value = t.language || "";
+    lang.addEventListener("input", () => (t.language = lang.value));
+    const title = document.createElement("input");
+    title.placeholder = "タイトル / title";
+    title.size = 16;
+    title.value = t.title || "";
+    title.addEventListener("input", () => (t.title = title.value));
+    const del = document.createElement("button");
+    del.type = "button";
+    del.textContent = "削除 / Remove";
+    del.addEventListener("click", () => {
+      mkvExtraTracks.splice(i, 1);
+      renderMkvExtraTracks();
+    });
+    li.append(lang, title, del);
+    ul.appendChild(li);
+  });
+}
+async function addMkvTracks(kind) {
+  const exts = kind === "subtitle" ? ["srt", "ass", "ssa", "vtt", "sub", "sup"] : ["mka", "wav", "flac", "aac", "m4a", "mp3", "ogg", "opus", "ac3", "eac3", "dts"];
+  const selected = await open({ multiple: true, filters: [{ name: kind === "subtitle" ? "字幕 / subtitles" : "音声 / audio", extensions: exts }] });
+  if (!selected) return;
+  for (const path of Array.isArray(selected) ? selected : [selected]) mkvExtraTracks.push({ path, kind, language: "", title: "" });
+  renderMkvExtraTracks();
+}
+document.getElementById("mkv-add-audio-btn").addEventListener("click", () => addMkvTracks("audio"));
+document.getElementById("mkv-add-sub-btn").addEventListener("click", () => addMkvTracks("subtitle"));
+
 document.getElementById("pick-output-btn").addEventListener("click", async () => {
   try {
     const dir = await open({ directory: true });
@@ -605,6 +645,11 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           resolution,
           fps,
           dsd_rate: dsdMatch ? parseInt(dsdMatch[1], 10) : null,
+          mkv_keep_all_tracks: isVideo && /mkv$/.test(format) ? document.getElementById("mkv-keep-all").checked : null,
+          extra_tracks:
+            isVideo && /mkv$/.test(format) && f === sourceFiles[0]
+              ? mkvExtraTracks.map((t) => ({ path: t.path, kind: t.kind, language: (t.language || "").trim() || null, title: (t.title || "").trim() || null }))
+              : [],
           dop_wav_bits: dsdMatch && document.getElementById("dsd-dop-wav").checked ? parseInt(document.getElementById("dsd-dop-bits").value, 10) : null,
           audio_bwe:
             !isVideo && document.getElementById("audio-bwe").checked
