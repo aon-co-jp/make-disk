@@ -81,6 +81,10 @@ pub struct ConvertJob {
     /// `arnndn`フィルタ)で音声のノイズを低減する。`None`なら無効。
     #[serde(default)]
     pub ai_denoise: Option<AiDenoise>,
+    /// DSD出力(2026-09-19新設)。`Some(64|128|256|512|1024)`ならDSF(`.dsf`)で書き出す。
+    /// ffmpegはDSDをエンコードできないため`engine::dsd`の自前変換器を使う。
+    #[serde(default)]
+    pub dsd_rate: Option<u32>,
 }
 
 /// AIノイズ除去の設定。`mix`は原音とのブレンド(-1.0〜1.0、1.0で完全適用、
@@ -152,6 +156,13 @@ fn keep_segments_from_cuts(cuts: &[CutRange]) -> Vec<(f64, Option<f64>)> {
 }
 
 pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
+    if let Some(mult) = job.dsd_rate {
+        if job.cut_ranges.as_ref().is_some_and(|c| !c.is_empty()) {
+            return Err("DSD出力ではカット区間の指定は未対応です(開始位置+長さのトリミングは可) / cut ranges are not supported with DSD output".to_string());
+        }
+        let trim = job.trim.as_ref().map(|t| (t.start_secs, t.duration_secs));
+        return crate::engine::dsd::convert_to_dsf(&job.input_path, &job.output_path, mult, trim);
+    }
     if let Some(cuts) = &job.cut_ranges {
         if !cuts.is_empty() {
             return run_convert_with_cut_ranges(job, cuts);
@@ -785,6 +796,7 @@ mod tests {
             resolution: None,
             fps: None,
             ai_denoise: None,
+            dsd_rate: None,
         };
 
         run_convert(&job).expect("run_convert with cut_ranges should succeed");
@@ -827,6 +839,7 @@ mod tests {
             resolution: None,
             fps: None,
             ai_denoise: None,
+            dsd_rate: None,
         };
 
         run_convert(&job).expect("run_convert with frame_accurate should succeed");
@@ -865,6 +878,7 @@ mod tests {
             resolution: Some(Resolution { width: 1920, height: 1080 }),
             fps: Some(30),
             ai_denoise: None,
+            dsd_rate: None,
         };
 
         run_convert(&job).expect("run_convert with resolution/fps should succeed");
@@ -897,6 +911,7 @@ mod tests {
             resolution: None,
             fps: None,
             ai_denoise: None,
+            dsd_rate: None,
         };
         run_convert(&job).expect("audio-only conversion from a video input should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=bit_rate", "-of", "default=nw=1:nk=1", output.to_str().unwrap()]).output().unwrap();
@@ -926,6 +941,7 @@ mod tests {
             resolution: None,
             fps: None,
             ai_denoise: None,
+            dsd_rate: None,
         };
         run_convert(&job).expect("AV1+Opus conversion should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
@@ -954,6 +970,7 @@ mod tests {
             resolution: None,
             fps: None,
             ai_denoise: None,
+            dsd_rate: None,
         };
         run_convert(&job).expect("Opus conversion should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
@@ -991,6 +1008,7 @@ mod tests {
             resolution: Some(Resolution { width: 640, height: 480 }),
             fps: Some(30),
             ai_denoise: None,
+            dsd_rate: None,
         };
         let channels = |p: &Path| -> String {
             let o = Command::new("ffprobe").args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels,codec_name", "-of", "csv=p=0", p.to_str().unwrap()]).output().unwrap();
@@ -1038,6 +1056,7 @@ mod tests {
             resolution: None,
             fps: None,
             ai_denoise: Some(AiDenoise { mix: 1.0 }),
+            dsd_rate: None,
         };
         run_convert(&job).expect("AI denoise conversion should succeed");
         let (before, after) = (mean_volume_db(&noisy), mean_volume_db(&out));

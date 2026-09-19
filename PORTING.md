@@ -5,7 +5,38 @@
 詳細な技術的発見・方針決定は[`CLAUDE.md`](CLAUDE.md)にあるので、
 ここでは「今どこまで進んでいて、次に何をするか」だけを簡潔に記す。
 
-## 🔁 再開用メッセージ(2026-09-16続き、最新・v0.1.7実装完了)
+## 🔁 再開用メッセージ / Resume note (2026-09-19、最新 / latest、v0.1.20+)
+
+**日本語**: v0.1.20までにIMAPI2書き込み(実機CD書き込み成功)・AV1/Opus/Dolby保持・AIノイズ除去(RNNoise)・
+DSD64〜1024(DSF)を実装した。その後の作業として、DSD(チャンネル並列)・rs-ffmpeg/rs-xorrisoの
+バージョン管理付きプラグイン(`engine/plugins.rs`、同じ版は上書きしない)・ディスク変換方向による
+解像度の絞り込みを追加した。DSDの実速度(最適化ビルド、2秒素材、実時間比): DSD64=0.3倍・DSD128=0.4倍・
+DSD256=0.8倍・DSD512=1.6倍・DSD1024=3.1倍(3.5時間素材のDSD1024は約11時間)。
+
+**次にやること**:
+1. 本物のAI映像超解像(まずCPU=tract+open-cpu、次にopen-directx/open-cuda/aruaru-llm)。最大の壁はモデル調達:
+   この環境にはPythonが無く.pth→ONNX変換ができないため、ncnn形式のReal-ESRGAN general-x4v3を自前で推論する案を調査済み。
+2. 音声超解像(帯域拡張)AIモデルの選定。DSD化の前段が唯一意味のあるAI導入点(ΔΣ変調自体は数学的処理でAI不要、
+   逐次処理のためGPU/NPU/SIMDでは高速化できない)。
+3. BD/DVD(保護なし)の取り込み。著作権保護の回避は実装しない。
+4. 音楽CD(CD-DA)書き込み(IMAPI2 TrackAtOnce。現状はデータCD)。
+5. `rs-*`をインストーラーから外し、姉妹リポジトリのリリース資産からオンデマンド取得(上書きの無駄を完全に無くす)。
+
+**English**: Through v0.1.20 we shipped IMAPI2 burning (verified on a real CD), AV1/Opus/Dolby preservation, AI noise reduction (RNNoise)
+and DSD64–1024 (DSF). Afterwards we added per-channel parallel DSD, versioned rs-ffmpeg/rs-xorriso plugins (`engine/plugins.rs`, an identical
+version is not overwritten) and resolution presets narrowed by disc direction. Measured DSD speed (optimized build, 2 s clip, real-time ratio):
+DSD64 0.3x, DSD128 0.4x, DSD256 0.8x, DSD512 1.6x, DSD1024 3.1x (DSD1024 of a 3.5 h source takes ~11 h).
+
+**Next**:
+1. Real AI video super-resolution (CPU via tract + open-cpu first, then open-directx / open-cuda / aruaru-llm). Model sourcing is the main obstacle:
+   there is no Python here to convert .pth→ONNX, so running Real-ESRGAN general-x4v3 from its ncnn files is the investigated route.
+2. An audio super-resolution (bandwidth extension) model. This is the only meaningful AI hook before DSD (delta-sigma modulation is deterministic math,
+   and being sequential it cannot be sped up with GPU/NPU/SIMD).
+3. Unprotected BD/DVD ripping. Circumventing copy protection is not implemented.
+4. Audio-CD (CD-DA) burning (IMAPI2 TrackAtOnce; currently data CDs).
+5. Move `rs-*` out of the installer and fetch them on demand from the sister repos' release assets (removes the redundant overwrite entirely).
+
+## 🔁 再開用メッセージ(2026-09-16続き、v0.1.7実装完了)
 
 PC再起動による中断(下記2026-09-16エントリ)から復帰し、以下すべてを
 実機ビルド検証まで完了させ、v0.1.7としてタグpush準備完了。詳細は

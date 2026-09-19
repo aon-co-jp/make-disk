@@ -36,7 +36,16 @@
           <label><input type="checkbox" name="audio-format" value="opus" /> Opus(高効率・新コーデック / efficient, modern)</label>
           <label><input type="checkbox" name="audio-format" value="ac3" /> Dolby Digital (AC-3, 5.1)</label>
           <label><input type="checkbox" name="audio-format" value="eac3" /> Dolby Digital Plus (E-AC-3, 7.1可 / up to 7.1)</label>
+          <label><input type="checkbox" name="audio-format" value="dsd64" /> DSD64 (2.8MHz, DSF)</label>
+          <label><input type="checkbox" name="audio-format" value="dsd128" /> DSD128 (5.6MHz, DSF)</label>
+          <label><input type="checkbox" name="audio-format" value="dsd256" /> DSD256 (11.2MHz, DSF)</label>
+          <label><input type="checkbox" name="audio-format" value="dsd512" /> DSD512 (22.6MHz, DSF)</label>
+          <label><input type="checkbox" name="audio-format" value="dsd1024" /> DSD1024 (45.2MHz, DSF)</label>
         </div>
+        <p class="hint">
+          ※DSDはPCM→1bitのΔΣ変調で自前変換しDSFファイルとして保存します(ffmpegはDSDを書き出せないため)。ファイルが非常に大きく(ステレオ1分あたり DSD64≈42MB、DSD128≈85MB、DSD256≈170MB、DSD512≈339MB、DSD1024≈678MB)、高レートほど変換に時間がかかります。音量は安定性のため-6dBに抑えます。Super Audio CDの規格ディスクではなくDSFファイルです。DSD非対応の機器・アプリでは再生できないか、再生ソフト側でPCMへ変換されます(ファイル自体には自動変換の仕組みはありません)。<br />
+          DSD is produced by our own PCM-to-1-bit delta-sigma converter and saved as DSF (ffmpeg cannot write DSD). Files are very large (per stereo minute: DSD64 ~42 MB, DSD128 ~85 MB, DSD256 ~170 MB, DSD512 ~339 MB, DSD1024 ~678 MB) and higher rates convert slowly. Level is reduced by 6 dB for stability. This is a DSF file, not a Super Audio CD disc. Devices/apps without DSD support may not play it, or the player software converts it to PCM — the file itself has no automatic fallback.
+        </p>
       </section>
 
       <section>

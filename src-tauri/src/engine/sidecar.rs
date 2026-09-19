@@ -43,6 +43,10 @@ use std::process::Command;
 /// 実際にインストール後のファイルを確認して検証済みの命名規則)が
 /// 見つかればそれを、無ければPATH上の`name`を使う。
 pub fn resolve_tool(name: &str) -> Command {
+    // rs-ffmpeg/rs-xorrisoはバージョン管理付きプラグインフォルダを最優先で探す(engine::plugins)。
+    if let Some(plugin) = crate::engine::plugins::installed_plugin_path(name) {
+        return Command::new(plugin);
+    }
     if let Some(sidecar) = find_sidecar(name) {
         return Command::new(sidecar);
     }

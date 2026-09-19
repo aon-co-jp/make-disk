@@ -1033,3 +1033,41 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
 選択中の値が範囲外になったら先頭の許可値へ自動切替。ローカルHTTPサーバー+スタブで実際のDOM
 操作を検証済み。**正直な開示**: フルHDのDVDはDVD-Video規格外で家庭用プレーヤーで再生できない
 場合がある(UIに明記)。DVD→4Kは補間拡大で、本格AI超解像は未実装。
+
+## HANDOFF追記 / Handoff (2026-09-19続き5) DSD64〜1024・プラグイン機構・解像度の方向絞り込み・実測 / DSD, plugin manager, direction-based presets, measurements
+
+**日本語**
+- **DSD出力(64/128/256/512/1024、DSF)**: ffmpegはDSDを**デコードのみ**で書き出せない(実機確認)ため`engine/dsd.rs`で自前実装。
+  ffmpegでDSDレート(44.1kHz×倍率)のf32へリサンプル→5次ΔΣ変調器(Butterworth型NTF、高域ゲイン1.5=Lee基準、入力-6dB)→
+  DSF(LSBファースト、4096Bブロック)。2チャンネルは別スレッドで並列変調。**実測(実ffmpegのDSFデコーダで往復)**: DSD64/128とも
+  SNR約78.9dB(ただし両者同値なので、限界は44.1kHzへ間引くデコーダ側で、レート間の音質差を示す値ではない)。**速度(最適化ビルド、
+  2秒素材、実時間比)**: DSD64=0.3倍/128=0.4/256=0.8/512=1.6/1024=3.1(デバッグビルドは約10倍遅い)。実用的なのはDSD256程度まで。
+  実バグ: DSFヘッダの「サンプル数」欄のオフセット誤り(ffmpegが不正データとして拒否)を往復テストで検出・修正。
+- **「AI/ハードウェア加速」の正直な結論**: ΔΣ変調は直前の出力に依存する逐次処理で、時間方向のSIMD(AVX2/AVX-512)やGPU/NPUでは
+  高速化できない(open-cpuはISA検出のみでコア数情報は無い)。効くのはチャンネル並列のみ(実装済み)。ffmpeg側のx264/x265/SVT-AV1/
+  リサンプラはAVX2/AVX-512を実行時に自動使用。AIが意味を持つのはDSD化の**前段**の音声超解像(帯域拡張)で、未実装(モデル選定が必要)。
+  ΔΣ変調そのものを「AI変換」と称することはしない(数学的処理のため)。
+- **プラグイン機構(`engine/plugins.rs`)**: 同梱のrs-ffmpeg/rs-xorrisoを`<データフォルダ>/make-disk/plugins`へ同期。版=サイズ+FNV-1aハッシュ、
+  `<名前>.version`が同じなら**コピーをスキップ**(実テストで更新日時が不変なことを確認)、違えば上書き、無ければ新規。`resolve_tool`は
+  プラグインフォルダを最優先。**限界**: インストーラー自体は上書き時に同梱`rs-*`(各約200KB)を書き直す。完全に省くには姉妹リポジトリの
+  リリース資産からのオンデマンド取得が必要(未実装)。Windowsのファイル名保持のためISO作成はIMAPI2が優先で、rs-xorrisoはフォールバック。
+- **解像度の方向絞り込み**: BD→DVD(720×480/720×576/フルHD)、DVD→BD(フルHD/4K)。DOM操作で実検証。
+- **著作権保護の回避は実装しない**旨をユーザーへ回答済み。**本格AI超解像(DVD→4K)は未実装**——ユーザー指示で最優先課題だが、モデル調達
+  (Python無し、.pth→ONNX不可)が壁。CPU(tract+open-cpu)→GPU(open-directx/open-cuda)の順で、次回から着手。
+
+**English**
+- **DSD output (64/128/256/512/1024, DSF)**: ffmpeg can only *decode* DSD (verified), so `engine/dsd.rs` implements it: resample to the DSD rate as f32 via
+  ffmpeg → 5th-order delta-sigma modulator (Butterworth NTF, max gain 1.5, input −6 dB) → DSF. The two channels are modulated on separate threads.
+  Round-tripped through ffmpeg's DSF decoder: SNR ≈ 78.9 dB for both DSD64 and DSD128 — identical, so the limit is the decoder's decimation to 44.1 kHz and
+  it says nothing about quality differences between rates. Speed (optimized build, 2 s clip, real-time ratio): 0.3x / 0.4 / 0.8 / 1.6 / 3.1 for DSD64…1024
+  (debug builds are ~10x slower); DSD256 is about the practical limit. A real bug (wrong DSF sample-count offset, rejected by ffmpeg) was caught by the round-trip test.
+- **Honest conclusion on "AI / hardware acceleration"**: delta-sigma modulation is sequential, so time-axis SIMD (AVX2/AVX-512) and GPU/NPU cannot speed it up
+  (open-cpu only detects ISA features, no core counts); only channel parallelism helps (done). ffmpeg's encoders/resampler already use AVX2/AVX-512 at runtime.
+  AI is meaningful *before* DSD conversion as audio super-resolution (bandwidth extension) — not implemented (needs a model). We do not label the modulator "AI".
+- **Plugin manager (`engine/plugins.rs`)**: syncs the bundled rs-ffmpeg/rs-xorriso into `<data dir>/make-disk/plugins`. Version = size + FNV-1a hash; an identical
+  `<name>.version` means the copy is skipped (test confirms the mtime is unchanged), a different one overwrites, none installs. `resolve_tool` prefers the plugin
+  folder. **Limit**: the installer itself still rewrites the bundled `rs-*` (~200 KB each) on overwrite; removing that needs on-demand download from the sister
+  repos' release assets (not implemented). On Windows IMAPI2 takes precedence for ISO creation (keeps filenames); rs-xorriso is the fallback.
+- **Direction-based resolution presets**: BD→DVD (720×480/720×576/Full HD), DVD→BD (Full HD/4K), verified via real DOM interaction.
+- Answered that **copy-protection circumvention is not implemented**. **Real AI super-resolution (DVD→4K) is not implemented** — the user's top priority, blocked by
+  model sourcing (no Python, no .pth→ONNX); next session starts with CPU (tract + open-cpu), then GPU (open-directx / open-cuda).
