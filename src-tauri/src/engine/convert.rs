@@ -373,6 +373,7 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
     }
     // hq-resampleとAIノイズ除去などが両方`-af`を持つ場合に1つのチェーンへ統合する。
     let mut args = merge_audio_filters(args);
+    apply_opus_limits(&mut args);
 
     args.push("-y".into());
     args.push(job.output_path.clone());
@@ -557,6 +558,28 @@ fn push_bitrate_args(args: &mut Vec<String>, bitrate: &Option<BitrateMode>, outp
             args.push(format!("{kbps}k"));
         }
         None => {}
+    }
+}
+
+/// Opusの仕様上限を守る(2026-09-19): 入力は最大48kHz、ビットレートはステレオで最大510kbps
+/// (3ch以上は1chあたり256kbps)。指定が上限を超える場合は上限へ丸め、`-ar`が無ければ48kHzを指定する。
+/// ビットレートはVBR(ffmpegのlibopus既定)で、指定値は目標平均として必要に応じて変動する。
+pub(crate) fn apply_opus_limits(args: &mut Vec<String>) {
+    if !args.windows(2).any(|w| w[0] == "-c:a" && w[1] == "libopus") {
+        return;
+    }
+    let channels = args.windows(2).find(|w| w[0] == "-ac").and_then(|w| w[1].parse::<u32>().ok()).unwrap_or(2);
+    let cap_kbps = if channels <= 2 { 510 } else { 256 * channels as u64 };
+    if let Some(i) = args.iter().position(|a| a == "-b:a") {
+        if let Some(v) = args.get_mut(i + 1) {
+            if let Some(kbps) = v.strip_suffix('k').and_then(|n| n.parse::<u64>().ok()) {
+                *v = format!("{}k", kbps.clamp(6, cap_kbps));
+            }
+        }
+    }
+    if !args.iter().any(|a| a == "-ar") {
+        let at = args.iter().position(|a| a == "-c:a").unwrap_or(0);
+        args.splice(at..at, ["-ar".to_string(), "48000".to_string()]);
     }
 }
 
@@ -1433,5 +1456,23 @@ mod tests {
         assert!((result_duration - 7.0).abs() < 0.5, "結合後の尺は3秒+4秒=7秒に近いはず、実際: {result_duration}s");
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn opus_limits_cap_bitrate_and_force_48khz() {
+        let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let mut a = v(&["-c:a", "libopus", "-b:a", "900k"]);
+        apply_opus_limits(&mut a);
+        assert!(a.windows(2).any(|w| w[0] == "-b:a" && w[1] == "510k"), "{a:?}");
+        assert!(a.windows(2).any(|w| w[0] == "-ar" && w[1] == "48000"));
+        let mut a = v(&["-c:a", "libopus", "-ac", "6", "-b:a", "900k"]);
+        apply_opus_limits(&mut a);
+        assert!(a.contains(&"900k".to_string()), "6chは1536kbpsまで許容: {a:?}");
+        let mut a = v(&["-c:a", "libopus", "-b:a", "128k", "-ar", "24000"]);
+        apply_opus_limits(&mut a);
+        assert_eq!(a, v(&["-c:a", "libopus", "-b:a", "128k", "-ar", "24000"]), "上限内・レート指定済みは変更しない");
+        let mut a = v(&["-c:a", "aac", "-b:a", "900k"]);
+        apply_opus_limits(&mut a);
+        assert_eq!(a, v(&["-c:a", "aac", "-b:a", "900k"]));
     }
 }
