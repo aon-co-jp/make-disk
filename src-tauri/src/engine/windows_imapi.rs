@@ -138,6 +138,7 @@ mod full_flow {
             ai_denoise: None,
             dsd_rate: None,
             ai_upscale: None,
+            audio_bwe: None,
         })
         .expect("convert");
         let audio_bytes = std::fs::metadata(&audio).unwrap().len();

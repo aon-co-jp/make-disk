@@ -1146,3 +1146,53 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
   reconsider only if a music model shows gains against full-band ground truth.
 - All 75 tests pass (~12 min; debug-build AVX2/scalar is slow). Clippy: only the pre-existing unrelated warning.
 - **Not started**: moving DSD writing into rs-ffmpeg with the requested comparison, audio CD (CD-DA), BD/DVD ripping.
+
+## HANDOFF追記 / Handoff (2026-09-19続き8) 音声AI高域生成(改良型)のRust実装 / Rust implementation of the improved AI bandwidth extension
+
+**日本語**(前項「音声AI超解像は採用しない」を**改良型で覆した**。根拠は下記の実測)
+- **なぜ前回は悪化したか**: LavaSRの生出力は(a)低域まで再合成する、(b)生成する高域が実際の音楽より約12dB大きい。前回のLSDは元信号が存在しない16〜24kHzも含めて比較していて公平でなかった。
+- **改良設計**(`engine/audio_sr.rs`): ①入力の帯域は一切変えない(出力=入力+生成した高域のみ)、②入力のカットオフを崖検出(平均パワースペクトルで、低域側800Hz平均と600Hz先の高域側800Hz平均の差が最大の位置、
+  25dB以上の落ち込みが無ければ帯域制限なしとして素通し。単純な「基準から55dB下」のしきい値はHann窓のサイドローブ漏れ(-95dB付近)で不安定だったので廃止)、③生成した高域はフレームごとに
+  「カットオフ直下[0.6fc,0.95fc)のlog10パワーを周波数に直線当てはめ→上向きには外挿しない→その外挿値」を各binの上限に頭打ち(STFT 2048/512)。
+- **客観評価**(Python、正解の存在する帯域のLSD、4素材×カットオフ8k/12k): 無処理 3.3〜3.5 / 2.5〜2.8 → 改良型 1.25〜1.55 / 1.4〜1.6(**8/8ケースで改善**、生の出力は3/8のみ)、低域LSD 0.08。
+  **Rust移植後の実モデル・実音源テスト**でも再現: fc=8k 3.46→1.59、fc=12k 2.82→1.60、低域の変化0.000。**変換パイプライン全体**(ffmpeg展開→帯域拡張→FLAC)の実音源テスト: 高域(10-16kHz)パワー約140倍、低域パワー不変。
+- **tract移植の検証**: LavaSRのONNX(backbone 51.7MB+spec_head 4.2MB)がtract 0.21で読み込め、onnxruntimeとの出力差は相対3e-5/3e-6、3秒分を184ms。DSP(scipy互換の`resample_poly`(Kaiser β=5)、STFT/ISTFT(hann・boundary=zeros・spectrumスケーリング)、
+  メルフィルタ80)をRustで実装(往復再構成・トーン精度・メルの単調性をテスト)。モデルはHuggingFaceの固定リビジョン(`b3df8a26…`)から初回のみ取得、プラグインフォルダ`audio-sr/`。処理は30秒区間(前後1秒の余白)でメモリを抑え、チャンネルごと(カットオフは共通)。
+- **順序**: AIノイズ除去(RNNoise)→帯域拡張(逆順だと拡張器がノイズから高域を作る、audiosronnx作者の指摘)。`run_convert`で、ノイズ除去を展開時に適用し、後段の`ai_denoise`は無効化。音声専用出力/DSDのみ、カット区間は未対応。
+- **正直な限界**: LSDはスペクトル包絡の近さの指標で聴感品質ではない。帯域拡張は復元ではなく合成で、ロッシー音源で捨てられた高域を本物として取り戻せない。カットオフ自動検出は緩やかな減衰(ffmpegの2次ローパス6段=72dB/oct)では落ち込み25.8dBとぎりぎり(手動指定欄あり)。
+  16kHz付近で帯域が切れる一般的なロッシー音源では、生成できるのは16k以上のごく小さな成分で、効果は小さい。**推奨は「低ビットレート/電話品質/古い録音」など明確に帯域が欠けた素材向け**。
+- **開発上の反省(再掲)**: node/perl経由の文字列置換でバックスラッシュが消える事故が再発(`C:\AUDIO`→`C:AUDIO`)。テスト用「雑音」を乗算ハッシュで作ると周期的な鋸歯波になり白色雑音にならない(xorshiftを使う)。
+
+**English**(this **reverses** the previous "audio SR not adopted" with an improved design, backed by the measurements below)
+- **Why it worsened before**: the raw LavaSR output (a) resynthesizes the low band and (b) generates highs ~12 dB louder than real music. The earlier LSD also included 16–24 kHz where the source has no ground truth.
+- **Improved design** (`engine/audio_sr.rs`): (1) the input band is never modified (output = input + generated highs only); (2) the input cutoff is found by cliff detection (largest difference between the 800 Hz mean below and the 800 Hz mean 600 Hz above in the average power spectrum;
+  no drop of ≥25 dB means "not band-limited" → pass-through; a plain "55 dB below reference" threshold was dropped because Hann sidelobe leakage (~ −95 dB) made it unstable); (3) generated highs are capped per frame and bin at a log-linear extrapolation
+  of the input's envelope just below the cutoff (linear fit of log10 power over [0.6 fc, 0.95 fc), never extrapolated upward; STFT 2048/512).
+- **Objective evaluation** (Python, LSD in the band with ground truth, 4 clips × cutoffs 8k/12k): unprocessed 3.3–3.5 / 2.5–2.8 → improved 1.25–1.55 / 1.4–1.6 (**better in 8/8 cases**, raw output 3/8), low-band LSD 0.08. **Reproduced by the Rust port with the real model and real audio**: fc=8k 3.46→1.59,
+  fc=12k 2.82→1.60, low-band change 0.000; the **whole conversion pipeline** (ffmpeg decode → extension → FLAC) raised 10–16 kHz power ~140× with the low band unchanged.
+- **tract port verified**: LavaSR's ONNX graphs (backbone 51.7 MB + spec_head 4.2 MB) load in tract 0.21 and match onnxruntime to 3e-5 / 3e-6 relative (3 s in 184 ms). The DSP (scipy-compatible `resample_poly` (Kaiser β=5), STFT/ISTFT, 80-band mel filterbank) is implemented in Rust. The model is fetched once from a pinned Hugging Face revision into the plugin folder `audio-sr/`.
+- **Order**: AI denoise (RNNoise) first, then extension (the reverse makes the extender build highs out of noise). Audio-only/DSD outputs only; cut ranges unsupported.
+- **Honest limits**: LSD measures spectral-envelope similarity, not perceived quality; this is synthesis, not restoration, and cannot bring back highs a lossy encoder discarded. Auto cutoff detection is marginal on gentle roll-offs (a 72 dB/oct filter gave a 25.8 dB drop; a manual field exists).
+  For typical lossy sources cut near 16 kHz the effect is small. **Recommended for clearly band-limited material (low bitrate / telephone / old recordings).**
+- **Not started / queued**: DSD writing in rs-ffmpeg with the requested comparison; DSD quality checklist (out-of-band noise, headroom, segment-parallel SIMD); audio CD (CD-DA) ripping and burning; SACD/Blu-ray-audio images.
+
+## HANDOFF追記 / Handoff (2026-09-19続き9) 容量チェック・3層BD・SACD風プリセット・MQAの扱い / Capacity check, 3-layer BD, hi-res disc preset, MQA decision
+
+**日本語**
+- **ディスク**: `DiscType::Bd100`(BDXL 3層100GB)を追加(BD 1層25/2層50/3層100/4層128GB、DVD 1層4.7/2層8.5GB)。`folder_size_bytes`/`disc_usable_bytes`コマンドを追加し、ISO作成後・書き込み前に
+  出力サイズが各ディスクの実用容量(公称の約98%)に収まるかを確認、**収まらない種別は書き込みを飛ばして日英で理由を表示**(以前は容量超過でも書き込みを始めて途中で失敗していた)。
+- **SACD/Blu-rayオーディオ風プリセット**(ボタン1つでDSD256+384kHz/32bit PCM+ISO): 標準のSACD/Pure Audio BD規格ではない(SACDは独自暗号化・認定オーサリング、Pure Audio BDは192kHz/24bitまで)。
+  DSF/WAV/FLACを収めたデータディスクで、PC・Android・ネットワークプレーヤーでの再生が目的(ユーザー合意済み)。映像+音声は、音声部分をDSD/PCMにし映像は別ファイルとして同じディスクへ。
+- **MQA**: **実装しない**。MQAのエンコード/デコード(折り紙)は特許・営業秘密で、互換実装は特許侵害のリスクがあり、可逆でもない。**以前ユーザーとAIで作った`aon-co-jp/open-mqa`が実在**し、同じ結論
+  (「MQA互換ではなく、FLAC・DSDなど既存オープン規格を土台にした独自パイプライン」、FLAC往復+DoPパッキング実装済み、11テスト)。make-diskの高解像度出力(384kHz/32bit FLAC/WAV、DSD)はこの方針に沿う。
+  **今後の連携候補**: open-mqaのDoP(DSD over PCM)をDSDのエクスポート形式(DoP-FLAC/WAV)として取り込む(DoP対応DACのみ有効で、DSD非対応DACへのフォールバックではない点に注意)。
+- 全82テスト成功(約13.6分)、clippyは既存の無関係な1件のみ。
+
+**English**
+- **Discs**: added `DiscType::Bd100` (BDXL 3-layer, 100 GB) (BD 25/50/100/128 GB for 1–4 layers, DVD 4.7/8.5 GB). New `folder_size_bytes` / `disc_usable_bytes` commands let the app check, after the ISO is built and before burning, whether the output fits each
+  disc's usable capacity (~98% of nominal); **types that do not fit are skipped with a bilingual explanation** (previously it started burning and failed midway).
+- **SACD / Blu-ray-Audio-style preset** (one button: DSD256 + 384 kHz/32-bit PCM + ISO): not the standard SACD or Pure Audio BD spec (SACD needs proprietary encryption and licensed authoring; Pure Audio BD stops at 192 kHz/24-bit). It is a data disc of DSF/WAV/FLAC files for PC, Android and
+  network players (agreed with the user). For video+audio, the audio part becomes DSD/PCM and the video goes on the same disc as separate files.
+- **MQA**: **not implemented**. MQA's encode/decode ("origami") is patented/trade-secret, a compatible implementation risks patent infringement, and it is not lossless. **`aon-co-jp/open-mqa`, an earlier user+AI project, exists** and reached the same conclusion ("not MQA-compatible; a separate pipeline on
+  open formats such as FLAC and DSD", with FLAC round-trip and DoP packing implemented, 11 tests). make-disk's hi-res outputs (384 kHz/32-bit FLAC/WAV, DSD) follow that line. **Possible follow-up**: take open-mqa's DoP (DSD over PCM) as a DSD export (DoP-FLAC/WAV) — it only works with DoP-capable DACs and is not a fallback for DACs without DSD.
+- All 82 tests pass (~13.6 min); clippy shows only the pre-existing unrelated warning.
