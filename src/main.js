@@ -718,6 +718,17 @@ document.getElementById("concat-btn").addEventListener("click", async () => {
  * 区間)だけディスク容量いっぱいのビットレートへ自動調整することで、
  * ユーザー指示「あまりは、DISKいっぱいにビットレートを自動変更して
  * 自動編集して」に対応する。 */
+// 分割数の入力欄: 1は「分けない」(0)と同じなので、矢印で0の次は2、2の前は0へ飛ばす。
+{
+  const countEl = document.getElementById("split-equal-count");
+  let prev = parseInt(countEl.value, 10);
+  countEl.addEventListener("change", () => {
+    const v = parseInt(countEl.value, 10);
+    if (v === 1) countEl.value = String(prev === 0 ? 2 : 0);
+    prev = parseInt(countEl.value, 10);
+  });
+}
+
 document.getElementById("split-btn").addEventListener("click", async () => {
   logEl.textContent = "";
   const target = sourceFiles.find((f) => !f.path.toLowerCase().endsWith(".pdf"));
@@ -742,8 +753,12 @@ document.getElementById("split-btn").addEventListener("click", async () => {
   let nominalSegmentSecs = null;
   if (splitMode === "equal") {
     const count = parseInt(document.getElementById("split-equal-count").value, 10);
+    if (count === 0 || count === 1) {
+      log("分割しません(0個・1個は「分けない」と同じです)。2以上を指定すると分割します。 / Not splitting (0 or 1 part means no split). Enter 2 or more to split.");
+      return;
+    }
     if (!Number.isInteger(count) || count < 2) {
-      log("エラー: 分割数は2以上にしてください(0個や1個に分けるのは、分けないのと同じです)。 / Error: enter 2 or more parts (0 or 1 part is the same as not splitting).");
+      log("エラー: 分割数は0(分割しない)または2以上の整数にしてください。 / Error: enter 0 (no split) or an integer of 2 or more.");
       return;
     }
     segments = await invoke("calc_equal_interval_segments", { totalSecs, segmentCount: count });
