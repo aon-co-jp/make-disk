@@ -69,6 +69,12 @@ fn estimate_dsd_size(multiplier: u32, channels: u32, duration_secs: f64) -> Resu
     engine::dsd::estimate_dsd_size_bytes(multiplier, channels, duration_secs)
 }
 
+/// 画像1枚をAI超解像する(Real-ESRGAN、Vulkan対応GPUが必要)。初回のみプラグイン(約45MB)をダウンロードする。
+#[tauri::command]
+fn ai_upscale_image(input: String, output: String, model: String, scale: u32) -> Result<(), String> {
+    engine::ai_upscale::upscale_image(&input, &output, &engine::ai_upscale::AiUpscale { model, scale })
+}
+
 /// 複数の音声/動画ファイルを結合(合成)する(2026-09-16新設)。
 #[tauri::command]
 fn concat_media_files(input_paths: Vec<String>, output_path: String, has_video: bool) -> Result<(), String> {
@@ -175,6 +181,7 @@ pub fn run() {
             rebind_pdfs,
             estimate_dsd_size,
             list_plugins,
+            ai_upscale_image,
             concat_media_files,
             calc_equal_interval_segments,
             calc_fixed_length_segments,
@@ -198,6 +205,7 @@ pub fn run() {
         rebind_pdfs,
         estimate_dsd_size,
         list_plugins,
+        ai_upscale_image,
         concat_media_files,
         calc_equal_interval_segments,
         calc_fixed_length_segments,

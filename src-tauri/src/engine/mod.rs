@@ -1,3 +1,4 @@
+pub mod ai_upscale;
 pub mod burn;
 pub mod capacity;
 pub mod convert;

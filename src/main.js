@@ -531,6 +531,10 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           resolution,
           fps,
           dsd_rate: dsdMatch ? parseInt(dsdMatch[1], 10) : null,
+          ai_upscale:
+            isVideo && format !== "passthrough-mkv" && document.getElementById("ai-upscale").checked
+              ? { model: document.getElementById("ai-upscale-model").value, scale: parseInt(document.getElementById("ai-upscale-scale").value, 10) }
+              : null,
           ai_denoise: document.getElementById("ai-denoise").checked && format !== "passthrough-mkv" ? { mix: parseFloat(document.getElementById("ai-denoise-mix").value) } : null,
         },
       });
