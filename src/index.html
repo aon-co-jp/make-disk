@@ -331,17 +331,15 @@
         </p>
         <button id="concat-btn">選択した順に結合(合成)して1つの出力にする / Concatenate in list order into one file</button>
 
-        <h3>分割 / Split</h3>
-        <label><input type="radio" name="split-mode" value="equal" checked /> 等間隔でN分割 / Split into N equal parts</label>
-        <input id="split-equal-count" type="number" min="2" value="2" style="width:5em" />
+        <h3>分割(1つのファイルを、複数のファイルに分ける) / Split (cut one file into several files)</h3>
+        <label><input type="radio" name="split-mode" value="equal" checked /> 同じ長さに分ける:  <input id="split-equal-count" type="number" min="2" value="2" style="width:5em" /> 個のファイルに(2以上) / Equal parts: into <i>N</i> files (2 or more)</label>
         <br />
-        <label><input type="radio" name="split-mode" value="size" /> サイズ指定(MBごと) / By target size (MB each)</label>
-        <input id="split-size-mb" type="number" min="1" placeholder="例: 700 (MB) / e.g. 700 (MB)" />
+        <label><input type="radio" name="split-mode" value="size" /> 大きさで分ける: 1ファイルあたり約 <input id="split-size-mb" type="number" min="1" placeholder="例: 700" style="width:7em" /> MB ずつ / By size: about <i>N</i> MB per file</label>
         <br />
-        <label><input type="checkbox" id="split-remainder-disk-fit" checked /> あまりをディスクいっぱいに自動フィット(要ディスク種別選択) / Auto-fit the remainder to fill the disc (requires a disc type selected in section 6)</label>
+        <label><input type="checkbox" id="split-remainder-disk-fit" checked /> 最後に余った短い部分は、選んだディスク(6.で選択)の容量いっぱいになるよう、ビットレートを自動で上げる / Raise the bitrate of the short last piece so it fills the disc chosen in section 6</label>
         <br />
-        <button id="split-btn">選択した最初のファイルを分割して実行 / Split the first selected file</button>
-        <p class="hint">分割対象は、ソースの先頭にある音声/動画ファイル1本です。 / Splitting applies to the first audio/video file in the source list.</p>
+        <button id="split-btn">先頭のファイルを分割して保存 / Split the first file and save</button>
+        <p class="hint">分割されるのは、ソース一覧の先頭にある音声・動画ファイル1本だけです。1個(分割なし)や0個は指定できません(1個に分けるのは、分けないのと同じ)。「大きさで分ける」で、ファイル全体が指定サイズ以下のときも分割されません。 / Only the first audio/video file in the source list is split. 0 or 1 part is not allowed (one part means no split). With "by size", a file already at or below the size is not split either.</p>
       </section>
 
       <section>
