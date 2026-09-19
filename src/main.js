@@ -37,6 +37,9 @@ const VIDEO_CODEC_ARGS = {
   "passthrough-mkv": ["-map", "0", "-c", "copy"],
 };
 
+// DSDと同時に作るPCM版(FLAC 24bit / 352.8kHz)。
+const DSD_COMPANION_CODEC_ARGS = ["-af", "hq-resample@352800", "-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24"];
+
 const AUDIO_CODEC_ARGS = {
   mp3: ["-c:a", "libmp3lame"],
   wav: ["-c:a", "pcm_s16le"],
@@ -45,6 +48,13 @@ const AUDIO_CODEC_ARGS = {
   ogg: ["-c:a", "libvorbis"],
   opus: ["-c:a", "libopus"],
   // DSD(2026-09-19新設): ffmpegでは書き出せないためRust側の自前変換器(engine::dsd)を使う。
+  // 高解像度PCM(R-2R等マルチビットDAC向け、2026-09-19新設): 使える最高品質のリサンプラ+ディザ。
+  dxd352: ["-af", "hq-resample@352800", "-c:a", "pcm_s24le"],
+  pcm352_32: ["-af", "hq-resample@352800", "-c:a", "pcm_s32le"],
+  pcm384_24: ["-af", "hq-resample@384000", "-c:a", "pcm_s24le"],
+  pcm384_32: ["-af", "hq-resample@384000", "-c:a", "pcm_s32le"],
+  pcm705_32: ["-af", "hq-resample@705600", "-c:a", "pcm_s32le"],
+  pcm768_32: ["-af", "hq-resample@768000", "-c:a", "pcm_s32le"],
   dsd64: [],
   dsd128: [],
   dsd256: [],
@@ -475,8 +485,19 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
       }
       const dsdMatch = /^dsd(\d+)$/.exec(format);
       const av1Match = /^(av1|hevc-hdr10|passthrough)-(.+)$/.exec(format);
-      const outputPath = dsdMatch ? `${outputFolder}/${baseName(f.path)}.dsd${dsdMatch[1]}.dsf` : av1Match ? `${outputFolder}/${baseName(f.path)}.${av1Match[1]}.${av1Match[2]}` : `${outputFolder}/${baseName(f.path)}.${format}`;
+      const hiresMatch = /^(dxd352|pcm\d+_\d+)$/.exec(format);
+      const outputPath = dsdMatch ? `${outputFolder}/${baseName(f.path)}.dsd${dsdMatch[1]}.dsf` : hiresMatch ? `${outputFolder}/${baseName(f.path)}.${format}.wav` : av1Match ? `${outputFolder}/${baseName(f.path)}.${av1Match[1]}.${av1Match[2]}` : `${outputFolder}/${baseName(f.path)}.${format}`;
       jobs.push({ outputPath, f, format, codecArgs });
+    }
+  }
+
+  // DSD非対応の機器・DACでも聴けるよう、DSDと同時にPCM版(FLAC 24bit/352.8kHz)も作る。
+  // ファイル自体にDSD→PCMの自動フォールバック機構は無い(再生機器の機能)ため、両方を並べて出力し、
+  // 再生側が使える方を選べるようにする。
+  if (codecMap === AUDIO_CODEC_ARGS && formats.some((x) => /^dsd\d+$/.test(x)) && document.getElementById("dsd-companion-pcm").checked) {
+    for (const f of sourceFiles) {
+      if (f.path.toLowerCase().endsWith(".pdf")) continue;
+      jobs.push({ outputPath: `${outputFolder}/${baseName(f.path)}.dsd-companion.flac`, f, format: "dsd-companion", codecArgs: DSD_COMPANION_CODEC_ARGS });
     }
   }
 
@@ -524,7 +545,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           input_path: f.path,
           output_path: outputPath,
           codec_args: codecArgs,
-          bitrate: format === "wav" || format === "flac" || dsdMatch ? null : { [mode === "auto" || mode === "max_quality" ? "auto_max_for_capacity" : "fixed"]: effectiveBitrateKbps },
+          bitrate: format === "wav" || format === "flac" || hiresMatch || format === "dsd-companion" || dsdMatch ? null : { [mode === "auto" || mode === "max_quality" ? "auto_max_for_capacity" : "fixed"]: effectiveBitrateKbps },
           trim: null,
           cut_ranges: f.cutRanges.length > 0 ? f.cutRanges.map((r) => ({ start_secs: r.startSecs, end_secs: r.endSecs })) : null,
           frame_accurate: f.frameAccurate,
