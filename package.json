@@ -4,7 +4,8 @@
   "version": "0.1.21",
   "type": "module",
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "lint": "npx --yes eslint@9 src/main.js"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
