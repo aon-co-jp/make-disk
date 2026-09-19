@@ -160,6 +160,18 @@ fn list_plugins() -> Vec<engine::plugins::PluginStatus> {
     engine::plugins::sync_bundled_plugins()
 }
 
+/// 音楽CD(CD-DA)のトラック一覧(Windowsのみ)。
+#[tauri::command]
+fn list_cd_tracks(drive: String) -> Result<Vec<engine::cdda::TrackInfo>, String> {
+    engine::cdda::list_tracks(&drive)
+}
+
+/// 音楽CDのトラックをWAV(16bit/44.1kHz)として取り込む。`secure`なら各区間を2回読んで一致確認する。
+#[tauri::command]
+fn rip_cd_tracks(drive: String, tracks: Vec<u8>, output_dir: String, secure: bool) -> Result<Vec<String>, String> {
+    engine::cdda::rip_tracks(&drive, &tracks, std::path::Path::new(&output_dir), secure)
+}
+
 #[tauri::command]
 fn estimate_cpu_encode_speed() -> CpuEncodeEstimate {
     cpu::estimate_cpu_encode_speed()
@@ -215,6 +227,8 @@ pub fn run() {
             concat_media_files,
             calc_equal_interval_segments,
             calc_fixed_length_segments,
+            list_cd_tracks,
+            rip_cd_tracks,
             pick_output_tree,
         ]);
 
@@ -242,6 +256,8 @@ pub fn run() {
         concat_media_files,
         calc_equal_interval_segments,
         calc_fixed_length_segments,
+        list_cd_tracks,
+        rip_cd_tracks,
     ]);
 
     builder.run(tauri::generate_context!()).expect("error while running tauri application");

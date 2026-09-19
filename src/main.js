@@ -277,6 +277,56 @@ document.getElementById("add-files-btn").addEventListener("click", async () => {
   renderFileList();
 });
 
+// 音楽CD(CD-DA)取り込み
+let cddaTracks = [];
+document.getElementById("cdda-scan-btn").addEventListener("click", async () => {
+  const driveSel = document.getElementById("cdda-drive");
+  const listEl = document.getElementById("cdda-tracks");
+  try {
+    if (!driveSel.options.length) {
+      const devices = await invoke("list_burn_devices");
+      for (const d of devices) driveSel.add(new Option(d, d));
+      if (!devices.length) throw "光学ドライブが見つかりません / No optical drive found";
+    }
+    cddaTracks = await invoke("list_cd_tracks", { drive: driveSel.value });
+  } catch (e) {
+    log(`CDを読めません / Cannot read disc: ${e}`);
+    return;
+  }
+  listEl.innerHTML = "";
+  for (const t of cddaTracks) {
+    const li = document.createElement("li");
+    const secs = Math.round(t.sectors / 75);
+    const label = `Track ${String(t.number).padStart(2, "0")} — ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}` + (t.is_audio ? "" : " (データ/data)");
+    li.innerHTML = `<label><input type="checkbox" data-track="${t.number}" ${t.is_audio ? "checked" : "disabled"} /> ${label}</label>`;
+    listEl.appendChild(li);
+  }
+  document.getElementById("cdda-rip-btn").disabled = !cddaTracks.some((t) => t.is_audio);
+  if (!cddaTracks.some((t) => t.is_audio)) log("音声トラックがありません(データディスクの可能性) / No audio tracks (probably a data disc)");
+});
+
+document.getElementById("cdda-rip-btn").addEventListener("click", async () => {
+  if (!outputFolder) {
+    log("先に出力先フォルダを選んでください / Choose an output folder first");
+    return;
+  }
+  const tracks = [...document.querySelectorAll("#cdda-tracks input[data-track]:checked")].map((c) => Number(c.dataset.track));
+  if (!tracks.length) return;
+  const btn = document.getElementById("cdda-rip-btn");
+  btn.disabled = true;
+  log(`取り込み中(${tracks.length}トラック)... / Ripping ${tracks.length} track(s)...`);
+  try {
+    const outs = await invoke("rip_cd_tracks", { drive: document.getElementById("cdda-drive").value, tracks, outputDir: outputFolder + "/CD-rip", secure: document.getElementById("cdda-secure").checked });
+    for (const path of outs) sourceFiles.push({ path, cutRanges: [], frameAccurate: false, editing: false });
+    renderFileList();
+    log(`取り込み完了 / Ripped ${outs.length} track(s) → ${outputFolder}/CD-rip`);
+  } catch (e) {
+    log(`取り込み失敗 / Rip failed: ${e}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 document.getElementById("pick-output-btn").addEventListener("click", async () => {
   try {
     const dir = await open({ directory: true });
