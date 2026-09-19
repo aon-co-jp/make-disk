@@ -89,6 +89,13 @@ pub struct ConvertJob {
     /// (open-mqa連携、2026-09-19)。DoP対応DAC+ビットパーフェクト再生専用(`dsd::dsf_to_dop_wav`参照)。
     #[serde(default)]
     pub dop_wav_bits: Option<u8>,
+    /// MKV出力のとき、元ファイルの全ての音声・字幕・添付トラックを保持する(2026-09-19新設、`mkv_tracks`参照)。
+    /// 省略時は保持する(MKV以外の出力では無視)。`Some(false)`でffmpegの既定(各1本のみ)に戻せる。
+    #[serde(default)]
+    pub mkv_keep_all_tracks: Option<bool>,
+    /// MKV出力へ多重化する追加の音声・字幕トラック(別ファイル)。
+    #[serde(default)]
+    pub extra_tracks: Vec<crate::engine::mkv_tracks::ExtraTrack>,
     /// AI超解像(2026-09-19新設)。Real-ESRGAN(GPU/NCNN-Vulkan)で映像を拡大してから、
     /// 通常のコーデック/解像度/ビットレート指定を適用する。短いクリップ向け(`ai_upscale`モジュール参照)。
     #[serde(default)]
@@ -342,6 +349,10 @@ fn merge_audio_filters(args: Vec<String>) -> Vec<String> {
 fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
     let mut args: Vec<String> = Vec::new();
 
+    // MKV出力のときだけ複数トラック(元の全音声・字幕+追加トラック)を扱う。追加トラックの`-i`は、出力側の`-t`より前に置く
+    // (`-t`は直後の入力にも掛かってしまうため)。
+    let mkv = crate::engine::mkv_tracks::is_mkv_output(&job.output_path) && !is_audio_only_output(&job.output_path);
+    let extras: &[crate::engine::mkv_tracks::ExtraTrack] = if mkv { &job.extra_tracks } else { &[] };
     if let Some(trim) = &job.trim {
         if let Some(start) = trim.start_secs {
             args.push("-ss".into());
@@ -349,6 +360,7 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
         }
         args.push("-i".into());
         args.push(job.input_path.clone());
+        args.extend(crate::engine::mkv_tracks::extra_input_args(extras, trim.start_secs));
         if let Some(dur) = trim.duration_secs {
             args.push("-t".into());
             args.push(dur.to_string());
@@ -356,12 +368,29 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
     } else {
         args.push("-i".into());
         args.push(job.input_path.clone());
+        args.extend(crate::engine::mkv_tracks::extra_input_args(extras, None));
     }
 
     if is_audio_only_output(&job.output_path) {
         args.push("-vn".into()); // 動画入力から音声だけを取り出す場合に映像ストリームを含めない
     }
     args.extend(resolve_av1_codec_args(&job.codec_args)?);
+    if mkv {
+        // `-map`を既に含むコーデック指定(passthrough等)では元の全マップ追加は不要。
+        let already_mapped = job.codec_args.iter().any(|a| a == "-map");
+        let keep_all = job.mkv_keep_all_tracks.unwrap_or(true) && !already_mapped;
+        if keep_all || !extras.is_empty() {
+            let (a, s) = (crate::engine::mkv_tracks::count_streams(&job.input_path, 'a'), crate::engine::mkv_tracks::count_streams(&job.input_path, 's'));
+            // 追加トラックだけ指定して元の全保持を切った場合は、映像+音声1本など既定の選択が消えないよう元の映像・音声もマップする。
+            let mut m = crate::engine::mkv_tracks::map_args(extras, keep_all, a, s);
+            if !keep_all && !already_mapped && !extras.is_empty() {
+                let mut base: Vec<String> = ["-map", "0:v?", "-map", "0:a:0?"].iter().map(|x| x.to_string()).collect();
+                base.append(&mut m);
+                m = base;
+            }
+            args.extend(m);
+        }
+    }
     if codec_args_are_stream_copy(&job.codec_args) {
         // 無変換コピー(Dolby Vision/Atmos等の保持)では、再エンコード系の指定
         // (ビットレート・拡縮・fps)は矛盾するので付けない。
@@ -959,6 +988,8 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1005,6 +1036,8 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1047,6 +1080,8 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1083,6 +1118,8 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1116,6 +1153,8 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1148,6 +1187,8 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1189,6 +1230,8 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1240,6 +1283,8 @@ mod tests {
             ai_denoise: Some(AiDenoise { mix: 1.0 }),
             dsd_rate: None,
             dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1263,6 +1308,8 @@ mod tests {
             ai_denoise: denoise.then_some(AiDenoise { mix: 0.5 }),
             dsd_rate: None,
             dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
             ai_upscale: None,
             audio_bwe: None,
         }
@@ -1474,5 +1521,115 @@ mod tests {
         let mut a = v(&["-c:a", "aac", "-b:a", "900k"]);
         apply_opus_limits(&mut a);
         assert_eq!(a, v(&["-c:a", "aac", "-b:a", "900k"]));
+    }
+
+    fn stream_summary(path: &Path) -> Vec<String> {
+        let out = Command::new("ffprobe")
+            .args(["-v", "error", "-show_entries", "stream=codec_type:stream_tags=language,title", "-of", "csv=p=0", path.to_str().unwrap()])
+            .output()
+            .expect("ffprobe should run");
+        String::from_utf8_lossy(&out.stdout).lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
+    }
+
+    /// 映像1+音声2(jpn/eng)+字幕1(jpn)のMKVを作る。
+    fn make_multitrack_mkv(dir: &Path) -> std::path::PathBuf {
+        let srt = dir.join("in.srt");
+        fs::write(&srt, "1
+00:00:00,000 --> 00:00:01,500
+こんにちは
+
+").unwrap();
+        let path = dir.join("multi.mkv");
+        let status = Command::new("ffmpeg")
+            .args([
+                "-y", "-f", "lavfi", "-i", "testsrc=duration=3:size=320x240:rate=10",
+                "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-f", "lavfi", "-i", "sine=frequency=880:duration=3",
+                "-i", srt.to_str().unwrap(),
+                "-map", "0:v", "-map", "1:a", "-map", "2:a", "-map", "3:s",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-c:s", "srt",
+                "-metadata:s:a:0", "language=jpn", "-metadata:s:a:1", "language=eng", "-metadata:s:s:0", "language=jpn",
+                path.to_str().unwrap(),
+            ])
+            .output()
+            .expect("ffmpeg should run");
+        assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
+        path
+    }
+
+    fn mkv_job(input: &Path, output: &Path) -> ConvertJob {
+        ConvertJob {
+            input_path: input.to_str().unwrap().to_string(),
+            output_path: output.to_str().unwrap().to_string(),
+            codec_args: vec!["-c:v".into(), "libx264".into(), "-pix_fmt".into(), "yuv420p".into(), "-c:a".into(), "aac".into()],
+            bitrate: None,
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: None,
+            fps: None,
+            ai_denoise: None,
+            dsd_rate: None,
+            dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
+            ai_upscale: None,
+            audio_bwe: None,
+        }
+    }
+
+    #[test]
+    fn real_mkv_keeps_all_audio_and_subtitle_tracks_by_default() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_mkv_keep_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let src = make_multitrack_mkv(&tmp);
+        let out = tmp.join("out.mkv");
+        run_convert(&mkv_job(&src, &out)).expect("MKV conversion should succeed");
+        let s = stream_summary(&out);
+        eprintln!("{s:?}");
+        assert_eq!(s.iter().filter(|l| l.starts_with("audio")).count(), 2, "音声は2本のまま: {s:?}");
+        assert_eq!(s.iter().filter(|l| l.starts_with("subtitle")).count(), 1, "字幕は1本のまま: {s:?}");
+        assert!(s.iter().any(|l| l.contains("eng")) && s.iter().any(|l| l.contains("jpn")), "言語タグが残る: {s:?}");
+        // 保持をオフにするとffmpegの既定(音声1本・字幕1本)に戻る
+        let out2 = tmp.join("out_default.mkv");
+        let mut job = mkv_job(&src, &out2);
+        job.mkv_keep_all_tracks = Some(false);
+        run_convert(&job).unwrap();
+        assert_eq!(stream_summary(&out2).iter().filter(|l| l.starts_with("audio")).count(), 1);
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn real_mkv_muxes_extra_audio_and_subtitle_tracks_with_language_and_title() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_mkv_extra_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let src = make_multitrack_mkv(&tmp);
+        let extra_audio = tmp.join("commentary.wav");
+        assert!(Command::new("ffmpeg").args(["-y", "-f", "lavfi", "-i", "sine=frequency=220:duration=3", extra_audio.to_str().unwrap()]).output().unwrap().status.success());
+        let extra_sub = tmp.join("eng.srt");
+        fs::write(&extra_sub, "1
+00:00:00,000 --> 00:00:01,500
+Hello
+
+").unwrap();
+        let out = tmp.join("out.mkv");
+        let mut job = mkv_job(&src, &out);
+        job.extra_tracks = vec![
+            crate::engine::mkv_tracks::ExtraTrack { path: extra_audio.to_str().unwrap().into(), kind: "audio".into(), language: Some("fra".into()), title: Some("Commentary".into()) },
+            crate::engine::mkv_tracks::ExtraTrack { path: extra_sub.to_str().unwrap().into(), kind: "subtitle".into(), language: Some("eng".into()), title: None },
+        ];
+        run_convert(&job).expect("MKV with extra tracks should succeed");
+        let s = stream_summary(&out);
+        eprintln!("{s:?}");
+        assert_eq!(s.iter().filter(|l| l.starts_with("audio")).count(), 3, "元2本+追加1本: {s:?}");
+        assert_eq!(s.iter().filter(|l| l.starts_with("subtitle")).count(), 2, "元1本+追加1本: {s:?}");
+        assert!(s.iter().any(|l| l.starts_with("audio") && l.contains("fra") && l.contains("Commentary")), "追加音声の言語・タイトル: {s:?}");
+        assert!(s.iter().any(|l| l.starts_with("subtitle") && l.contains("eng")), "追加字幕の言語: {s:?}");
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

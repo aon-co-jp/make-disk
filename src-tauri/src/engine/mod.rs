@@ -8,6 +8,7 @@ pub mod cpu_sr;
 pub mod cpu;
 pub mod dsd;
 pub mod iso;
+pub mod mkv_tracks;
 pub mod pdf;
 pub mod plugins;
 pub mod probe;
