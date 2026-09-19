@@ -44,6 +44,12 @@ const AUDIO_CODEC_ARGS = {
   aac: ["-c:a", "aac"],
   ogg: ["-c:a", "libvorbis"],
   opus: ["-c:a", "libopus"],
+  // DSD(2026-09-19新設): ffmpegでは書き出せないためRust側の自前変換器(engine::dsd)を使う。
+  dsd64: [],
+  dsd128: [],
+  dsd256: [],
+  dsd512: [],
+  dsd1024: [],
   ac3: ["-c:a", "ac3"],
   eac3: ["-c:a", "eac3"],
 };
@@ -467,8 +473,9 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
       if (f.path.toLowerCase().endsWith(".pdf")) {
         continue; // PDFは上のPDF見開き変換で個別に処理済み、ffmpeg変換の対象外
       }
+      const dsdMatch = /^dsd(\d+)$/.exec(format);
       const av1Match = /^(av1|hevc-hdr10|passthrough)-(.+)$/.exec(format);
-      const outputPath = av1Match ? `${outputFolder}/${baseName(f.path)}.${av1Match[1]}.${av1Match[2]}` : `${outputFolder}/${baseName(f.path)}.${format}`;
+      const outputPath = dsdMatch ? `${outputFolder}/${baseName(f.path)}.dsd${dsdMatch[1]}.dsf` : av1Match ? `${outputFolder}/${baseName(f.path)}.${av1Match[1]}.${av1Match[2]}` : `${outputFolder}/${baseName(f.path)}.${format}`;
       jobs.push({ outputPath, f, format, codecArgs });
     }
   }
@@ -495,6 +502,20 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           log(`警告: 元ファイルのビットレート取得に失敗(${f.path}): ${e}`);
         }
       }
+      // DSDは非常に大きいため、出力サイズの見積もりを事前に表示し、選択中のディスクに収まらなければ警告する。
+      if (dsdMatch) {
+        try {
+          const info = await invoke("probe_media", { path: f.path });
+          const bytes = await invoke("estimate_dsd_size", { multiplier: parseInt(dsdMatch[1], 10), channels: 2, durationSecs: info.duration_secs });
+          const gb = (bytes / 1e9).toFixed(2);
+          const caps = { cd700: 0.686, dvd47: 4.6, dvd_dl85: 8.3, bd25: 24.5, bd50: 49, bd128: 125 };
+          const smallest = checkedValues("disc-type").map((d) => caps[d]).filter((c) => c).sort((a, b) => a - b)[0];
+          const over = smallest && bytes / 1e9 > smallest;
+          log(`DSDの推定サイズ:  GB / Estimated DSD size:  GB` + (over ? ` — ⚠ 選択したディスク(約GB)に収まりません / exceeds the selected disc (~ GB)` : ""));
+        } catch (e) {
+          // 見積もりは参考情報のため失敗しても続行する
+        }
+      }
       const isVideo = format in VIDEO_CODEC_ARGS;
       const resolution = isVideo ? await resolveResolutionSetting(f) : null;
       const fps = isVideo ? await resolveFpsSetting(f) : null;
@@ -503,12 +524,13 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           input_path: f.path,
           output_path: outputPath,
           codec_args: codecArgs,
-          bitrate: format === "wav" || format === "flac" ? null : { [mode === "auto" || mode === "max_quality" ? "auto_max_for_capacity" : "fixed"]: effectiveBitrateKbps },
+          bitrate: format === "wav" || format === "flac" || dsdMatch ? null : { [mode === "auto" || mode === "max_quality" ? "auto_max_for_capacity" : "fixed"]: effectiveBitrateKbps },
           trim: null,
           cut_ranges: f.cutRanges.length > 0 ? f.cutRanges.map((r) => ({ start_secs: r.startSecs, end_secs: r.endSecs })) : null,
           frame_accurate: f.frameAccurate,
           resolution,
           fps,
+          dsd_rate: dsdMatch ? parseInt(dsdMatch[1], 10) : null,
           ai_denoise: document.getElementById("ai-denoise").checked && format !== "passthrough-mkv" ? { mix: parseFloat(document.getElementById("ai-denoise-mix").value) } : null,
         },
       });
@@ -974,3 +996,18 @@ async function checkForUpdatesOnStartup() {
 }
 
 checkForUpdatesOnStartup();
+
+// 起動時にrs-ffmpeg/rs-xorrisoプラグインの状態(版・同期結果)を表示する(2026-09-19新設)。
+// 同じ版が既に入っていれば再コピーしない(上書きの無駄を省く)。
+(async () => {
+  try {
+    const plugins = await invoke("list_plugins");
+    const labels = { installed: "新規インストール", updated: "更新", up_to_date: "最新(上書きスキップ)", not_bundled: "未同梱" };
+    const shown = plugins.filter((p) => p.action !== "not_bundled");
+    if (shown.length > 0) {
+      log("プラグイン / Plugins: " + shown.map((p) => `${p.name} [${labels[p.action] ?? p.action}]`).join(", "));
+    }
+  } catch (e) {
+    // 参考情報のため失敗しても続行する
+  }
+})();

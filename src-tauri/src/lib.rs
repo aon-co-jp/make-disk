@@ -63,6 +63,12 @@ fn convert_pdf_to_spreads(pdf_path: String, output_dir: String, binding: Binding
     pdf::render_pdf_as_spreads(&pdf_path, &output_dir, binding, clamped)
 }
 
+/// DSD出力のおおよそのファイルサイズ(バイト)。UIで容量超過を事前に警告するために使う。
+#[tauri::command]
+fn estimate_dsd_size(multiplier: u32, channels: u32, duration_secs: f64) -> Result<u64, String> {
+    engine::dsd::estimate_dsd_size_bytes(multiplier, channels, duration_secs)
+}
+
 /// 複数の音声/動画ファイルを結合(合成)する(2026-09-16新設)。
 #[tauri::command]
 fn concat_media_files(input_paths: Vec<String>, output_path: String, has_video: bool) -> Result<(), String> {
@@ -115,6 +121,12 @@ fn list_burn_devices() -> Result<Vec<String>, String> {
     burn::list_devices()
 }
 
+/// rs-ffmpeg/rs-xorrisoプラグインの状態(版・同期結果)を返す。同じ版なら再コピーしない。
+#[tauri::command]
+fn list_plugins() -> Vec<engine::plugins::PluginStatus> {
+    engine::plugins::sync_bundled_plugins()
+}
+
 #[tauri::command]
 fn estimate_cpu_encode_speed() -> CpuEncodeEstimate {
     cpu::estimate_cpu_encode_speed()
@@ -129,6 +141,10 @@ async fn pick_output_tree(app: tauri::AppHandle) -> Result<Option<String>, Strin
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 同梱のrs-*プラグインをプラグインフォルダへ同期する(同じ版ならスキップ)。
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let _ = engine::plugins::sync_bundled_plugins();
+
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -157,6 +173,8 @@ pub fn run() {
             calc_bitrate_for_target_size_kbps,
             convert_pdf_to_spreads,
             rebind_pdfs,
+            estimate_dsd_size,
+            list_plugins,
             concat_media_files,
             calc_equal_interval_segments,
             calc_fixed_length_segments,
@@ -178,6 +196,8 @@ pub fn run() {
         calc_bitrate_for_target_size_kbps,
         convert_pdf_to_spreads,
         rebind_pdfs,
+        estimate_dsd_size,
+        list_plugins,
         concat_media_files,
         calc_equal_interval_segments,
         calc_fixed_length_segments,
