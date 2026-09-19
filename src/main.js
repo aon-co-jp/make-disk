@@ -529,7 +529,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           const info = await invoke("probe_media", { path: f.path });
           const bytes = await invoke("estimate_dsd_size", { multiplier: parseInt(dsdMatch[1], 10), channels: 2, durationSecs: info.duration_secs });
           const gb = (bytes / 1e9).toFixed(2);
-          const caps = { cd700: 0.686, dvd47: 4.6, dvd_dl85: 8.3, bd25: 24.5, bd50: 49, bd128: 125 };
+          const caps = { cd700: 0.686, dvd47: 4.6, dvd_dl85: 8.3, bd25: 24.5, bd50: 49, bd100: 98, bd128: 125 };
           const smallest = checkedValues("disc-type").map((d) => caps[d]).filter((c) => c).sort((a, b) => a - b)[0];
           const over = smallest && bytes / 1e9 > smallest;
           log(`DSDの推定サイズ:  GB / Estimated DSD size:  GB` + (over ? ` — ⚠ 選択したディスク(約GB)に収まりません / exceeds the selected disc (~ GB)` : ""));
@@ -552,6 +552,10 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           resolution,
           fps,
           dsd_rate: dsdMatch ? parseInt(dsdMatch[1], 10) : null,
+          audio_bwe:
+            !isVideo && document.getElementById("audio-bwe").checked
+              ? { cutoff_hz: parseFloat(document.getElementById("audio-bwe-cutoff").value) || null }
+              : null,
           ai_upscale:
             isVideo && format !== "passthrough-mkv" && document.getElementById("ai-upscale").checked
               ? { model: document.getElementById("ai-upscale-model").value, scale: parseInt(document.getElementById("ai-upscale-scale").value, 10), backend: document.getElementById("ai-upscale-backend").value }
@@ -945,13 +949,30 @@ document.getElementById("run-btn").addEventListener("click", async () => {
           // 異なるドライブへの書き込みは互いを待たずに並行実行する
           // ——ユーザー指示「書き込みも同時に行なって」への対応)。
           // ドライブより種別数が多い場合はラウンドロビンで割り当てる。
+          // ISOがディスクの実用容量に収まらない種別は書き込みを試みず、日英で理由を示して飛ばす
+          // (以前は容量超過でも書き込みを始めて途中で失敗していた)。
+          let isoBytes = 0;
+          try {
+            isoBytes = await invoke("folder_size_bytes", { path: outputFolder });
+          } catch (e) {
+            log(`警告: 出力フォルダのサイズを確認できませんでした: ${e}`);
+          }
+          const burnable = [];
+          for (const discType of discTypes) {
+            const usable = await invoke("disc_usable_bytes", { disc: discType });
+            if (isoBytes > usable) {
+              log(`⚠ [${discType}] 出力が大きすぎてこのディスクには収まりません(${(isoBytes / 1e9).toFixed(2)}GB > 実用容量${(usable / 1e9).toFixed(2)}GB)。書き込みをスキップします。 / Output (${(isoBytes / 1e9).toFixed(2)} GB) exceeds this disc's usable capacity (${(usable / 1e9).toFixed(2)} GB); skipping the burn.`);
+            } else {
+              burnable.push(discType);
+            }
+          }
           const byDevice = new Map();
-          discTypes.forEach((discType, i) => {
+          burnable.forEach((discType, i) => {
             const device = devices[i % devices.length];
             if (!byDevice.has(device)) byDevice.set(device, []);
             byDevice.get(device).push(discType);
           });
-          if (devices.length < discTypes.length) {
+          if (devices.length < burnable.length) {
             log(`ドライブが${devices.length}台のため、一部のディスク種別は同じドライブへ順番に書き込みます。`);
           }
 
@@ -1046,3 +1067,16 @@ checkForUpdatesOnStartup();
     // 参考情報のため失敗しても続行する
   }
 })();
+
+// SACD/Blu-rayオーディオ風プリセット(2026-09-19新設): DSD256 + 384kHz/32bit PCM + ISO出力を一括で選ぶ。
+// 標準のSACD/BD-Audio規格ディスクではなく、DSF/WAVを収めたデータディスクを作る(index.htmlの注記参照)。
+document.getElementById("preset-hires-disc-btn").addEventListener("click", () => {
+  for (const name of ["audio-format"]) {
+    for (const el of document.querySelectorAll(`input[name="${name}"]`)) {
+      el.checked = el.value === "dsd256" || el.value === "pcm384_32";
+    }
+  }
+  document.getElementById("output-iso").checked = true;
+  document.getElementById("dsd-companion-pcm").checked = true;
+  log("プリセットを設定しました: DSD256 + 384kHz/32bit PCM + ISO。書き込むディスク種別(6)を選び、実行してください。 / Preset applied: DSD256 + 384 kHz/32-bit PCM + ISO. Pick the disc types (6) and run.");
+});

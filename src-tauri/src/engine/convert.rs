@@ -89,6 +89,18 @@ pub struct ConvertJob {
     /// 通常のコーデック/解像度/ビットレート指定を適用する。短いクリップ向け(`ai_upscale`モジュール参照)。
     #[serde(default)]
     pub ai_upscale: Option<crate::engine::ai_upscale::AiUpscale>,
+    /// 音声の帯域拡張(AI、2026-09-19新設)。低域を保持し、生成した高域を入力の包絡で頭打ちにする
+    /// (`audio_sr`モジュール参照)。音声専用出力(またはDSD)向け。
+    #[serde(default)]
+    pub audio_bwe: Option<AudioBwe>,
+}
+
+/// 音声の帯域拡張の設定。`cutoff_hz`が`None`なら入力の帯域のカットオフを自動検出し、
+/// 帯域が欠けていない音源には何もしない。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioBwe {
+    #[serde(default)]
+    pub cutoff_hz: Option<f32>,
 }
 
 /// AIノイズ除去の設定。`mix`は原音とのブレンド(-1.0〜1.0、1.0で完全適用、
@@ -160,6 +172,45 @@ fn keep_segments_from_cuts(cuts: &[CutRange]) -> Vec<(f64, Option<f64>)> {
 }
 
 pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
+    if let Some(bwe) = &job.audio_bwe {
+        if !(is_audio_only_output(&job.output_path) || job.dsd_rate.is_some()) {
+            return Err("音声の帯域拡張は音声専用の出力(またはDSD)でのみ使えます / audio bandwidth extension needs an audio-only output".to_string());
+        }
+        if job.cut_ranges.as_ref().is_some_and(|c| !c.is_empty()) {
+            return Err("音声の帯域拡張ではカット区間の指定は未対応です(開始位置+長さのトリミングは可) / cut ranges are not supported with bandwidth extension".to_string());
+        }
+        // 1) 元音声を48kHz/32bit floatのWAVへ展開(トリミング適用。AIノイズ除去は帯域拡張の**前**に行う:
+        //    逆順だと拡張器がノイズから高域を作ってしまう)。2) 帯域拡張。3) 結果を入力に通常の変換を行う。
+        let tag = format!("{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+        let (decoded, extended) = (std::env::temp_dir().join(format!("make-disk-bwe-in-{tag}.wav")), std::env::temp_dir().join(format!("make-disk-bwe-out-{tag}.wav")));
+        let mut args: Vec<String> = Vec::new();
+        if let Some(t) = &job.trim {
+            if let Some(start) = t.start_secs {
+                args.extend(["-ss".into(), start.to_string()]);
+            }
+        }
+        args.extend(["-i".into(), job.input_path.clone()]);
+        if let Some(t) = &job.trim {
+            if let Some(d) = t.duration_secs {
+                args.extend(["-t".into(), d.to_string()]);
+            }
+        }
+        args.extend(["-vn".into(), "-ac".into(), "2".into()]);
+        push_ai_denoise_args(&mut args, &job.ai_denoise)?;
+        args.extend(["-ar".into(), "48000".into(), "-c:a".into(), "pcm_f32le".into(), "-y".into(), decoded.to_string_lossy().to_string()]);
+        let prep = run_ffmpeg(&merge_audio_filters(args));
+        let result = prep.and_then(|_| crate::engine::audio_sr::extend_wav_file(&decoded, &extended, bwe.cutoff_hz)).and_then(|_| {
+            let mut next = job.clone();
+            next.input_path = extended.to_string_lossy().to_string();
+            next.trim = None;
+            next.audio_bwe = None;
+            next.ai_denoise = None; // 既に前段で適用済み
+            run_convert(&next)
+        });
+        let _ = fs::remove_file(&decoded);
+        let _ = fs::remove_file(&extended);
+        return result;
+    }
     if let Some(up) = &job.ai_upscale {
         if job.cut_ranges.as_ref().is_some_and(|c| !c.is_empty()) {
             return Err("AI超解像ではカット区間の指定は未対応です(開始位置+長さのトリミングは可) / cut ranges are not supported with AI upscaling".to_string());
@@ -876,6 +927,7 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             ai_upscale: None,
+            audio_bwe: None,
         };
 
         run_convert(&job).expect("run_convert with cut_ranges should succeed");
@@ -920,6 +972,7 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             ai_upscale: None,
+            audio_bwe: None,
         };
 
         run_convert(&job).expect("run_convert with frame_accurate should succeed");
@@ -960,6 +1013,7 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             ai_upscale: None,
+            audio_bwe: None,
         };
 
         run_convert(&job).expect("run_convert with resolution/fps should succeed");
@@ -994,6 +1048,7 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             ai_upscale: None,
+            audio_bwe: None,
         };
         run_convert(&job).expect("audio-only conversion from a video input should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=bit_rate", "-of", "default=nw=1:nk=1", output.to_str().unwrap()]).output().unwrap();
@@ -1025,6 +1080,7 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             ai_upscale: None,
+            audio_bwe: None,
         };
         run_convert(&job).expect("AV1+Opus conversion should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
@@ -1055,6 +1111,7 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             ai_upscale: None,
+            audio_bwe: None,
         };
         run_convert(&job).expect("Opus conversion should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
@@ -1094,6 +1151,7 @@ mod tests {
             ai_denoise: None,
             dsd_rate: None,
             ai_upscale: None,
+            audio_bwe: None,
         };
         let channels = |p: &Path| -> String {
             let o = Command::new("ffprobe").args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels,codec_name", "-of", "csv=p=0", p.to_str().unwrap()]).output().unwrap();
@@ -1143,6 +1201,7 @@ mod tests {
             ai_denoise: Some(AiDenoise { mix: 1.0 }),
             dsd_rate: None,
             ai_upscale: None,
+            audio_bwe: None,
         };
         run_convert(&job).expect("AI denoise conversion should succeed");
         let (before, after) = (mean_volume_db(&noisy), mean_volume_db(&out));
@@ -1164,6 +1223,7 @@ mod tests {
             ai_denoise: denoise.then_some(AiDenoise { mix: 0.5 }),
             dsd_rate: None,
             ai_upscale: None,
+            audio_bwe: None,
         }
     }
 
@@ -1224,6 +1284,53 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
         assert!(text.contains("flac") && text.contains("352800"), "FLAC 352.8kHzのはず(実際: {text})");
         assert!(after < before - 3.0, "ノイズ除去も適用されているはず(前: {before} dB, 後: {after} dB)");
+    }
+
+    /// 変換パイプライン全体(ノイズ除去なし→帯域拡張→FLAC出力)を実音源・実モデルで検証する。
+    /// 8kHzで帯域制限した音楽を入力し、(1)高域(10〜16kHz)のエネルギーが増え、(2)低域(0〜7kHz)は変わらないことを確認する。
+    /// 音源またはモデルを用意できない環境ではスキップする。
+    #[test]
+    fn real_pipeline_extends_the_band_of_a_lowpassed_music_clip_and_keeps_the_low_band() {
+        let Some(src) = std::fs::read_dir("C:\\AUDIO").ok().and_then(|d| d.filter_map(|e| e.ok()).map(|e| e.path()).find(|p| p.to_string_lossy().ends_with("(1).mp4"))) else {
+            eprintln!("評価用の音源が無いためスキップ");
+            return;
+        };
+        if crate::engine::audio_sr::ensure_models().is_err() || !ffmpeg_available() {
+            eprintln!("モデルまたはffmpegを用意できないためスキップ");
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_bwe_pipe_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let lowpassed = tmp.join("lp.wav");
+        // 8kHzでかなり急峻に帯域制限する(2次を6段)。
+        let st = Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-ss", "600", "-t", "8", "-i", src.to_str().unwrap(), "-vn", "-ac", "2", "-ar", "48000", "-af", "lowpass=f=8000:poles=2,lowpass=f=8000:poles=2,lowpass=f=8000:poles=2,lowpass=f=8000:poles=2,lowpass=f=8000:poles=2,lowpass=f=8000:poles=2", "-c:a", "pcm_s16le", lowpassed.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(st.status.success(), "{}", String::from_utf8_lossy(&st.stderr));
+        let out = tmp.join("out.flac");
+        let mut job = hires_job(&lowpassed, &out, &["-c:a", "flac"], false);
+        job.audio_bwe = Some(AudioBwe { cutoff_hz: None }); // 自動検出
+        run_convert(&job).expect("bandwidth extension pipeline should succeed");
+
+        let band_power = |path: &Path, lo: f32, hi: f32| -> f64 {
+            let o = Command::new("ffmpeg").args(["-v", "error", "-i", path.to_str().unwrap(), "-af", "pan=mono|c0=c0,ashowinfo", "-f", "null", "-"]).output().unwrap();
+            let _ = o;
+            let raw = Command::new("ffmpeg").args(["-v", "error", "-i", path.to_str().unwrap(), "-af", "pan=mono|c0=c0", "-ar", "48000", "-f", "f32le", "-"]).output().unwrap();
+            let x: Vec<f32> = raw.stdout.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect();
+            let n = x.len().min(48_000 * 6);
+            let mut planner = rustfft::FftPlanner::<f32>::new();
+            let fft = planner.plan_fft_forward(n);
+            let mut buf: Vec<rustfft::num_complex::Complex<f32>> = x[..n].iter().map(|v| rustfft::num_complex::Complex::new(*v, 0.0)).collect();
+            fft.process(&mut buf);
+            (0..n / 2).filter(|&k| { let f = k as f32 * 48_000.0 / n as f32; f >= lo && f <= hi }).map(|k| buf[k].norm_sqr() as f64).sum::<f64>() / n as f64
+        };
+        let (hf_in, hf_out) = (band_power(&lowpassed, 10_000.0, 16_000.0), band_power(&out, 10_000.0, 16_000.0));
+        let (lf_in, lf_out) = (band_power(&lowpassed, 100.0, 7_000.0), band_power(&out, 100.0, 7_000.0));
+        let _ = fs::remove_dir_all(&tmp);
+        eprintln!("高域(10-16kHz)のパワー: {hf_in:.3e} → {hf_out:.3e}、低域(0.1-7kHz): {lf_in:.3e} → {lf_out:.3e}");
+        assert!(hf_out > hf_in * 10.0, "高域が生成されて増えるはず");
+        assert!((lf_out / lf_in - 1.0).abs() < 0.02, "低域のパワーは保たれるはず(比 {})", lf_out / lf_in);
     }
 
     #[test]

@@ -81,6 +81,27 @@ fn ai_upscale_image(input: String, output: String, model: String, scale: u32, ba
     engine::ai_upscale::upscale_image(&input, &output, &engine::ai_upscale::AiUpscale { model, scale, backend: backend.unwrap_or_else(|| "auto".to_string()) })
 }
 
+/// フォルダ内の全ファイルの合計サイズ(バイト)。ISO化・書き込みの前にディスク容量へ収まるか確かめるために使う。
+#[tauri::command]
+fn folder_size_bytes(path: String) -> Result<u64, String> {
+    fn walk(dir: &std::path::Path) -> std::io::Result<u64> {
+        let mut total = 0;
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
+            let meta = entry.metadata()?;
+            total += if meta.is_dir() { walk(&entry.path())? } else { meta.len() };
+        }
+        Ok(total)
+    }
+    walk(std::path::Path::new(&path)).map_err(|e| format!("フォルダのサイズを調べられません: {e}"))
+}
+
+/// ディスク種別の実用容量(バイト、公称の約98%)。
+#[tauri::command]
+fn disc_usable_bytes(disc: DiscType) -> u64 {
+    disc.usable_bytes()
+}
+
 /// 複数の音声/動画ファイルを結合(合成)する(2026-09-16新設)。
 #[tauri::command]
 fn concat_media_files(input_paths: Vec<String>, output_path: String, has_video: bool) -> Result<(), String> {
@@ -189,6 +210,8 @@ pub fn run() {
             list_plugins,
             ai_upscale_image,
             ai_upscale_cpu_kernel,
+            folder_size_bytes,
+            disc_usable_bytes,
             concat_media_files,
             calc_equal_interval_segments,
             calc_fixed_length_segments,
@@ -214,6 +237,8 @@ pub fn run() {
         list_plugins,
         ai_upscale_image,
         ai_upscale_cpu_kernel,
+        folder_size_bytes,
+        disc_usable_bytes,
         concat_media_files,
         calc_equal_interval_segments,
         calc_fixed_length_segments,

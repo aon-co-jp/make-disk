@@ -1,4 +1,5 @@
 pub mod ai_upscale;
+pub mod audio_sr;
 pub mod burn;
 pub mod capacity;
 pub mod convert;

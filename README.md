@@ -28,6 +28,9 @@
   DSDの実測往復SNR: DSD64=99.6dB、DSD128=132.4dB。
 - **AI超解像(映像)**: Real-ESRGAN(MIT)をオンデマンドのプラグインとして利用(DVD→4K等)。Vulkan対応GPUが動けばGPU(NCNN-Vulkan)、
   無ければ**自前のRust製CPU版**(AVX2+FMAを自動使用、公式GPU実装との出力PSNR 42.0dB)に自動で切り替え。
+- **AI高域生成(帯域拡張、実験的)**: 帯域が欠けた音声の高域を学習済みモデル(LavaSR、Apache-2.0、純Rustのtractで推論、初回のみ約56MB取得)で生成して足す。
+  **入力の帯域は一切変えず**、生成分は入力の包絡の外挿を上限に頭打ち(生のモデル出力は音楽で悪化したための設計)。実測(音楽を8kHz/12kHzで帯域制限): 正解のある帯域のLSD 3.4→1.5、2.7→1.6、低域は不変。
+  復元ではなく合成で、帯域が欠けていない音源には何もしない。
 - **AIノイズ除去**: 本物の学習済みニューラルネット(RNNoise)を同梱。実モデルでノイズ低減を検証済み。
   ただし主に人の声で学習されており、音楽では効果が控えめ。
 - **ビットレート/容量**: 固定・ディスク容量から自動算出・「最高音質・最高画質」モード(未選択時は
@@ -46,8 +49,7 @@
 - **著作権保護(CSS/AACS等)の回避は実装しません**(違法となり得るため)。保護のないディスクのみ対象。
 - **Dolby Vision / Atmos / Dolby Cinema / IMAX / 4DX の新規生成は不可**(ライセンス制)。保持(無変換コピー)と互換下位形式のみ。
 - **AI映像超解像(Real-ESRGAN)は非常に遅く、短いクリップ向け**(720×480の1フレーム: 高速モデルはCPU 32スレッド/AVX2で約1.2秒、GT 730 GPUで約4.6秒、高品質モデルはGT 730で約110秒)。
-  CPU版は高速モデルのみ(高品質モデルはGPU必須)。**音声AI超解像は未実装**: 評価した音声用モデル(LavaSR)は音楽素材で元信号との対数スペクトル距離が悪化した(下記CLAUDE.md参照)ため、
-  音質向上の機能としては採用していない。「AI最適化」表記の解像度/FPS設定は簡易ヒューリスティックで、AI超解像とは別物。
+  CPU版は高速モデルのみ(高品質モデルはGPU必須)。**音声のAI高域生成は実験的**: 生のモデル出力は音楽で元信号との距離が悪化したため、入力を保持して生成分を頭打ちにする設計にした(改善は実測で確認したが、復元ではなく合成であり、聴感品質を保証しない)。「AI最適化」表記の解像度/FPS設定は簡易ヒューリスティックで、AI超解像とは別物。
 - DSDは巨大(ステレオ1分あたりDSD64≈42MB〜DSD1024≈678MB)。SACD規格ディスクではなくDSFファイル。
 - Linux/macOSの書き込みは本家xorriso前提(未同梱)。データCDとして書き込み(音楽CD=CD-DAは未対応)。
 - iOSは実機がなく未対応。
@@ -99,6 +101,9 @@ One codebase; only the installers differ per OS.
   352.8 kHz/24-bit = 141.2 dB, 384 kHz/32-bit = 150.2 dB. Since DSD is 1-bit by definition, a PCM companion (FLAC 24-bit/352.8 kHz) can be
   written next to it for devices without DSD (chosen at playback, not an in-file fallback). Measured DSD round-trip SNR: DSD64 = 99.6 dB, DSD128 = 132.4 dB.
 - **AI super-resolution (video)**: Real-ESRGAN (MIT) as an on-demand plugin (e.g. DVD→4K). Uses the GPU (NCNN-Vulkan) when a Vulkan device works, otherwise our own **Rust CPU implementation** (AVX2+FMA used automatically; output PSNR 42.0 dB against the official GPU implementation) with automatic switching.
+- **AI bandwidth extension (experimental)**: fills in the missing highs of band-limited audio with a trained model (LavaSR, Apache-2.0, run by pure-Rust tract, ~56 MB fetched on first use).
+  **The existing band is never modified** and the generated highs are capped by an extrapolation of the input envelope (the raw model output worsened music, hence this design). Measured (music band-limited at 8/12 kHz):
+  LSD in the band with ground truth 3.4→1.5 and 2.7→1.6, low band unchanged. It is synthesis, not restoration, and does nothing for sources that are not band-limited.
 - **AI noise reduction**: bundles a real trained neural network (RNNoise), verified with the real model.
   It is trained mostly on speech, so the effect on music is modest.
 - **Bitrate / capacity**: fixed, auto from disc capacity, a "maximum quality" mode (lossless WAV + ISO when no format is
@@ -118,8 +123,8 @@ One codebase; only the installers differ per OS.
 - **Newly creating Dolby Vision / Atmos / Dolby Cinema / IMAX / 4DX is not possible** (licensed). Only preservation
   (stream copy) and compatible lower formats.
 - **AI video super-resolution (Real-ESRGAN) is very slow — short clips only** (per 720x480 frame: fast model ~1.2 s on a 32-thread AVX2 CPU, ~4.6 s on a GT 730 GPU;
-  high-quality model ~110 s on the GT 730). The CPU build supports the fast model only (the high-quality model needs a GPU). **Audio AI super-resolution is not implemented**: the
-  speech-trained model we evaluated (LavaSR) worsened the log-spectral distance to the original on music (see CLAUDE.md), so it is not offered as a quality feature.
+  high-quality model ~110 s on the GT 730). The CPU build supports the fast model only (the high-quality model needs a GPU). **Audio AI bandwidth extension is experimental**: the
+  raw output of the speech-trained model we evaluated (LavaSR) worsened the log-spectral distance to the original on music, so we keep the input and cap the generated highs (improvement measured, but it is synthesis and does not guarantee perceptual quality).
   The "AI-optimized" resolution/FPS options are simple heuristics, not AI super-resolution.
 - DSD files are huge (per stereo minute: DSD64 ≈ 42 MB … DSD1024 ≈ 678 MB) and are DSF files, not a Super Audio CD disc.
 - Burning on Linux/macOS relies on real xorriso (not bundled). Discs are written as data discs (audio CD / CD-DA is unsupported).

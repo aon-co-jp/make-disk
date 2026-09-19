@@ -8,6 +8,8 @@ pub enum DiscType {
     DvdDl85,
     Bd25,
     Bd50,
+    /// BDXL 3層(triple layer)、100GB。
+    Bd100,
     /// BDXL 4層(quad layer)、128GB。
     Bd128,
 }
@@ -22,6 +24,7 @@ impl DiscType {
             DiscType::DvdDl85 => 8_500_000_000,
             DiscType::Bd25 => 25_000_000_000,
             DiscType::Bd50 => 50_000_000_000,
+            DiscType::Bd100 => 100_000_000_000,
             DiscType::Bd128 => 128_000_000_000,
         };
         nominal * 98 / 100

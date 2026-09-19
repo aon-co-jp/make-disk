@@ -69,6 +69,21 @@
       </section>
 
       <section>
+        <h2>3.6. AI高域生成(帯域拡張、実験的) / AI bandwidth extension (experimental)</h2>
+        <label><input type="checkbox" id="audio-bwe" /> 帯域が欠けた音声の高域をAIで補う(低域はそのまま保持) / Fill in missing highs with AI (the existing band is kept untouched)</label>
+        <br />
+        <label>カットオフ(Hz、空欄=自動検出) / Cutoff (Hz, blank = auto-detect): <input id="audio-bwe-cutoff" type="number" min="3000" max="19000" placeholder="例: 8000 / e.g. 8000" style="width:8em" /></label>
+        <p class="hint">
+          ※学習済みモデル(LavaSR、Apache-2.0、初回のみ約56MBを自動ダウンロード)で欠けた高域を<b>生成</b>して足します。入力の帯域は一切変更せず、生成した高域は入力の包絡を外挿した値を上限に頭打ちにします(生のモデル出力は音楽で元信号から離れて悪化したため、この設計にしています)。
+          実測: 音楽素材を8kHz/12kHzで帯域制限して試すと、正解の存在する帯域のスペクトル距離(LSD)が無処理より改善(3.4→1.5、2.7→1.6)し、低域は完全に保たれました。<br />
+          ※<b>これは「復元」ではなく合成</b>で、LSDは聴感品質そのものではありません。帯域が欠けていない音源(約20kHzまである)には何もしません。ロッシー音源で元から捨てられた高域を「本物の音」として取り戻せるわけではありません。音声専用出力とDSD向けで、AIノイズ除去(3.5)と併用するとノイズ除去が先に行われます。<br />
+          Generates the missing highs with a trained model (LavaSR, Apache-2.0; ~56 MB is downloaded on first use). The existing band is never modified, and the generated highs are capped by an extrapolation of the input's spectral envelope (the raw model output moved music <i>away</i> from the original, hence this design).
+          Measured on music band-limited at 8/12 kHz, the log-spectral distance in the band where ground truth exists improved over no processing (3.4→1.5, 2.7→1.6) while the low band stayed identical.
+          <b>This is synthesis, not restoration</b>, and LSD is not perceptual quality. Sources that are not band-limited (content up to ~20 kHz) are left alone. It cannot bring back highs that a lossy encoder discarded. Audio-only/DSD outputs; with AI noise reduction (3.5) the denoise runs first.
+        </p>
+      </section>
+
+      <section>
         <h2>4. 動画フォーマットへ変換(複数選択可)</h2>
         <div class="checkbox-grid">
           <label><input type="checkbox" name="video-format" value="mp4" /> MP4 (H.264/AAC)</label>
@@ -209,13 +224,23 @@
         <h2>6. ディスクへの書き込み(複数種別を同時選択可)</h2>
         <div class="checkbox-grid">
           <label><input type="checkbox" name="disc-type" value="cd700" /> CD (700MB)</label>
-          <label><input type="checkbox" name="disc-type" value="dvd47" /> DVD (4.7GB)</label>
-          <label><input type="checkbox" name="disc-type" value="dvd_dl85" /> DVD DL (8.5GB)</label>
+          <label><input type="checkbox" name="disc-type" value="dvd47" /> DVD 1層 (4.7GB)</label>
+          <label><input type="checkbox" name="disc-type" value="dvd_dl85" /> DVD 2層 DL (8.5GB)</label>
           <label><input type="checkbox" name="disc-type" value="bd25" /> Blu-ray (25GB)</label>
           <label><input type="checkbox" name="disc-type" value="bd50" /> Blu-ray DL (50GB)</label>
+          <label><input type="checkbox" name="disc-type" value="bd100" /> Blu-ray 3層/BDXL TL (100GB)</label>
           <label><input type="checkbox" name="disc-type" value="bd128" /> Blu-ray 4層/BDXL QL (128GB)</label>
         </div>
-        <p class="hint">チェックした種別ごとに、その容量に合わせたISO/書き込みを行います。</p>
+        <p class="hint">チェックした種別ごとに、その容量に合わせたISO/書き込みを行います。出力がディスク容量に収まらない種別は、書き込みを飛ばして理由を表示します。</p>
+
+        <h3>SACD/Blu-rayオーディオ風プリセット / SACD- and Blu-ray-Audio-style preset</h3>
+        <button id="preset-hires-disc-btn" type="button">DSD256 + 384kHz/32bit PCM + ISOを一括設定 / Set DSD256 + 384 kHz/32-bit PCM + ISO</button>
+        <p class="hint">
+          音声・音楽だけ、または映像+音声の**音声部分**(ミックスダウン)をDSDと高解像度PCMに変換し、ISOにまとめてDVD(1層/2層)・BD(1〜4層)向けのディスクイメージにします。映像はビデオ形式(4)を別に選べば、同じディスクへ映像ファイルとして収録されます。<br />
+          <b>注意: これは標準のSACD規格ディスクでも、Blu-ray Audio(Pure Audio BD)規格ディスクでもありません</b>(SACDは独自の暗号化・認定オーサリングが必要で作れません。Pure Audio BDは192kHz/24bitまでで、384kHz/32bitは規格外です)。DSF/WAV/FLACファイルを収めたデータディスクなので、PC・ネットワークプレーヤー・対応機器で再生でき、家庭用のプレーヤーでは再生できない場合があります。<br />
+          Converts the <b>audio part</b> (mixed down) of audio-only or video sources to DSD and high-resolution PCM and packs them into an ISO for DVD (single/dual layer) and BD (1–4 layer) images. Pick a video format in (4) to also include the video as files on the same disc.<br />
+          <b>Note: this is neither a standard SACD disc nor a Blu-ray Audio (Pure Audio BD) disc</b> (SACD needs proprietary encryption and licensed authoring; Pure Audio BD stops at 192 kHz/24-bit, so 384 kHz/32-bit is outside the spec). It is a data disc of DSF/WAV/FLAC files that plays on PCs, network players and capable devices, but may not play on set-top players.
+        </p>
 
         <h3>書き込み速度</h3>
         <select id="write-speed-mode">
