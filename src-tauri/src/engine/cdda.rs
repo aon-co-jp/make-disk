@@ -374,4 +374,18 @@ mod tests {
         rip_track(&mut d, t, std::path::Path::new(&out), true).unwrap();
         eprintln!("Track{} {}秒を{:.1}秒で取り込み", t.number, t.duration_secs() as u32, started.elapsed().as_secs_f64());
     }
+
+    /// 実ディスクの全音声トラックを`MAKE_DISK_RIP_DIR`へ丸ごと取り込む(手動確認用、コピーコントロールCDの検証に使用)。
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn real_disc_full_rip_all_tracks() {
+        let dir = std::env::var("MAKE_DISK_RIP_DIR").expect("set MAKE_DISK_RIP_DIR");
+        let drives = crate::engine::burn::list_devices().unwrap();
+        let tracks = list_tracks(&drives[0]).unwrap();
+        let nums: Vec<u8> = tracks.iter().filter(|t| t.is_audio).map(|t| t.number).collect();
+        let started = std::time::Instant::now();
+        let outs = rip_tracks(&drives[0], &nums, std::path::Path::new(&dir), true).unwrap();
+        eprintln!("{}トラックを{:.1}秒で取り込み", outs.len(), started.elapsed().as_secs_f64());
+    }
 }
