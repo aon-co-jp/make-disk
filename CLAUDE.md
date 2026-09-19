@@ -1212,3 +1212,5 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
 - **2026-09-19続き16 / Continued 16 — v0.1.23**: (1) 「DSDと同時にPCM版も作る」を既定オフに(DSD対応の再生ソフトは自動でPCM変換でき、容量も倍近く使うため。ハイレゾプリセットでも付けない。必要なときだけチェック)。(2) Android APKの肥大(v0.1.20 728MB→v0.1.21 1.58GB)への対策として`[profile.dev] debug = "line-tables-only"`を追加(CIのAndroidは`--debug`ビルドで全ABI分のデバッグ情報が入っていたため。効果は次回CIのAPKサイズで確認する)。v0.1.22のWindows版(MSI展開)は起動とバージョン0.1.22を確認。 / v0.1.23: PCM companion off by default; slimmer debug info to shrink the Android APK.
 
 - **2026-09-19続き17 / Continued 17 — v0.1.24**: 分割UIの日本語を分かりやすく改善(「同じ長さに分ける: N個のファイルに」「大きさで分ける: 1ファイルあたり約NMBずつ」等)。分割数は0=分割しない、1は「分けない」と同じなので選べず、▲▼で0↔2と1を飛ばす(手入力の12等はそのまま)。ファイルが指定サイズ以下で分割不要な場合は理由を表示。音楽CD取り込みUIはAPIスタブの画面で操作確認(トラック選択・取り込み引数・ソース追加)。 / Clearer split wording; count skips 1 (0 = no split, arrows 0 ↔ 2).
+
+- **2026-09-19続き18 / Continued 18 — v0.1.25**: 「DSD256 + ISOを一括設定」プリセットがPCM(384kHz/32bit)まで自動チェックしていたのを修正(DSD変換時はPCMを同時に作らない。PCM版companionも既定オフ)。v0.1.24をユーザーPCへインストール(`%LOCALAPPDATA%\make-disk`、NSISは`/S /D=`指定が必要——指定しないと前回のインストール先=テスト用Tempに入る)。 / DSD256 preset no longer ticks PCM.
