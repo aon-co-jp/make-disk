@@ -32,7 +32,7 @@ open-cpu = { git = "https://github.com/aon-co-jp/open-cpu" }
 # Android/iOSクロスコンパイルでも問題にならないため選択(PDF自体の
 # ラスタライズはpoppler等の外部ツール〈sidecar〉に任せ、この crate は
 # 見開き合成〈2ページ横連結・綴じ方向による左右入替・4K上限縮小〉のみに使う)。
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # PDFの綴じ方向一括変換(2026-09-16新設、ページ順序反転による右綴じ⇄
 # 左綴じ変換)。純Rust実装でネイティブ依存が無く、上のimage crateと
 # 同じ理由でAndroid/iOSクロスコンパイルにも問題無い。

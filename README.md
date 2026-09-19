@@ -44,8 +44,9 @@
 
 - **著作権保護(CSS/AACS等)の回避は実装しません**(違法となり得るため)。保護のないディスクのみ対象。
 - **Dolby Vision / Atmos / Dolby Cinema / IMAX / 4DX の新規生成は不可**(ライセンス制)。保持(無変換コピー)と互換下位形式のみ。
-- **AI映像超解像(Real-ESRGAN)はVulkan対応GPUが必須で、非常に遅い**(このPCのGT 730で720×480の1フレーム約4.6秒〜110秒、短いクリップ向け)。
-  GPU非搭載/Vulkan非対応の環境向けのCPU版と、**音声超解像は未実装**(ロードマップ)。「AI最適化」表記の解像度/FPS設定は簡易ヒューリスティックで、AI超解像とは別物。
+- **AI映像超解像(Real-ESRGAN)は非常に遅く、短いクリップ向け**(720×480の1フレーム: 高速モデルはCPU 32スレッド/AVX2で約1.2秒、GT 730 GPUで約4.6秒、高品質モデルはGT 730で約110秒)。
+  CPU版は高速モデルのみ(高品質モデルはGPU必須)。**音声AI超解像は未実装**: 評価した音声用モデル(LavaSR)は音楽素材で元信号との対数スペクトル距離が悪化した(下記CLAUDE.md参照)ため、
+  音質向上の機能としては採用していない。「AI最適化」表記の解像度/FPS設定は簡易ヒューリスティックで、AI超解像とは別物。
 - DSDは巨大(ステレオ1分あたりDSD64≈42MB〜DSD1024≈678MB)。SACD規格ディスクではなくDSFファイル。
 - Linux/macOSの書き込みは本家xorriso前提(未同梱)。データCDとして書き込み(音楽CD=CD-DAは未対応)。
 - iOSは実機がなく未対応。
@@ -96,7 +97,7 @@ One codebase; only the installers differ per OS.
   available resampler (soxr, else a high-precision swresample setup) with TPDF dither. Measured SNR against an exact reference sine:
   352.8 kHz/24-bit = 141.2 dB, 384 kHz/32-bit = 150.2 dB. Since DSD is 1-bit by definition, a PCM companion (FLAC 24-bit/352.8 kHz) can be
   written next to it for devices without DSD (chosen at playback, not an in-file fallback). Measured DSD round-trip SNR: DSD64 = 99.6 dB, DSD128 = 132.4 dB.
-- **AI super-resolution (video, GPU)**: Real-ESRGAN (NCNN-Vulkan, MIT) as an on-demand plugin (e.g. DVD→4K).
+- **AI super-resolution (video)**: Real-ESRGAN (MIT) as an on-demand plugin (e.g. DVD→4K). Uses the GPU (NCNN-Vulkan) when a Vulkan device works, otherwise our own **Rust CPU implementation** (AVX2+FMA used automatically; output PSNR 42.0 dB against the official GPU implementation) with automatic switching.
 - **AI noise reduction**: bundles a real trained neural network (RNNoise), verified with the real model.
   It is trained mostly on speech, so the effect on music is modest.
 - **Bitrate / capacity**: fixed, auto from disc capacity, a "maximum quality" mode (lossless WAV + ISO when no format is
@@ -115,9 +116,10 @@ One codebase; only the installers differ per OS.
 - **Circumventing copy protection (CSS/AACS, etc.) is not implemented** (it can be illegal). Unprotected discs only.
 - **Newly creating Dolby Vision / Atmos / Dolby Cinema / IMAX / 4DX is not possible** (licensed). Only preservation
   (stream copy) and compatible lower formats.
-- **AI video super-resolution (Real-ESRGAN) requires a Vulkan-capable GPU and is very slow** (on this PC's GT 730: ~4.6–110 s per
-  720x480 frame, so short clips only). A CPU-only build for machines without a GPU and **audio super-resolution are not implemented**
-  (roadmap). The "AI-optimized" resolution/FPS options are simple heuristics, not AI super-resolution.
+- **AI video super-resolution (Real-ESRGAN) is very slow — short clips only** (per 720x480 frame: fast model ~1.2 s on a 32-thread AVX2 CPU, ~4.6 s on a GT 730 GPU;
+  high-quality model ~110 s on the GT 730). The CPU build supports the fast model only (the high-quality model needs a GPU). **Audio AI super-resolution is not implemented**: the
+  speech-trained model we evaluated (LavaSR) worsened the log-spectral distance to the original on music (see CLAUDE.md), so it is not offered as a quality feature.
+  The "AI-optimized" resolution/FPS options are simple heuristics, not AI super-resolution.
 - DSD files are huge (per stereo minute: DSD64 ≈ 42 MB … DSD1024 ≈ 678 MB) and are DSF files, not a Super Audio CD disc.
 - Burning on Linux/macOS relies on real xorriso (not bundled). Discs are written as data discs (audio CD / CD-DA is unsupported).
 - iOS is unsupported (no test device).

@@ -159,15 +159,22 @@
             <option value="realesrgan-x4plus">高品質・非常に遅い(realesrgan-x4plus、4倍のみ)</option>
           </select>
         </label>
+        <label>実行環境 / Device:
+          <select id="ai-upscale-backend">
+            <option value="auto" selected>自動(GPUがあればGPU、無ければCPU) / Auto (GPU if available, else CPU)</option>
+            <option value="gpu">GPU(Vulkan)</option>
+            <option value="cpu">CPU(高速モデルのみ) / CPU (fast model only)</option>
+          </select>
+        </label>
         <label>倍率 / Scale:
           <select id="ai-upscale-scale"><option value="2">2x</option><option value="3">3x</option><option value="4" selected>4x</option></select>
         </label>
         <p class="hint">
-          ※Vulkan対応GPU(NVIDIA/AMD/Intel、内蔵GPUも可)が必要です。GPUが無い環境では動きません(CPU専用版はロードマップ)。初回のみプラグイン(約45MB、MIT)を自動ダウンロードします。<br />
-          ※非常に遅く、短いクリップ向けです(実測: GT 730で720×480の1フレームあたり 高速モデル約4.6秒、高品質モデル約110秒。上限2400フレーム)。フレームを一時的にPNG展開するためディスク容量も使います。<br />
+          ※GPU(Vulkan対応のNVIDIA/AMD/Intel、内蔵GPUも可)があればGPUで、無い環境ではCPU(AVX2+FMAを自動使用)で動きます。CPU版は高速モデル(realesr-animevideov3)のみで、高品質モデルはGPU必須です。初回のみプラグイン(約45MB、MIT)を自動ダウンロードします。<br />
+          ※非常に遅く、短いクリップ向けです(実測、720×480の1フレーム: 高速モデルはCPU(32スレッド、AVX2+FMA)で約1.2秒、GT 730 GPUで約4.6秒、高品質モデルはGT 730で約110秒。CPUのコア数が少ないと遅くなります。上限2400フレーム)。フレームを一時的にPNG展開するためディスク容量も使います。<br />
           ※解像度の指定(4.2)と併用すると、AI拡大後に指定の解像度へリサイズします(例: DVD→4K)。<br />
-          Requires a Vulkan-capable GPU (NVIDIA/AMD/Intel, integrated included); it does not run without one (a CPU-only build is on the roadmap). The plugin (~45 MB, MIT) is downloaded on first use.<br />
-          Very slow — for short clips (measured on a GT 730: ~4.6 s per 720x480 frame with the fast model, ~110 s with the high-quality model; limit 2400 frames). Frames are temporarily extracted as PNG, using disk space.<br />
+          Runs on a Vulkan-capable GPU (NVIDIA/AMD/Intel, integrated included) when available, otherwise on the CPU (AVX2+FMA used automatically). The CPU build supports only the fast model; the high-quality model needs a GPU. The plugin (~45 MB, MIT) is downloaded on first use.<br />
+          Very slow — for short clips (measured per 720x480 frame: fast model ~1.2 s on a 32-thread CPU with AVX2+FMA, ~4.6 s on a GT 730 GPU; high-quality model ~110 s on the GT 730. Fewer CPU cores means slower; limit 2400 frames). Frames are temporarily extracted as PNG, using disk space.<br />
           Combined with a resolution preset (4.2), the AI-upscaled video is resized to it afterwards (e.g. DVD→4K).
         </p>
       </section>
