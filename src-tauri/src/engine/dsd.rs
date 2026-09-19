@@ -210,7 +210,10 @@ pub fn convert_to_dsf(input_path: &str, output_path: &str, multiplier: u32, trim
     if let Some((_, Some(d))) = trim {
         cmd.args(["-t", &d.to_string()]);
     }
-    cmd.args(["-vn", "-ac", &channels.to_string(), "-ar", &sample_rate.to_string(), "-f", "f32le", "-"]);
+    // 音質最優先: 使える最高品質のリサンプラ(soxr、無ければswresampleの高精度設定)で
+    // DSDレートまで一気に補間する(標準設定より鏡像成分の除去が良い)。
+    let resample = format!("{}:out_sample_rate={sample_rate}", crate::engine::convert::hq_resample_filter());
+    cmd.args(["-vn", "-ac", &channels.to_string(), "-af", &resample, "-f", "f32le", "-"]);
     cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().map_err(|e| format!("ffmpegの起動に失敗しました: {e}"))?;
     let mut stdout = child.stdout.take().ok_or("ffmpegの出力を取得できませんでした")?;
@@ -372,11 +375,7 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("make_disk_dsd_{}_{}", multiplier, std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         let src = tmp.join("sine.wav");
-        let st = Command::new("ffmpeg")
-            .args(["-y", "-f", "lavfi", "-i", "sine=frequency=1000:duration=1:sample_rate=44100,volume=7", "-ac", "2", src.to_str().unwrap()])
-            .output()
-            .unwrap();
-        assert!(st.status.success());
+        write_exact_sine_wav(&src, 1000.0, 0.875, 1.0, 44100, 2);
         let dsf = tmp.join("out.dsf");
         convert_to_dsf(src.to_str().unwrap(), dsf.to_str().unwrap(), multiplier, None).expect("convert_to_dsf");
 
@@ -387,7 +386,7 @@ mod tests {
 
         // ffmpegのDSFデコーダで44.1kHzのfloatへ戻す。
         let dec = Command::new("ffmpeg")
-            .args(["-v", "error", "-i", dsf.to_str().unwrap(), "-ac", "1", "-ar", "44100", "-f", "f32le", "-"])
+            .args(["-v", "error", "-i", dsf.to_str().unwrap(), "-af", "pan=mono|c0=c0", "-ar", "44100", "-f", "f32le", "-"])
             .output()
             .unwrap();
         assert!(dec.status.success(), "{}", String::from_utf8_lossy(&dec.stderr));
@@ -427,7 +426,7 @@ mod tests {
         }
         let snr = roundtrip_snr_db(64);
         eprintln!("DSD64 round-trip SNR: {snr:.1} dB");
-        assert!(snr > 40.0, "DSD64でSNR 40dB超のはず(実際: {snr} dB)");
+        assert!(snr > 90.0, "DSD64でSNR 90dB超のはず(実測99.6dB、実際: {snr} dB)");
     }
 
     /// 全レート(64〜1024)で、出力サイズが計算式どおりで、所要時間を実測して報告する。
@@ -464,6 +463,63 @@ mod tests {
         }
         let snr = roundtrip_snr_db(128);
         eprintln!("DSD128 round-trip SNR: {snr:.1} dB");
-        assert!(snr > 40.0, "DSD128でSNR 40dB超のはず(実際: {snr} dB)");
+        assert!(snr > 120.0, "DSD128でSNR 120dB超のはず(実測132.4dB、実際: {snr} dB)");
     }
+}
+
+/// 正弦波(`freq` Hz)を最小二乗フィットし、(SNR dB, 振幅)を返す。端の過渡応答は`skip`サンプル除外する。
+/// DSD/高解像度PCMの往復・変換品質を実測するためのテスト用ユーティリティ。
+#[cfg(test)]
+pub(crate) fn sine_fit_snr_db(samples: &[f64], freq: f64, sample_rate: f64, skip: usize) -> (f64, f64) {
+    let mid = &samples[skip..samples.len() - skip];
+    let w = 2.0 * std::f64::consts::PI * freq / sample_rate;
+    let (mut sc, mut ss, mut cc, mut s2, mut cs) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    for (i, &v) in mid.iter().enumerate() {
+        let t = w * (i + skip) as f64;
+        let (s, c) = (t.sin(), t.cos());
+        sc += v * c;
+        ss += v * s;
+        cc += c * c;
+        s2 += s * s;
+        cs += c * s;
+    }
+    let det = cc * s2 - cs * cs;
+    let (ac, a_s) = ((sc * s2 - ss * cs) / det, (ss * cc - sc * cs) / det);
+    let (mut sig, mut noise) = (0.0, 0.0);
+    for (i, &v) in mid.iter().enumerate() {
+        let t = w * (i + skip) as f64;
+        let fit = ac * t.cos() + a_s * t.sin();
+        sig += fit * fit;
+        noise += (v - fit) * (v - fit);
+    }
+    (10.0 * (sig / noise).log10(), (ac * ac + a_s * a_s).sqrt())
+}
+
+/// 周波数が厳密な正弦波(32bit float、`channels`ch)のWAVを書き出す。ffmpegの`sine`ソースは
+/// 位相の固定小数点誤差で周波数が僅かにずれ、SNR測定の床(約78.8dB)になるため、
+/// 変換品質の測定には使えない(実機で判明)。テスト用。
+#[cfg(test)]
+pub(crate) fn write_exact_sine_wav(path: &std::path::Path, freq: f64, amplitude: f64, seconds: f64, sample_rate: u32, channels: u16) {
+    let frames = (seconds * sample_rate as f64) as usize;
+    let data_bytes = (frames * channels as usize * 4) as u32;
+    let mut out: Vec<u8> = Vec::with_capacity(44 + data_bytes as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_bytes).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&3u16.to_le_bytes()); // IEEE float
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&(sample_rate * channels as u32 * 4).to_le_bytes());
+    out.extend_from_slice(&(channels * 4).to_le_bytes());
+    out.extend_from_slice(&32u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_bytes.to_le_bytes());
+    for n in 0..frames {
+        let v = (amplitude * (2.0 * std::f64::consts::PI * freq * n as f64 / sample_rate as f64).sin()) as f32;
+        for _ in 0..channels {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    std::fs::write(path, out).unwrap();
 }

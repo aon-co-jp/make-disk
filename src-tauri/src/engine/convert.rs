@@ -215,12 +215,68 @@ fn resolve_av1_codec_args(codec_args: &[String]) -> Result<Vec<String>, String> 
             out.push(enc.to_string());
             out.extend(extra.into_iter().map(String::from));
             i += 2;
+        } else if codec_args[i] == "-af" && codec_args.get(i + 1).is_some_and(|v| v == "hq-resample" || v.starts_with("hq-resample@")) {
+            // 疑似フィルタ`hq-resample[@出力レートHz]`を、使える最高品質のリサンプラ+ディザへ置き換える。
+            // レートはフィルタ内(out_sample_rate)で指定する——`-ar`だと後段に標準設定のリサンプラが
+            // 追加されて高品質設定が無駄になるため。
+            let rate = codec_args[i + 1].strip_prefix("hq-resample@");
+            out.push("-af".to_string());
+            out.push(match rate {
+                Some(r) => format!("{}:out_sample_rate={r}", hq_resample_filter()),
+                None => hq_resample_filter().to_string(),
+            });
+            i += 2;
         } else {
             out.push(codec_args[i].clone());
             i += 1;
         }
     }
-    Ok(out)
+    Ok(merge_audio_filters(out))
+}
+
+/// 使える最高品質のリサンプラ(+TPDF系ディザ)のフィルタ文字列(2026-09-19新設、音質最優先)。
+/// soxr(`precision=33`、最高精度)が使えればそれを、無ければswresampleの高精度設定
+/// (長いフィルタ・高いカットオフ)を使う。ffmpegのビルドごとにsoxrの有無が違い、
+/// このセッションの開発機のffmpegには無かった(実機確認)ため、実際に試して判断する。
+pub fn hq_resample_filter() -> &'static str {
+    static CACHE: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        let soxr_ok = resolve_tool("ffmpeg")
+            .args(["-hide_banner", "-v", "error", "-f", "lavfi", "-i", "sine=d=0.05", "-af", "aresample=resampler=soxr", "-f", "null", "-"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if soxr_ok {
+            "aresample=resampler=soxr:precision=33:dither_method=triangular_hp"
+        } else {
+            "aresample=filter_size=256:phase_shift=13:cutoff=0.995:dither_method=triangular_hp"
+        }
+    })
+}
+
+/// 複数の`-af`(例: hq-resampleとAIノイズ除去)を、1つのフィルタチェーン(`,`連結)にまとめる。
+/// ffmpegは同じ出力に`-af`を複数指定すると最後のものしか使わないため、そのままだと片方が無視される。
+fn merge_audio_filters(args: Vec<String>) -> Vec<String> {
+    let mut chain: Vec<String> = Vec::new();
+    let mut rest: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "-af" && i + 1 < args.len() {
+            chain.push(args[i + 1].clone());
+            i += 2;
+        } else {
+            rest.push(args[i].clone());
+            i += 1;
+        }
+    }
+    if !chain.is_empty() {
+        // arnndn(AIノイズ除去)は48kHz専用なので、高レート化するリサンプルより**前**に置く
+        // (後ろだと48kHzへ戻されてしまう、実機テストで確認)。
+        chain.sort_by_key(|f| if f.starts_with("arnndn") { 0 } else { 1 });
+        rest.push("-af".to_string());
+        rest.push(chain.join(","));
+    }
+    rest
 }
 
 fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
@@ -255,6 +311,8 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
         push_fps_args(&mut args, &job.fps);
         push_ai_denoise_args(&mut args, &job.ai_denoise)?;
     }
+    // hq-resampleとAIノイズ除去などが両方`-af`を持つ場合に1つのチェーンへ統合する。
+    let mut args = merge_audio_filters(args);
 
     args.push("-y".into());
     args.push(job.output_path.clone());
@@ -1090,6 +1148,88 @@ mod tests {
         let (before, after) = (mean_volume_db(&noisy), mean_volume_db(&out));
         let _ = fs::remove_dir_all(&tmp);
         assert!(after < before - 6.0, "RNNoiseでノイズが6dB以上下がるはず(前: {before} dB, 後: {after} dB)");
+    }
+
+    fn hires_job(input: &Path, output: &Path, args: &[&str], denoise: bool) -> ConvertJob {
+        ConvertJob {
+            input_path: input.to_string_lossy().to_string(),
+            output_path: output.to_string_lossy().to_string(),
+            codec_args: args.iter().map(|s| s.to_string()).collect(),
+            bitrate: None,
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: None,
+            fps: None,
+            ai_denoise: denoise.then_some(AiDenoise { mix: 0.5 }),
+            dsd_rate: None,
+            ai_upscale: None,
+        }
+    }
+
+    fn decode_f32_mono(path: &Path) -> Vec<f64> {
+        let o = Command::new("ffmpeg").args(["-v", "error", "-i", path.to_str().unwrap(), "-af", "pan=mono|c0=c0", "-f", "f32le", "-"]).output().unwrap();
+        o.stdout.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f64).collect()
+    }
+
+    /// 高解像度PCM(R-2R等マルチビットDAC向け): 352.8kHz/24bitで出力され、1kHz正弦波の再現SNRが高いこと。
+    #[test]
+    fn real_ffmpeg_writes_high_resolution_pcm_with_high_snr() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_dxd_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let src = tmp.join("tone.wav");
+        crate::engine::dsd::write_exact_sine_wav(&src, 1000.0, 0.875, 2.0, 44100, 2);
+
+        for (name, args, rate, bits) in [
+            ("dxd352.wav", vec!["-af", "hq-resample@352800", "-c:a", "pcm_s24le"], 352_800u32, "24"),
+            ("pcm705.wav", vec!["-af", "hq-resample@705600", "-c:a", "pcm_s32le"], 705_600u32, "32"),
+            ("pcm384_32.wav", vec!["-af", "hq-resample@384000", "-c:a", "pcm_s32le"], 384_000u32, "32"),
+            ("pcm352_32.wav", vec!["-af", "hq-resample@352800", "-c:a", "pcm_s32le"], 352_800u32, "32"),
+        ] {
+            let out = tmp.join(name);
+            run_convert(&hires_job(&src, &out, &args, false)).expect("high-resolution PCM conversion");
+            let probe = Command::new("ffprobe").args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate,bits_per_sample,bits_per_raw_sample", "-of", "csv=p=0", out.to_str().unwrap()]).output().unwrap();
+            let text = String::from_utf8_lossy(&probe.stdout).to_string();
+            assert!(text.contains(&rate.to_string()), "{name}のサンプルレートは{rate}Hzのはず(実際: {text})");
+            let samples = decode_f32_mono(&out);
+            let (snr, amp) = crate::engine::dsd::sine_fit_snr_db(&samples, 1000.0, rate as f64, rate as usize / 10);
+            eprintln!("{name}: {rate} Hz / {bits} bit — 1kHz SNR {snr:.1} dB, 振幅 {amp:.4}");
+            assert!(snr > 90.0, "{name}: リサンプル品質SNRは90dB超のはず(実際: {snr} dB)");
+            assert!((amp - 0.875).abs() < 0.01, "{name}: 振幅が保たれるはず(実際: {amp})");
+        }
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// DSDと同時に作るPCM版(FLAC 24bit/352.8kHz)と、AIノイズ除去との`-af`統合(片方が無視されない)。
+    #[test]
+    fn real_ffmpeg_flac_companion_and_merged_audio_filters() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_comp_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let src = tmp.join("noise.wav");
+        let st = Command::new("ffmpeg").args(["-y", "-f", "lavfi", "-i", "anoisesrc=d=3:c=white:a=0.3:r=48000", src.to_str().unwrap()]).output().unwrap();
+        assert!(st.status.success());
+        let out = tmp.join("companion.flac");
+        let args = ["-af", "hq-resample@352800", "-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24"];
+        // ノイズ除去を併用: 高品質リサンプル(352.8kHz)とRNNoiseの両方が適用されるはず。
+        run_convert(&hires_job(&src, &out, &args, true)).expect("companion FLAC with denoise");
+        let probe = Command::new("ffprobe").args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_name,sample_rate,bits_per_raw_sample", "-of", "csv=p=0", out.to_str().unwrap()]).output().unwrap();
+        let text = String::from_utf8_lossy(&probe.stdout).trim().to_string();
+        let (before, after) = (mean_volume_db(&src), mean_volume_db(&out));
+        let _ = fs::remove_dir_all(&tmp);
+        assert!(text.contains("flac") && text.contains("352800"), "FLAC 352.8kHzのはず(実際: {text})");
+        assert!(after < before - 3.0, "ノイズ除去も適用されているはず(前: {before} dB, 後: {after} dB)");
+    }
+
+    #[test]
+    fn merge_audio_filters_joins_multiple_af_into_one_chain() {
+        let merged = merge_audio_filters(vec!["-c:a".into(), "flac".into(), "-af".into(), "a".into(), "-af".into(), "b=1".into()]);
+        assert_eq!(merged, vec!["-c:a", "flac", "-af", "a,b=1"]);
     }
 
     #[test]

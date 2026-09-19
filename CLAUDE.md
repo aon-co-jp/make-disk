@@ -1039,8 +1039,9 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
 **日本語**
 - **DSD出力(64/128/256/512/1024、DSF)**: ffmpegはDSDを**デコードのみ**で書き出せない(実機確認)ため`engine/dsd.rs`で自前実装。
   ffmpegでDSDレート(44.1kHz×倍率)のf32へリサンプル→5次ΔΣ変調器(Butterworth型NTF、高域ゲイン1.5=Lee基準、入力-6dB)→
-  DSF(LSBファースト、4096Bブロック)。2チャンネルは別スレッドで並列変調。**実測(実ffmpegのDSFデコーダで往復)**: DSD64/128とも
-  SNR約78.9dB(ただし両者同値なので、限界は44.1kHzへ間引くデコーダ側で、レート間の音質差を示す値ではない)。**速度(最適化ビルド、
+  DSF(LSBファースト、4096Bブロック)。2チャンネルは別スレッドで並列変調。**実測(実ffmpegのDSFデコーダで往復)**: DSD64=99.6dB/
+  DSD128=132.4dB(**訂正(2026-09-19)**: 当初「両方約78.9dB=デコーダ側の限界」と書いたのは誤りで、ffmpegの`sine`ソースの位相誤差による測定の床だった。
+  Rustで厳密な正弦波を生成し直して測り直した実測値がこれ)。**速度(最適化ビルド、
   2秒素材、実時間比)**: DSD64=0.3倍/128=0.4/256=0.8/512=1.6/1024=3.1(デバッグビルドは約10倍遅い)。実用的なのはDSD256程度まで。
   実バグ: DSFヘッダの「サンプル数」欄のオフセット誤り(ffmpegが不正データとして拒否)を往復テストで検出・修正。
 - **「AI/ハードウェア加速」の正直な結論**: ΔΣ変調は直前の出力に依存する逐次処理で、時間方向のSIMD(AVX2/AVX-512)やGPU/NPUでは
@@ -1058,8 +1059,8 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
 **English**
 - **DSD output (64/128/256/512/1024, DSF)**: ffmpeg can only *decode* DSD (verified), so `engine/dsd.rs` implements it: resample to the DSD rate as f32 via
   ffmpeg → 5th-order delta-sigma modulator (Butterworth NTF, max gain 1.5, input −6 dB) → DSF. The two channels are modulated on separate threads.
-  Round-tripped through ffmpeg's DSF decoder: SNR ≈ 78.9 dB for both DSD64 and DSD128 — identical, so the limit is the decoder's decimation to 44.1 kHz and
-  it says nothing about quality differences between rates. Speed (optimized build, 2 s clip, real-time ratio): 0.3x / 0.4 / 0.8 / 1.6 / 3.1 for DSD64…1024
+  Round-tripped through ffmpeg's DSF decoder: SNR = 99.6 dB (DSD64) and 132.4 dB (DSD128). **Correction (2026-09-19)**: the earlier "78.9 dB for both, decoder-limited" was wrong — it was a
+  measurement floor caused by the frequency error of ffmpeg's `sine` source; these are the values against an exact Rust-generated sine. Speed (optimized build, 2 s clip, real-time ratio): 0.3x / 0.4 / 0.8 / 1.6 / 3.1 for DSD64…1024
   (debug builds are ~10x slower); DSD256 is about the practical limit. A real bug (wrong DSF sample-count offset, rejected by ffmpeg) was caught by the round-trip test.
 - **Honest conclusion on "AI / hardware acceleration"**: delta-sigma modulation is sequential, so time-axis SIMD (AVX2/AVX-512) and GPU/NPU cannot speed it up
   (open-cpu only detects ISA features, no core counts); only channel parallelism helps (done). ffmpeg's encoders/resampler already use AVX2/AVX-512 at runtime.
@@ -1071,3 +1072,45 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
 - **Direction-based resolution presets**: BD→DVD (720×480/720×576/Full HD), DVD→BD (Full HD/4K), verified via real DOM interaction.
 - Answered that **copy-protection circumvention is not implemented**. **Real AI super-resolution (DVD→4K) is not implemented** — the user's top priority, blocked by
   model sourcing (no Python, no .pth→ONNX); next session starts with CPU (tract + open-cpu), then GPU (open-directx / open-cuda).
+
+## HANDOFF追記 / Handoff (2026-09-19続き6) AI超解像(GPU)・高解像度PCM・DSD同梱PCM・測定の訂正 / GPU AI upscaling, hi-res PCM, DSD PCM companion, measurement correction
+
+**日本語**
+- **本格AI超解像(映像、GPU)**: `engine/ai_upscale.rs`。公式Real-ESRGAN-ncnn-vulkan(MIT、v0.2.5.0、約45MB)を**オンデマンドDLのプラグイン**
+  (`<プラグインフォルダ>/realesrgan/<版>/`、あれば再取得しない)として使用。ffmpegでPNG展開→100枚ずつ超解像→x264(crf12)の中間動画→元音声を付けて
+  中間ファイル→通常の変換(解像度/コーデック/ビットレート)へ。実GPU(GT 730)で160×120→640×480+音声保持を実テストで確認。**実測速度**(720×480の1フレーム):
+  `realesr-animevideov3`=4.6秒、`realesrgan-x4plus`=110秒 → 短いクリップ向け(上限2400フレーム)。**GPU非搭載/Vulkan非対応では動かない**
+  (`-g -1`は「invalid gpu device」を実機確認)。CPU専用版はロードマップ(モデルはconv18層+PReLU+PixelShuffleの小型で、720×480で約0.4TMAC/フレーム→
+  AVX2/AVX-512のRust推論でGT 730並みの見込み)。**「Pythonが無い」は誤りだった**: `C:\Users\noruk\AppData\Local\Programs\Python\Python313`が実在
+  (`python3`名で見つからなかっただけ)。torch未導入だが`pip`可なので、.pth→ONNX変換も可能。Rust実装/資産は`reve`(Real-ESRGAN動画)等がGitHubにある。
+- **高解像度PCM(マルチビット/R-2R向け)**: 352.8k/384kHz×24・32bit、705.6k/768kHz×32bit。疑似フィルタ`-af hq-resample@<Hz>`をRust側で
+  `hq_resample_filter()`(soxrが使えればsoxr precision=33、この開発機のffmpegはsoxr無し=実機確認→swresampleの高精度設定)+`triangular_hp`ディザへ展開し、
+  レートはフィルタ内`out_sample_rate`で指定(`-ar`だと後段に標準リサンプラが入り無駄になる)。複数の`-af`は1チェーンへ統合(ffmpegは最後の`-af`しか使わない)し、
+  48kHz専用のarnndn(AIノイズ除去)はリサンプルより**前**に並べる(後だと48kHzへ戻る、実テストで発見)。**実測SNR(厳密な基準正弦波、1kHz)**: 352.8k/24bit=141.2dB、
+  352.8k/32bit=149.8dB、384k/32bit=150.2dB、705.6k/32bit=149.9dB。
+- **DSD同梱PCM**: DSD選択時、既定でFLAC 24bit/352.8kHzも並べて出力(DSD非対応機器向け)。**ファイル内のDSD→PCM自動フォールバックは不可能**(再生機器の機能)なので並置で対応。
+  DSDは仕様上1bitのためマルチビット変調器の出力は格納できず、「マルチビットの良さ」は高解像度PCMで提供する(ユーザー合意済みの仕様)。
+- **測定の訂正(重要)**: 以前のSNR約78.9dB(DSD64/128同値)を「デコーダ側の限界」としたのは**誤り**。ffmpegの`sine`ソースの位相誤差による測定の床だった。厳密な正弦波
+  (`dsd::write_exact_sine_wav`)で測り直した実測は **DSD64=99.6dB、DSD128=132.4dB**(レートが上がるほど改善)。ステレオ→モノの`-ac 1`は√2倍に混合されるため
+  `pan=mono|c0=c0`で左chを取り出す。DSD変換の速度(最適化ビルド): DSD64=0.3倍/128=0.5/256=1.0/512=2.0/1024=3.2(高品質リサンプラ適用後)。
+- **開発上の反省**: perl/sed/nodeによる文字列置換で`\d`のバックスラッシュ消失・二重適用・stdin待ちの`cat`によるハングが複数回発生。以後のソース編集はEditツールを使う。
+
+**English**
+- **Real AI video super-resolution (GPU)**: `engine/ai_upscale.rs` uses the official Real-ESRGAN-ncnn-vulkan (MIT, v0.2.5.0, ~45 MB) as an on-demand plugin
+  (`<plugins>/realesrgan/<version>/`, not re-downloaded if present): ffmpeg → PNG frames → upscale 100 at a time → x264 (crf 12) chunks → mezzanine with the original
+  audio → the normal resolution/codec/bitrate pipeline. Verified on the real GPU (GT 730): 160×120 → 640×480 with audio kept. **Measured speed** (720×480 frame):
+  `realesr-animevideov3` 4.6 s, `realesrgan-x4plus` 110 s → short clips only (limit 2400 frames). **It does not run without a Vulkan GPU** (`-g -1` → "invalid gpu device",
+  verified). A CPU-only build is on the roadmap (the model is small: 18 conv layers + PReLU + PixelShuffle, ~0.4 TMAC per 720×480 frame, so AVX2/AVX-512 Rust inference should
+  match a GT 730). **"No Python here" was wrong**: Python 3.13 exists at `...\Programs\Python\Python313` (it just wasn't found as `python3`); torch isn't installed but `pip` works,
+  so .pth→ONNX conversion is possible. Rust projects such as `reve` exist on GitHub.
+- **High-resolution PCM (multi-bit / R-2R)**: 352.8/384 kHz × 24/32-bit and 705.6/768 kHz × 32-bit. The pseudo filter `-af hq-resample@<Hz>` is expanded in Rust to
+  `hq_resample_filter()` (soxr precision 33 if available — this dev ffmpeg has no soxr, verified — else a high-precision swresample setup) plus `triangular_hp` dither; the
+  rate is set inside the filter (`out_sample_rate`) because `-ar` would add a second default resampler. Multiple `-af` are merged into one chain (ffmpeg keeps only the last),
+  and the 48 kHz-only arnndn (AI denoise) is placed **before** the resampler (after it the output falls back to 48 kHz — found by a test).
+  **Measured SNR (exact reference sine, 1 kHz)**: 352.8k/24-bit 141.2 dB, 352.8k/32-bit 149.8 dB, 384k/32-bit 150.2 dB, 705.6k/32-bit 149.9 dB.
+- **DSD PCM companion**: selecting DSD also writes FLAC 24-bit/352.8 kHz by default (for devices without DSD). An in-file DSD→PCM fallback is impossible (a player/DAC feature), so
+  the files sit side by side. DSD is 1-bit by definition, so a multi-bit modulator's output cannot be stored; the "multi-bit goodness" is delivered as high-res PCM (agreed spec).
+- **Measurement correction (important)**: the earlier "SNR ≈ 78.9 dB for both DSD64/128, decoder-limited" was **wrong** — it was a measurement floor from the frequency error of ffmpeg's `sine` source.
+  Against an exact sine (`dsd::write_exact_sine_wav`) the real values are **DSD64 = 99.6 dB, DSD128 = 132.4 dB** (better at higher rates). `-ac 1` mixes stereo to √2×, so tests use `pan=mono|c0=c0`.
+  DSD speed (optimized build, after the high-quality resampler): DSD64 0.3x / 128 0.5 / 256 1.0 / 512 2.0 / 1024 3.2 real time.
+- **Process note**: string edits via perl/sed/node repeatedly lost `\d` backslashes, double-applied, or hung on a stdin-waiting `cat`. Source edits now use the Edit tool.
