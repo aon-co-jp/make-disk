@@ -85,6 +85,10 @@ pub struct ConvertJob {
     /// ffmpegはDSDをエンコードできないため`engine::dsd`の自前変換器を使う。
     #[serde(default)]
     pub dsd_rate: Option<u32>,
+    /// DSD出力と同時にDoP(DSD over PCM)のWAV(`<出力名>.dop.wav`)も書き出す。`Some(24|32)`でコンテナのビット深度
+    /// (open-mqa連携、2026-09-19)。DoP対応DAC+ビットパーフェクト再生専用(`dsd::dsf_to_dop_wav`参照)。
+    #[serde(default)]
+    pub dop_wav_bits: Option<u8>,
     /// AI超解像(2026-09-19新設)。Real-ESRGAN(GPU/NCNN-Vulkan)で映像を拡大してから、
     /// 通常のコーデック/解像度/ビットレート指定を適用する。短いクリップ向け(`ai_upscale`モジュール参照)。
     #[serde(default)]
@@ -232,7 +236,12 @@ pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
             return Err("DSD出力ではカット区間の指定は未対応です(開始位置+長さのトリミングは可) / cut ranges are not supported with DSD output".to_string());
         }
         let trim = job.trim.as_ref().map(|t| (t.start_secs, t.duration_secs));
-        return crate::engine::dsd::convert_to_dsf(&job.input_path, &job.output_path, mult, trim);
+        crate::engine::dsd::convert_to_dsf(&job.input_path, &job.output_path, mult, trim)?;
+        if let Some(bits) = job.dop_wav_bits {
+            let dop_path = std::path::Path::new(&job.output_path).with_extension("dop.wav");
+            crate::engine::dsd::dsf_to_dop_wav(&job.output_path, &dop_path.to_string_lossy(), bits)?;
+        }
+        return Ok(());
     }
     if let Some(cuts) = &job.cut_ranges {
         if !cuts.is_empty() {
@@ -926,6 +935,7 @@ mod tests {
             fps: None,
             ai_denoise: None,
             dsd_rate: None,
+            dop_wav_bits: None,
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -971,6 +981,7 @@ mod tests {
             fps: None,
             ai_denoise: None,
             dsd_rate: None,
+            dop_wav_bits: None,
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1012,6 +1023,7 @@ mod tests {
             fps: Some(30),
             ai_denoise: None,
             dsd_rate: None,
+            dop_wav_bits: None,
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1047,6 +1059,7 @@ mod tests {
             fps: None,
             ai_denoise: None,
             dsd_rate: None,
+            dop_wav_bits: None,
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1079,6 +1092,7 @@ mod tests {
             fps: None,
             ai_denoise: None,
             dsd_rate: None,
+            dop_wav_bits: None,
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1110,6 +1124,7 @@ mod tests {
             fps: None,
             ai_denoise: None,
             dsd_rate: None,
+            dop_wav_bits: None,
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1150,6 +1165,7 @@ mod tests {
             fps: Some(30),
             ai_denoise: None,
             dsd_rate: None,
+            dop_wav_bits: None,
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1200,6 +1216,7 @@ mod tests {
             fps: None,
             ai_denoise: Some(AiDenoise { mix: 1.0 }),
             dsd_rate: None,
+            dop_wav_bits: None,
             ai_upscale: None,
             audio_bwe: None,
         };
@@ -1222,6 +1239,7 @@ mod tests {
             fps: None,
             ai_denoise: denoise.then_some(AiDenoise { mix: 0.5 }),
             dsd_rate: None,
+            dop_wav_bits: None,
             ai_upscale: None,
             audio_bwe: None,
         }
