@@ -2464,7 +2464,7 @@ dependencies = [
 
 [[package]]
 name = "make-disk"
-version = "0.1.20"
+version = "0.1.21"
 dependencies = [
  "image",
  "lopdf",
@@ -3018,7 +3018,7 @@ source = "git+https://github.com/aon-co-jp/open-cpu#b2319a069c54d66499830cedcc37
 [[package]]
 name = "open-mqa"
 version = "0.1.0"
-source = "git+https://github.com/aon-co-jp/open-mqa?rev=14feee6#14feee6b545a103de038214c57ced36d45347e37"
+source = "git+https://github.com/aon-co-jp/open-mqa?rev=2d94ada#2d94adae49bf67db52f58f413537d515670f2ac8"
 dependencies = [
  "thiserror 1.0.69",
 ]
