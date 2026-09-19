@@ -115,4 +115,14 @@ mod tests {
         result.expect("create_iso should succeed via the bundled rs-xorriso fallback when real xorriso is absent");
         assert!(iso_exists, "rs-xorrisoが実際にISOファイルを書き出しているはず");
     }
+
+    /// 実フォルダ(`MAKE_DISK_ISO_SRC`)から実ISO(`MAKE_DISK_ISO_OUT`)を作り、サイズを表示する手動確認用。
+    #[test]
+    #[ignore]
+    fn real_folder_to_iso() {
+        let src = std::env::var("MAKE_DISK_ISO_SRC").expect("set MAKE_DISK_ISO_SRC");
+        let out = std::env::var("MAKE_DISK_ISO_OUT").expect("set MAKE_DISK_ISO_OUT");
+        create_iso(&src, &out, "DSD256").unwrap();
+        eprintln!("ISOサイズ: {} バイト", std::fs::metadata(&out).unwrap().len());
+    }
 }
