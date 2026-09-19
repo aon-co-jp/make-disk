@@ -84,10 +84,21 @@
           DVD supports standard (720x480) or Full HD; Blu-ray supports Full HD or 4K.
           Custom lets you specify anything from 720x480 up to 5K/8K.
         </p>
+        <h3>ディスク変換の方向 / Disc conversion direction</h3>
+        <select id="disc-direction">
+          <option value="any" selected>指定なし(全ての解像度から選択) / Any (all resolutions)</option>
+          <option value="bd_to_dvd">ブルーレイ → DVD(通常のDVD解像度 720×480/720×576、またはフルHD) / Blu-ray to DVD (standard DVD 720x480/720x576, or Full HD)</option>
+          <option value="dvd_to_bd">DVD → ブルーレイ(フルHD または 4K) / DVD to Blu-ray (Full HD or 4K)</option>
+        </select>
+        <p class="hint">
+          ※フルHDのDVDは標準のDVD-Video規格(720×480)ではないため、家庭用DVDプレーヤーでは再生できない場合があります(PCや対応プレーヤー向け)。DVD→4Kの拡大は補間による拡大で、失われたディテールを補う本格的なAI超解像ではありません。<br />
+          Full HD on a DVD is outside the DVD-Video standard (720x480) and may not play on set-top DVD players (PC / capable players only). Upscaling DVD to 4K is interpolation, not true AI super-resolution that restores lost detail.
+        </p>
         <h3>解像度 / Resolution</h3>
         <select id="resolution-preset">
           <option value="unspecified" selected>無指定(元の解像度のまま) / Unspecified (keep original)</option>
           <option value="720x480">720×480(DVD標準 / DVD standard)</option>
+          <option value="720x576">720×576(DVD PAL方式 / DVD PAL)</option>
           <option value="1920x1080">1920×1080(フルHD / Full HD)</option>
           <option value="3840x2160">3840×2160(4K)</option>
           <option value="5120x2880">5120×2880(5K)</option>

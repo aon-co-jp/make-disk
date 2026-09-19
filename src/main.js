@@ -528,6 +528,30 @@ document.getElementById("ai-denoise-mix").addEventListener("input", (e) => {
   document.getElementById("ai-denoise-mix-label").textContent = e.target.value;
 });
 
+/** ディスク変換の方向に応じて、選べる解像度プリセットを絞り込む(2026-09-19新設)。
+ * BD→DVD: 720x480 / 1920x1080、DVD→BD: 1920x1080 / 3840x2160。
+ * 「無指定」「カスタム」「AI最適化」は常に選べる。 */
+const DIRECTION_RESOLUTIONS = {
+  any: null,
+  bd_to_dvd: ["720x480", "720x576", "1920x1080"],
+  dvd_to_bd: ["1920x1080", "3840x2160"],
+};
+function applyDiscDirection(direction) {
+  const allowed = DIRECTION_RESOLUTIONS[direction];
+  const select = document.getElementById("resolution-preset");
+  const fixedValues = ["unspecified", "custom", "ai"];
+  for (const opt of select.options) {
+    const enabled = allowed === null || fixedValues.includes(opt.value) || allowed.includes(opt.value);
+    opt.hidden = !enabled;
+    opt.disabled = !enabled;
+  }
+  if (allowed !== null && select.selectedOptions[0]?.disabled) {
+    select.value = allowed[0];
+    select.dispatchEvent(new Event("change"));
+  }
+}
+document.getElementById("disc-direction").addEventListener("change", (e) => applyDiscDirection(e.target.value));
+
 document.getElementById("resolution-preset").addEventListener("change", (e) => {
   document.getElementById("resolution-custom-inputs").hidden = e.target.value !== "custom";
   document.getElementById("resolution-ai-hint").hidden = e.target.value !== "ai";
