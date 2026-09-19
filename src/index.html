@@ -59,6 +59,7 @@
           <label><input type="checkbox" name="audio-format" value="dsd512" /> DSD512 (22.6MHz, DSF)</label>
           <label><input type="checkbox" name="audio-format" value="dsd1024" /> DSD1024 (45.2MHz, DSF)</label>
         </div>
+        <p class="hint">ハードウェア(DAC)が対応していれば、DSD音源はそのまま再生されます。対応していない場合は、(DSD対応の再生ソフトなら)自動的にPCM音源に変換されて再生されます。そのため、通常はPCM版を別に作る必要はありません。ただし、DSFに対応していない再生ソフト(標準のWindowsプレーヤーなど)では再生できません。 / If your hardware (DAC) supports DSD, the DSD audio is played as is. If it does not, a DSD-capable player automatically converts it to PCM for playback, so you normally do not need a separate PCM version. Players without DSF support (such as the standard Windows player) cannot play it at all.</p>
         <label><input type="checkbox" id="dsd-companion-pcm" /> DSD非対応の機器でも聴けるよう、DSDと同時にPCM版(FLAC 24bit/352.8kHz)も作る / Also write a PCM companion (FLAC 24-bit/352.8 kHz) next to DSD for devices without DSD support</label>
         <div class="row">
           <label><input type="checkbox" id="dsd-dop-wav" /> DoP(DSD over PCM)のWAVも作る / Also write a DoP (DSD over PCM) WAV</label>
