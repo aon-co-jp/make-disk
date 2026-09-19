@@ -554,7 +554,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           dsd_rate: dsdMatch ? parseInt(dsdMatch[1], 10) : null,
           ai_upscale:
             isVideo && format !== "passthrough-mkv" && document.getElementById("ai-upscale").checked
-              ? { model: document.getElementById("ai-upscale-model").value, scale: parseInt(document.getElementById("ai-upscale-scale").value, 10) }
+              ? { model: document.getElementById("ai-upscale-model").value, scale: parseInt(document.getElementById("ai-upscale-scale").value, 10), backend: document.getElementById("ai-upscale-backend").value }
               : null,
           ai_denoise: document.getElementById("ai-denoise").checked && format !== "passthrough-mkv" ? { mix: parseFloat(document.getElementById("ai-denoise-mix").value) } : null,
         },
@@ -1032,6 +1032,16 @@ checkForUpdatesOnStartup();
     if (shown.length > 0) {
       log("プラグイン / Plugins: " + shown.map((p) => `${p.name} [${labels[p.action] ?? p.action}]`).join(", "));
     }
+  } catch (e) {
+    // 参考情報のため失敗しても続行する
+  }
+})();
+
+// 起動時に、AI超解像(CPU版)が使う計算カーネル(open-cpuの検出結果)を表示する。
+(async () => {
+  try {
+    const kernel = await invoke("ai_upscale_cpu_kernel");
+    log(`AI超解像(CPU版)の計算カーネル / CPU upscaling kernel: ${kernel}`);
   } catch (e) {
     // 参考情報のため失敗しても続行する
   }

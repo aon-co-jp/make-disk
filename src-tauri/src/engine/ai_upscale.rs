@@ -6,8 +6,10 @@
 //! バージョン`v0.2.5.0`ごとに`<プラグインフォルダ>/realesrgan/<版>/`へ展開し、あれば再取得しない)。
 //!
 //! ## 実機で確認した事実・制限(正直な開示)
-//! - **Vulkan対応GPUが必須**(NVIDIA/AMD/Intel、内蔵GPUも可)。GPU非搭載/Vulkan非対応の環境では動かない
-//!   (`-g -1`は「invalid gpu device」で失敗することを実機確認)。CPUのみの環境向けは別実装(ロードマップ)。
+//! - **GPU版(NCNN-Vulkan)はVulkan対応GPUが必須**(NVIDIA/AMD/Intel、内蔵GPUも可)。公式ビルドにCPUモードは無い
+//!   (`-g -1`は「invalid gpu device」で失敗することを実機確認)。そこで**GPUが使えない環境向けに自前のCPU版**
+//!   (`engine::cpu_sr`、`realesr-animevideov3`のみ、AVX2+FMA対応)を用意し、`backend="auto"`ではGPUが動かなければ自動でCPU版に切り替える。
+//!   `realesrgan-x4plus`(高品質)はGPU必須。
 //! - **速度は非常に遅い**: このPCのGT 730(2GB)で720×480の1フレームあたり、軽量モデル
 //!   `realesr-animevideov3`が約4.6秒、高品質モデル`realesrgan-x4plus`が約110秒。映画1本(約13万フレーム)は
 //!   現実的ではなく、短いクリップ向け。`MAX_FRAMES`を超える素材はトリミングを促すエラーにする。
@@ -32,6 +34,80 @@ pub struct AiUpscale {
     pub model: String,
     /// 拡大倍率(2/3/4)。`realesrgan-x4plus`は4のみ。
     pub scale: u32,
+    /// 実行環境: `"auto"`(既定。Vulkan対応GPUが使えればGPU、無ければCPU)/`"gpu"`/`"cpu"`。
+    /// CPU版は`realesr-animevideov3`のみ対応(`engine::cpu_sr`)。
+    #[serde(default = "default_backend")]
+    pub backend: String,
+}
+
+fn default_backend() -> String {
+    "auto".to_string()
+}
+
+/// 実際に使う実行環境。
+enum Backend {
+    Gpu(PathBuf),
+    Cpu(crate::engine::cpu_sr::SrModel),
+}
+
+/// Vulkan対応GPUで実際に動くか(小さな画像で試す。結果はプロセス内でキャッシュ)。
+pub(crate) fn gpu_usable(exe: &Path) -> bool {
+    static CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| {
+        let dir = std::env::temp_dir().join(format!("make-disk-gpucheck-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let (input, output) = (dir.join("in.png"), dir.join("out.png"));
+        let ok = image::RgbImage::new(16, 16).save(&input).is_ok()
+            && Command::new(exe)
+                .args(["-i", &input.to_string_lossy(), "-o", &output.to_string_lossy(), "-m", &exe.parent().map(|p| p.join("models")).unwrap_or_default().to_string_lossy(), "-n", "realesr-animevideov3", "-s", "2", "-f", "png"])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            && output.is_file();
+        let _ = std::fs::remove_dir_all(&dir);
+        ok
+    })
+}
+
+/// 設定と実機の状況から実行環境を決める。CPUのみのPC(GPU非搭載/Vulkan非対応)ではCPU版へ自動で切り替える。
+fn choose_backend(exe: &Path, up: &AiUpscale) -> Result<Backend, String> {
+    let models = exe.parent().ok_or("プラグインの場所が不正です")?.join("models");
+    let cpu_capable = up.model == "realesr-animevideov3";
+    match up.backend.as_str() {
+        "gpu" => Ok(Backend::Gpu(exe.to_path_buf())),
+        "cpu" if cpu_capable => Ok(Backend::Cpu(crate::engine::cpu_sr::load_model(&models, up.scale)?)),
+        "cpu" => Err("CPU版はrealesr-animevideov3のみ対応です(realesrgan-x4plusはGPUが必要) / the CPU build only supports realesr-animevideov3".to_string()),
+        _ => {
+            if gpu_usable(exe) {
+                Ok(Backend::Gpu(exe.to_path_buf()))
+            } else if cpu_capable {
+                Ok(Backend::Cpu(crate::engine::cpu_sr::load_model(&models, up.scale)?))
+            } else {
+                Err("Vulkan対応GPUが見つかりません。realesrgan-x4plusはGPUが必要です(CPUでは高速モデルrealesr-animevideov3を選んでください) / no Vulkan GPU found; realesrgan-x4plus needs one".to_string())
+            }
+        }
+    }
+}
+
+/// 画像ファイルまたはフォルダ`input`を`output`へ超解像する(選ばれた実行環境で)。
+fn run_backend(backend: &Backend, input: &Path, output: &Path, up: &AiUpscale) -> Result<(), String> {
+    match backend {
+        Backend::Gpu(exe) => run_realesrgan(exe, input, output, up),
+        Backend::Cpu(model) => {
+            if input.is_dir() {
+                std::fs::create_dir_all(output).map_err(|e| e.to_string())?;
+                let mut files: Vec<_> = std::fs::read_dir(input).map_err(|e| e.to_string())?.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+                files.sort();
+                for f in files {
+                    let name = f.file_name().ok_or("ファイル名が不正です")?;
+                    crate::engine::cpu_sr::upscale_image_file(model, &f, &output.join(name))?;
+                }
+                Ok(())
+            } else {
+                crate::engine::cpu_sr::upscale_image_file(model, input, output)
+            }
+        }
+    }
 }
 
 fn asset_name() -> Result<&'static str, String> {
@@ -133,7 +209,8 @@ fn run_realesrgan(exe: &Path, input: &Path, output: &Path, up: &AiUpscale) -> Re
 pub fn upscale_image(input: &str, output: &str, up: &AiUpscale) -> Result<(), String> {
     validate(up)?;
     let exe = ensure_plugin()?;
-    run_realesrgan(&exe, Path::new(input), Path::new(output), up)
+    let backend = choose_backend(&exe, up)?;
+    run_backend(&backend, Path::new(input), Path::new(output), up)
 }
 
 /// 動画を、AI超解像済みの映像に元の音声を付けた中間ファイル(`mezzanine`)へ変換する。
@@ -151,6 +228,7 @@ pub fn make_upscaled_mezzanine(input: &str, trim: Option<(Option<f64>, Option<f6
         ));
     }
     let exe = ensure_plugin()?;
+    let backend = choose_backend(&exe, up)?;
 
     let work = mezzanine.parent().unwrap_or(Path::new(".")).join(format!(".make-disk-ai-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
@@ -193,7 +271,7 @@ pub fn make_upscaled_mezzanine(input: &str, trim: Option<(Option<f64>, Option<f6
             // 連番を0始まりにそろえて、ffmpegの入力パターンを単純にする。
             std::fs::rename(frames_in.join(n), cin.join(format!("{i:08}.png"))).map_err(|e| e.to_string())?;
         }
-        if let Err(e) = run_realesrgan(&exe, &cin, &cout, up) {
+        if let Err(e) = run_backend(&backend, &cin, &cout, up) {
             cleanup(&work);
             return Err(e);
         }
@@ -241,7 +319,7 @@ mod tests {
 
     #[test]
     fn validates_models_and_scales() {
-        let ok = |m: &str, s: u32| validate(&AiUpscale { model: m.into(), scale: s }).is_ok();
+        let ok = |m: &str, s: u32| validate(&AiUpscale { model: m.into(), scale: s, backend: "auto".into() }).is_ok();
         assert!(ok("realesr-animevideov3", 2) && ok("realesr-animevideov3", 4) && ok("realesrgan-x4plus", 4));
         assert!(!ok("realesr-animevideov3", 5) && !ok("realesrgan-x4plus", 2) && !ok("unknown", 4));
     }
@@ -250,6 +328,42 @@ mod tests {
     fn asset_name_matches_this_os() {
         let name = asset_name().unwrap();
         assert!(name.starts_with("realesrgan-ncnn-vulkan-20220424-") && name.ends_with(".zip"));
+    }
+
+    /// GPUを使わずCPU版だけで、実クリップを本当にAI超解像して4倍になり音声も保持されることを検証する
+    /// (Vulkan非対応のPC相当)。ネットワーク(初回のみ)とffmpegが無い環境ではスキップする。
+    #[test]
+    fn real_ai_upscale_quadruples_a_short_clip_on_the_cpu_backend() {
+        if !Command::new("ffmpeg").arg("-version").output().map(|o| o.status.success()).unwrap_or(false) {
+            return;
+        }
+        if let Err(e) = ensure_plugin() {
+            eprintln!("Real-ESRGANのモデルを用意できないためスキップ: {e}");
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_ai_cpu_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let src = tmp.join("src.mp4");
+        let st = Command::new("ffmpeg")
+            .args(["-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=160x120:rate=3", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", src.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(st.status.success());
+        let mezz = tmp.join("mezz.mkv");
+        let up = AiUpscale { model: "realesr-animevideov3".into(), scale: 4, backend: "cpu".into() };
+        make_upscaled_mezzanine(src.to_str().unwrap(), None, &up, &mezz).expect("CPU AI upscaling should succeed");
+        let o = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_type,width,height", "-of", "csv=p=0", mezz.to_str().unwrap()]).output().unwrap();
+        let text = String::from_utf8_lossy(&o.stdout).to_string();
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(text.contains("640,480"), "160x120が4倍の640x480になるはず(実際: {text})");
+        assert!(text.contains("audio"), "元の音声が保持されるはず(実際: {text})");
+    }
+
+    #[test]
+    fn x4plus_requires_the_gpu_backend() {
+        let exe = std::path::PathBuf::from("dummy");
+        let up = AiUpscale { model: "realesrgan-x4plus".into(), scale: 4, backend: "cpu".into() };
+        assert!(choose_backend(&exe, &up).is_err(), "x4plusはCPU版の対象外");
     }
 
     /// 実GPU・実プラグイン・実ffmpegで、短いクリップを本当にAI超解像して解像度が4倍になることを検証する。
@@ -273,7 +387,7 @@ mod tests {
             .unwrap();
         assert!(st.status.success());
         let mezz = tmp.join("mezz.mkv");
-        let up = AiUpscale { model: "realesr-animevideov3".into(), scale: 4 };
+        let up = AiUpscale { model: "realesr-animevideov3".into(), scale: 4, backend: "gpu".into() };
         let result = make_upscaled_mezzanine(src.to_str().unwrap(), None, &up, &mezz);
         if let Err(e) = &result {
             if e.contains("Vulkan") || e.contains("gpu") {

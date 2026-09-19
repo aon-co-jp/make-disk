@@ -2,6 +2,7 @@ pub mod ai_upscale;
 pub mod burn;
 pub mod capacity;
 pub mod convert;
+pub mod cpu_sr;
 pub mod cpu;
 pub mod dsd;
 pub mod iso;

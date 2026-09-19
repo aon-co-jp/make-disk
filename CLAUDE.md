@@ -1114,3 +1114,35 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
   Against an exact sine (`dsd::write_exact_sine_wav`) the real values are **DSD64 = 99.6 dB, DSD128 = 132.4 dB** (better at higher rates). `-ac 1` mixes stereo to √2×, so tests use `pan=mono|c0=c0`.
   DSD speed (optimized build, after the high-quality resampler): DSD64 0.3x / 128 0.5 / 256 1.0 / 512 2.0 / 1024 3.2 real time.
 - **Process note**: string edits via perl/sed/node repeatedly lost `\d` backslashes, double-applied, or hung on a stdin-waiting `cat`. Source edits now use the Edit tool.
+
+## HANDOFF追記 / Handoff (2026-09-19続き7) CPU版AI超解像・音声AI超解像の評価 / CPU AI upscaling and audio SR evaluation
+
+**日本語**
+- **CPU版AI超解像(`engine/cpu_sr.rs`)**: ncnn形式のReal-ESRGAN `realesr-animevideov3`(conv18層+PReLU+PixelShuffle+最近傍拡大の加算、x2/x3は後段に双三次縮小)を自前で読み込み・推論。
+  重みはfp16タグ+アライン+float32バイアスで、**全バイトが過不足なく消費される**ことを実測で検証。128×128タイル+受容野の余白18で処理(タイル処理と一括処理が一致)、
+  マルチスレッド。AVX2+FMAカーネルはopen-cpu(`avx2`/`fma`検出)で選択、スカラー実装が参照(AVX2との出力差<1e-3)。**実測(最適化ビルド、720×480→2880×1920、32スレッド)**:
+  **1.16秒/フレーム**(GT 730 GPUの4.6秒より速い)。**公式ncnn-vulkan(GPU)との出力PSNR 42.0dB**(実画像、GPUはfp16計算)。`backend=auto`はGPUが実際に動くか小画像で確認し、
+  動かなければCPUへ切替。`realesrgan-x4plus`(RRDBNet)はCPU版の対象外(GPU必須)。`image`クレートにjpegを追加(JPEG入力対応)。UIに実行環境の選択。
+  **AVX-512カーネルは未実装**(open-cpuは`avx512f`を検出できるが、AVX2で十分速かったため後回し)。
+- **音声AI超解像の調達と評価(結論: 採用しない)**: 調達先は`TigreGotico/audiosronnx`(Apache-2.0、ONNX集、HuggingFaceに重み)。LavaSR(Apache-2.0、52MB、CPUで実時間の約24倍速)、
+  HiFi-GAN-BWE(MIT、4MB)、AP-BWE(MIT)、ノイズ除去のdpdfnet(Apache-2.0、48kHz)など。**Python 3.13は実在**(venvで`pip install audiosronnx`成功)。ただし音楽素材(12秒)を
+  対数スペクトル距離(LSD)で評価すると、**LavaSRは元信号からの距離が悪化**(8kHzカット: 帯域制限のみ0.93→LavaSR 3.56、高域のみ1.13→4.36。16kHzカット: 0.008→3.56)。
+  これらは音声で学習した「高域を生成する」モデルで、元に無い高域を作るため忠実度の指標では悪化し、しかも**ご提供の素材自体がロッシー(16kHz付近で帯域が切れる)で全帯域の正解が存在しない**ため
+  「復元の正しさ」を検証できない。以上より、音質最優先の機能としては**採用しない**(ハルシネーションされた高域を「高音質」と称するのは不誠実)。将来、全帯域の正解データで
+  改善が示せる音楽用モデルが見つかれば再検討。
+- 全75テスト成功(約12分、デバッグビルドのAVX2/スカラーが遅いため)。clippyは既存の無関係な1件のみ。
+- **未着手**: DSD書き出しのrs-ffmpeg化と比較検討(ユーザー要望)、音楽CD(CD-DA)、BD/DVD取り込み。
+
+**English**
+- **CPU AI upscaling (`engine/cpu_sr.rs`)**: loads the ncnn-format Real-ESRGAN `realesr-animevideov3` itself (18 conv + PReLU + PixelShuffle + nearest-upsample add; x2/x3 add a bicubic downscale) and runs it.
+  The weights (fp16 flag + alignment + float32 bias) are verified to consume **every byte**. 128×128 tiles with an 18-px halo (tiled == whole-image result), multi-threaded. The AVX2+FMA kernel is
+  chosen via open-cpu; the scalar path is the reference (max diff < 1e-3). **Measured (optimized build, 720×480 → 2880×1920, 32 threads): 1.16 s/frame** (faster than the GT 730 GPU's 4.6 s).
+  **Output PSNR 42.0 dB against the official ncnn-vulkan (GPU)** on a real image (the GPU computes in fp16). `backend=auto` checks the GPU with a tiny image and falls back to the CPU.
+  `realesrgan-x4plus` (RRDBNet) is GPU-only. JPEG input was added to the `image` crate; the UI has a device selector. **No AVX-512 kernel yet** (open-cpu detects `avx512f`, but AVX2 was fast enough).
+- **Audio AI super-resolution: sourced and evaluated — decision: not adopted**. Source: `TigreGotico/audiosronnx` (Apache-2.0, ONNX collection with weights on HuggingFace): LavaSR (Apache-2.0, 52 MB, ~24× real time on CPU),
+  HiFi-GAN-BWE (MIT, 4 MB), AP-BWE (MIT), the dpdfnet denoiser (Apache-2.0, 48 kHz) and more. **Python 3.13 exists** (`pip install audiosronnx` worked in a venv). On a 12 s music excerpt scored by log-spectral distance,
+  **LavaSR moved *away* from the original** (8 kHz cutoff: 0.93 lowpassed-only → 3.56 with LavaSR; HF-only 1.13 → 4.36; 16 kHz cutoff: 0.008 → 3.56). These are speech-trained models that *generate* highs; on top of that
+  **the supplied material is itself lossy (band-limited near 16 kHz), so there is no full-band ground truth** to verify a "restoration". Presenting hallucinated highs as "higher quality" would be dishonest, so it is **not offered**;
+  reconsider only if a music model shows gains against full-band ground truth.
+- All 75 tests pass (~12 min; debug-build AVX2/scalar is slow). Clippy: only the pre-existing unrelated warning.
+- **Not started**: moving DSD writing into rs-ffmpeg with the requested comparison, audio CD (CD-DA), BD/DVD ripping.

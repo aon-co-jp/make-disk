@@ -69,10 +69,16 @@ fn estimate_dsd_size(multiplier: u32, channels: u32, duration_secs: f64) -> Resu
     engine::dsd::estimate_dsd_size_bytes(multiplier, channels, duration_secs)
 }
 
-/// 画像1枚をAI超解像する(Real-ESRGAN、Vulkan対応GPUが必要)。初回のみプラグイン(約45MB)をダウンロードする。
+/// AI超解像のCPU版が使う計算カーネル(`AVX2+FMA`または`scalar`、open-cpuの検出結果)。UIの実行環境表示用。
 #[tauri::command]
-fn ai_upscale_image(input: String, output: String, model: String, scale: u32) -> Result<(), String> {
-    engine::ai_upscale::upscale_image(&input, &output, &engine::ai_upscale::AiUpscale { model, scale })
+fn ai_upscale_cpu_kernel() -> String {
+    engine::cpu_sr::kernel_name().to_string()
+}
+
+/// 画像1枚をAI超解像する(GPUがあればGPU、無ければCPU版)。初回のみプラグイン(約45MB)をダウンロードする。
+#[tauri::command]
+fn ai_upscale_image(input: String, output: String, model: String, scale: u32, backend: Option<String>) -> Result<(), String> {
+    engine::ai_upscale::upscale_image(&input, &output, &engine::ai_upscale::AiUpscale { model, scale, backend: backend.unwrap_or_else(|| "auto".to_string()) })
 }
 
 /// 複数の音声/動画ファイルを結合(合成)する(2026-09-16新設)。
@@ -182,6 +188,7 @@ pub fn run() {
             estimate_dsd_size,
             list_plugins,
             ai_upscale_image,
+            ai_upscale_cpu_kernel,
             concat_media_files,
             calc_equal_interval_segments,
             calc_fixed_length_segments,
@@ -206,6 +213,7 @@ pub fn run() {
         estimate_dsd_size,
         list_plugins,
         ai_upscale_image,
+        ai_upscale_cpu_kernel,
         concat_media_files,
         calc_equal_interval_segments,
         calc_fixed_length_segments,
