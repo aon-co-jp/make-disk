@@ -15,6 +15,17 @@
         <h2>1. ソースファイル</h2>
         <button id="add-files-btn">ファイルを追加...</button>
         <ul id="file-list"></ul>
+        <details id="cdda-box">
+          <summary>音楽CDから取り込み / Rip an audio CD (CD-DA)</summary>
+          <p class="hint">音楽CDのトラックを16bit/44.1kHzのWAVとして取り込み、ソースに追加します(Windowsのみ)。各区間を2回読んで一致を確認する簡易セキュアリード。コピーコントロールCDや傷のあるディスクは失敗することがあり、保護の回避は行いません。曲名の自動取得はしません。 / Rips tracks to 16-bit/44.1 kHz WAV and adds them to the source list (Windows only). Simple secure read (each block read twice and compared). Copy-controlled or scratched discs may fail; no protection is circumvented. Track titles are not looked up.</p>
+          <div class="row">
+            <select id="cdda-drive"></select>
+            <button id="cdda-scan-btn">ドライブを読む / Read disc</button>
+          </div>
+          <ul id="cdda-tracks"></ul>
+          <label><input type="checkbox" id="cdda-secure" checked /> セキュアリード(遅いが確実) / Secure read (slower, safer)</label>
+          <button id="cdda-rip-btn" disabled>選択トラックを取り込む(出力先フォルダへ) / Rip selected tracks (to the output folder)</button>
+        </details>
       </section>
 
       <section>

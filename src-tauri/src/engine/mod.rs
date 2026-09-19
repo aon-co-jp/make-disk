@@ -2,6 +2,7 @@ pub mod ai_upscale;
 pub mod audio_sr;
 pub mod burn;
 pub mod capacity;
+pub mod cdda;
 pub mod convert;
 pub mod cpu_sr;
 pub mod cpu;
