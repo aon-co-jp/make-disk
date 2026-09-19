@@ -336,4 +336,42 @@ mod tests {
             Err(e) => eprintln!("{drive}: {e}"),
         }
     }
+
+    /// 実際の音楽CDの先頭音声トラックを読み(最大20秒)、WAV化・無音でないことを確かめる(ディスクが無い場合はスキップ)。
+    #[cfg(windows)]
+    #[test]
+    fn real_disc_rips_the_first_audio_track() {
+        let drives = crate::engine::burn::list_devices().unwrap_or_default();
+        let Some(drive) = drives.first() else { return };
+        let Ok(tracks) = list_tracks(drive) else { return };
+        let Some(t) = tracks.iter().find(|t| t.is_audio) else { return };
+        eprintln!("{drive}: {}トラック、Track{} {}秒", tracks.len(), t.number, t.duration_secs() as u32);
+        let part = TrackInfo { sectors: t.sectors.min(1500), ..t.clone() };
+        let out = std::env::temp_dir().join("make_disk_real_rip.wav");
+        let mut d = win::Drive::open(drive).unwrap();
+        let started = std::time::Instant::now();
+        rip_track(&mut d, &part, &out, true).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        eprintln!("{}秒分を{:.1}秒で取り込み(セキュアリード)", part.sectors / 75, started.elapsed().as_secs_f64());
+        assert_eq!(bytes.len(), 44 + part.sectors as usize * SECTOR_BYTES);
+        let peak = bytes[44..].chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]).unsigned_abs()).max().unwrap();
+        eprintln!("ピーク振幅: {peak}");
+        let _ = std::fs::remove_file(&out);
+        assert!(peak > 100, "無音のはずがない");
+    }
+
+    /// 実ディスクの最終トラックを丸ごとセキュアリードで取り込み、環境変数`MAKE_DISK_RIP_OUT`のパスへ保存する(手動確認用)。
+    #[cfg(windows)]
+    #[test]
+    #[ignore]
+    fn real_disc_full_rip_of_last_track() {
+        let out = std::env::var("MAKE_DISK_RIP_OUT").expect("set MAKE_DISK_RIP_OUT");
+        let drives = crate::engine::burn::list_devices().unwrap();
+        let tracks = list_tracks(&drives[0]).unwrap();
+        let t = tracks.iter().rev().find(|t| t.is_audio).unwrap();
+        let mut d = win::Drive::open(&drives[0]).unwrap();
+        let started = std::time::Instant::now();
+        rip_track(&mut d, t, std::path::Path::new(&out), true).unwrap();
+        eprintln!("Track{} {}秒を{:.1}秒で取り込み", t.number, t.duration_secs() as u32, started.elapsed().as_secs_f64());
+    }
 }
