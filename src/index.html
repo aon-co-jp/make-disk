@@ -143,6 +143,29 @@
       </section>
 
       <section>
+        <h2>4.3. AI超解像(Real-ESRGAN / GPU) / AI super-resolution (Real-ESRGAN, GPU)</h2>
+        <label><input type="checkbox" id="ai-upscale" /> 映像をAIで拡大し、失われたディテールを補う(補間ではなく学習済みニューラルネット) / Upscale video with a trained neural network that restores detail (not interpolation)</label>
+        <br />
+        <label>モデル / Model:
+          <select id="ai-upscale-model">
+            <option value="realesr-animevideov3" selected>高速(realesr-animevideov3)</option>
+            <option value="realesrgan-x4plus">高品質・非常に遅い(realesrgan-x4plus、4倍のみ)</option>
+          </select>
+        </label>
+        <label>倍率 / Scale:
+          <select id="ai-upscale-scale"><option value="2">2x</option><option value="3">3x</option><option value="4" selected>4x</option></select>
+        </label>
+        <p class="hint">
+          ※Vulkan対応GPU(NVIDIA/AMD/Intel、内蔵GPUも可)が必要です。GPUが無い環境では動きません(CPU専用版はロードマップ)。初回のみプラグイン(約45MB、MIT)を自動ダウンロードします。<br />
+          ※非常に遅く、短いクリップ向けです(実測: GT 730で720×480の1フレームあたり 高速モデル約4.6秒、高品質モデル約110秒。上限2400フレーム)。フレームを一時的にPNG展開するためディスク容量も使います。<br />
+          ※解像度の指定(4.2)と併用すると、AI拡大後に指定の解像度へリサイズします(例: DVD→4K)。<br />
+          Requires a Vulkan-capable GPU (NVIDIA/AMD/Intel, integrated included); it does not run without one (a CPU-only build is on the roadmap). The plugin (~45 MB, MIT) is downloaded on first use.<br />
+          Very slow — for short clips (measured on a GT 730: ~4.6 s per 720x480 frame with the fast model, ~110 s with the high-quality model; limit 2400 frames). Frames are temporarily extracted as PNG, using disk space.<br />
+          Combined with a resolution preset (4.2), the AI-upscaled video is resized to it afterwards (e.g. DVD→4K).
+        </p>
+      </section>
+
+      <section>
         <h2>4.5. PDF見開き変換(最大4K、右綴じ/左綴じ) / PDF spread conversion (up to 4K, right/left binding)</h2>
         <p class="hint">
           ソースファイルに含まれるPDF(1で追加)を、見開き2ページを1枚に合成した画像として書き出します。<br />

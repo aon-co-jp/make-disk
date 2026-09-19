@@ -85,6 +85,10 @@ pub struct ConvertJob {
     /// ffmpegはDSDをエンコードできないため`engine::dsd`の自前変換器を使う。
     #[serde(default)]
     pub dsd_rate: Option<u32>,
+    /// AI超解像(2026-09-19新設)。Real-ESRGAN(GPU/NCNN-Vulkan)で映像を拡大してから、
+    /// 通常のコーデック/解像度/ビットレート指定を適用する。短いクリップ向け(`ai_upscale`モジュール参照)。
+    #[serde(default)]
+    pub ai_upscale: Option<crate::engine::ai_upscale::AiUpscale>,
 }
 
 /// AIノイズ除去の設定。`mix`は原音とのブレンド(-1.0〜1.0、1.0で完全適用、
@@ -156,6 +160,22 @@ fn keep_segments_from_cuts(cuts: &[CutRange]) -> Vec<(f64, Option<f64>)> {
 }
 
 pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
+    if let Some(up) = &job.ai_upscale {
+        if job.cut_ranges.as_ref().is_some_and(|c| !c.is_empty()) {
+            return Err("AI超解像ではカット区間の指定は未対応です(開始位置+長さのトリミングは可) / cut ranges are not supported with AI upscaling".to_string());
+        }
+        // 1) AI超解像した映像+元の音声の中間ファイルを作り、2) それを入力に通常の変換を行う。
+        let mezzanine = std::path::Path::new(&job.output_path).with_extension("ai-upscaled.mkv");
+        let trim = job.trim.as_ref().map(|t| (t.start_secs, t.duration_secs));
+        crate::engine::ai_upscale::make_upscaled_mezzanine(&job.input_path, trim, up, &mezzanine)?;
+        let mut next = job.clone();
+        next.input_path = mezzanine.to_string_lossy().to_string();
+        next.trim = None;
+        next.ai_upscale = None;
+        let result = run_convert(&next);
+        let _ = fs::remove_file(&mezzanine);
+        return result;
+    }
     if let Some(mult) = job.dsd_rate {
         if job.cut_ranges.as_ref().is_some_and(|c| !c.is_empty()) {
             return Err("DSD出力ではカット区間の指定は未対応です(開始位置+長さのトリミングは可) / cut ranges are not supported with DSD output".to_string());
@@ -797,6 +817,7 @@ mod tests {
             fps: None,
             ai_denoise: None,
             dsd_rate: None,
+            ai_upscale: None,
         };
 
         run_convert(&job).expect("run_convert with cut_ranges should succeed");
@@ -840,6 +861,7 @@ mod tests {
             fps: None,
             ai_denoise: None,
             dsd_rate: None,
+            ai_upscale: None,
         };
 
         run_convert(&job).expect("run_convert with frame_accurate should succeed");
@@ -879,6 +901,7 @@ mod tests {
             fps: Some(30),
             ai_denoise: None,
             dsd_rate: None,
+            ai_upscale: None,
         };
 
         run_convert(&job).expect("run_convert with resolution/fps should succeed");
@@ -912,6 +935,7 @@ mod tests {
             fps: None,
             ai_denoise: None,
             dsd_rate: None,
+            ai_upscale: None,
         };
         run_convert(&job).expect("audio-only conversion from a video input should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=bit_rate", "-of", "default=nw=1:nk=1", output.to_str().unwrap()]).output().unwrap();
@@ -942,6 +966,7 @@ mod tests {
             fps: None,
             ai_denoise: None,
             dsd_rate: None,
+            ai_upscale: None,
         };
         run_convert(&job).expect("AV1+Opus conversion should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
@@ -971,6 +996,7 @@ mod tests {
             fps: None,
             ai_denoise: None,
             dsd_rate: None,
+            ai_upscale: None,
         };
         run_convert(&job).expect("Opus conversion should succeed");
         let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
@@ -1009,6 +1035,7 @@ mod tests {
             fps: Some(30),
             ai_denoise: None,
             dsd_rate: None,
+            ai_upscale: None,
         };
         let channels = |p: &Path| -> String {
             let o = Command::new("ffprobe").args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels,codec_name", "-of", "csv=p=0", p.to_str().unwrap()]).output().unwrap();
@@ -1057,6 +1084,7 @@ mod tests {
             fps: None,
             ai_denoise: Some(AiDenoise { mix: 1.0 }),
             dsd_rate: None,
+            ai_upscale: None,
         };
         run_convert(&job).expect("AI denoise conversion should succeed");
         let (before, after) = (mean_volume_db(&noisy), mean_volume_db(&out));
