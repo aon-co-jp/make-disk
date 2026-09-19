@@ -742,6 +742,10 @@ document.getElementById("split-btn").addEventListener("click", async () => {
   let nominalSegmentSecs = null;
   if (splitMode === "equal") {
     const count = parseInt(document.getElementById("split-equal-count").value, 10);
+    if (!Number.isInteger(count) || count < 2) {
+      log("エラー: 分割数は2以上にしてください(0個や1個に分けるのは、分けないのと同じです)。 / Error: enter 2 or more parts (0 or 1 part is the same as not splitting).");
+      return;
+    }
     segments = await invoke("calc_equal_interval_segments", { totalSecs, segmentCount: count });
   } else {
     const targetMb = parseFloat(document.getElementById("split-size-mb").value);
@@ -754,6 +758,10 @@ document.getElementById("split-btn").addEventListener("click", async () => {
     segments = await invoke("calc_fixed_length_segments", { totalSecs, segmentSecs: nominalSegmentSecs });
   }
 
+  if (segments.length === 1) {
+    log("分割する必要がありません: ファイル全体が指定した大きさ(または1区間)に収まるため、分割されません。 / Nothing to split: the whole file fits in a single part.");
+    return;
+  }
   if (segments.length === 0) {
     log("エラー: 分割区間を計算できませんでした。 / Error: could not compute split segments.");
     return;
