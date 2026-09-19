@@ -137,6 +137,7 @@ mod full_flow {
             fps: None,
             ai_denoise: None,
             dsd_rate: None,
+            dop_wav_bits: None,
             ai_upscale: None,
             audio_bwe: None,
         })

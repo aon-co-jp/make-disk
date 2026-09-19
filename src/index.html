@@ -60,6 +60,14 @@
           <label><input type="checkbox" name="audio-format" value="dsd1024" /> DSD1024 (45.2MHz, DSF)</label>
         </div>
         <label><input type="checkbox" id="dsd-companion-pcm" checked /> DSD非対応の機器でも聴けるよう、DSDと同時にPCM版(FLAC 24bit/352.8kHz)も作る / Also write a PCM companion (FLAC 24-bit/352.8 kHz) next to DSD for devices without DSD support</label>
+        <div class="row">
+          <label><input type="checkbox" id="dsd-dop-wav" /> DoP(DSD over PCM)のWAVも作る / Also write a DoP (DSD over PCM) WAV</label>
+          <select id="dsd-dop-bits">
+            <option value="24">24bit(DoP標準 / standard)</option>
+            <option value="32">32bit(24bitを左詰め / 24-bit left-justified)</option>
+          </select>
+        </div>
+        <p class="hint">DoP対応DAC+ビットパーフェクト再生専用(音量調整・SRCを通るとノイズ)。PCMレートはDSDレート/16(DSD64=176.4k、DSD128=352.8k、DSD256=705.6k、DSD512=1411.2kHz。384kHzは48kHz系DSDの入れ物で本ツールのDSDとは一致しません)。 / For DoP-capable DACs with bit-perfect playback only (volume control or resampling turns it into noise). PCM rate = DSD rate / 16 (DSD64 = 176.4k, DSD128 = 352.8k, DSD256 = 705.6k, DSD512 = 1411.2 kHz; 384 kHz belongs to 48 kHz-family DSD, which this tool does not produce).</p>
         <p class="hint">
           ※ΔΣ(1bit)とマルチビットの「良いとこ取り」: DSDファイルは仕様上1bitのため、マルチビット(R-2R等)向けには高解像度PCMを別に出力します。DSD非対応機器へのフォールバックはファイルの中では行えない(再生機器の機能)ので、PCM版を並べて出力します。<br />
           Best of both: a DSD file is 1-bit by definition, so for multi-bit (R-2R) DACs we write high-resolution PCM separately. Automatic fallback cannot live inside the file (it is a player/DAC feature), so a PCM companion is written alongside.<br />

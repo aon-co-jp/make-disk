@@ -602,6 +602,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           resolution,
           fps,
           dsd_rate: dsdMatch ? parseInt(dsdMatch[1], 10) : null,
+          dop_wav_bits: dsdMatch && document.getElementById("dsd-dop-wav").checked ? parseInt(document.getElementById("dsd-dop-bits").value, 10) : null,
           audio_bwe:
             !isVideo && document.getElementById("audio-bwe").checked
               ? { cutoff_hz: parseFloat(document.getElementById("audio-bwe-cutoff").value) || null }

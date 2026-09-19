@@ -122,9 +122,10 @@ fn design_ntf_for_max_gain() -> (Vec<f64>, Vec<f64>) {
 }
 
 /// 1チャンネル分のΔΣ変調器(状態を保持し、サンプルを順次1bitへ量子化する)。
+/// 係数・履歴はすべて固定長配列で、ループは`NTF_ORDER`の定数で完全展開される(ヒープ/境界チェック無し)。
 struct DeltaSigma {
-    b: Vec<f64>,
-    a: Vec<f64>,
+    b: [f64; NTF_ORDER],
+    a: [f64; NTF_ORDER],
     /// 過去の量子化誤差 e[n-1..n-N]
     e_hist: [f64; NTF_ORDER],
     /// 過去の (y-u)[n-1..n-N]
@@ -132,26 +133,29 @@ struct DeltaSigma {
 }
 
 impl DeltaSigma {
-    fn new(b: Vec<f64>, a: Vec<f64>) -> Self {
-        Self { b, a, e_hist: [0.0; NTF_ORDER], yu_hist: [0.0; NTF_ORDER] }
+    fn new(b: &[f64], a: &[f64]) -> Self {
+        let mut bb = [0.0; NTF_ORDER];
+        let mut aa = [0.0; NTF_ORDER];
+        bb.copy_from_slice(&b[1..=NTF_ORDER]);
+        aa.copy_from_slice(&a[1..=NTF_ORDER]);
+        Self { b: bb, a: aa, e_hist: [0.0; NTF_ORDER], yu_hist: [0.0; NTF_ORDER] }
     }
 
     /// 入力`u`(-1〜1)を1bit(true=+1)へ量子化する。
     /// (y-u)[n] = Σ b_k e[n-k] - Σ a_k (y-u)[n-k] を満たすようvを決める。
-    #[inline]
+    #[inline(always)]
     fn step(&mut self, u: f64) -> bool {
         let mut shaped = 0.0;
-        for k in 1..=NTF_ORDER {
-            shaped += self.b[k] * self.e_hist[k - 1] - self.a[k] * self.yu_hist[k - 1];
+        for k in 0..NTF_ORDER {
+            shaped += self.b[k] * self.e_hist[k] - self.a[k] * self.yu_hist[k];
         }
         let v = u + shaped;
         let y = if v >= 0.0 { 1.0 } else { -1.0 };
-        let e = y - v;
         for k in (1..NTF_ORDER).rev() {
             self.e_hist[k] = self.e_hist[k - 1];
             self.yu_hist[k] = self.yu_hist[k - 1];
         }
-        self.e_hist[0] = e;
+        self.e_hist[0] = y - v;
         self.yu_hist[0] = y - u;
         y > 0.0
     }
@@ -219,7 +223,7 @@ pub fn convert_to_dsf(input_path: &str, output_path: &str, multiplier: u32, trim
     let mut stdout = child.stdout.take().ok_or("ffmpegの出力を取得できませんでした")?;
 
     let (b, a) = design_ntf_for_max_gain();
-    let mut modulators: Vec<DeltaSigma> = (0..channels).map(|_| DeltaSigma::new(b.clone(), a.clone())).collect();
+    let mut modulators: Vec<DeltaSigma> = (0..channels).map(|_| DeltaSigma::new(&b, &a)).collect();
 
     let file = std::fs::File::create(output_path).map_err(|e| format!("出力ファイルの作成に失敗しました: {e}"))?;
     let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
@@ -233,19 +237,27 @@ pub fn convert_to_dsf(input_path: &str, output_path: &str, multiplier: u32, trim
     let mut data_bytes: u64 = 0;
 
     let frame_bytes = 4 * channels as usize;
-    let mut buf = vec![0u8; frame_bytes * 65536];
+    let mut buf = vec![0u8; frame_bytes * 262_144];
     let mut carry = 0usize;
     loop {
-        let n = stdout.read(&mut buf[carry..]).map_err(|e| format!("ffmpegの出力の読み取りに失敗しました: {e}"))?;
+        // 並列化の効率のため、バッファが満杯かEOFになるまで読み溜める(パイプの1回の読み取りは小さい)。
+        let mut n = 0;
+        while carry + n < buf.len() {
+            let r = stdout.read(&mut buf[carry + n..]).map_err(|e| format!("ffmpegの出力の読み取りに失敗しました: {e}"))?;
+            if r == 0 {
+                break;
+            }
+            n += r;
+        }
         if n == 0 {
             break;
         }
         let avail = carry + n;
         let frames = avail / frame_bytes;
-        // ΔΣ変調は過去の出力に依存する逐次処理でGPU並列化が効かないため、
-        // チャンネルごとに別スレッドで並列に変調する(2chなら約2倍)。
+        // ΔΣ変調は過去の出力に依存する逐次処理でGPU並列化が効かない。ビット列を逐次版と完全に一致させるため
+        // (区間に分割して並列化すると、区間境界で雑音の低域の積分状態が食い違い、実測でSNRが99→51dBに劣化した)、
+        // 時間方向には分割せず、チャンネルごとに別スレッドで並列に変調する。
         let chunk = &buf[..frames * frame_bytes];
-        #[allow(clippy::needless_range_loop)]
         let bits: Vec<Vec<bool>> = std::thread::scope(|s| {
             let handles: Vec<_> = modulators
                 .iter_mut()
@@ -324,6 +336,72 @@ pub fn convert_to_dsf(input_path: &str, output_path: &str, multiplier: u32, trim
     Ok(())
 }
 
+/// DSFを**DoP(DSD over PCM)**の24bit WAVへ変換する(2026-09-19、open-mqaと融合)。
+/// DoPはDSDをPCMの入れ物(DSDレート/16のPCM、上位8bitがマーカー)に詰める方式で、DSF非対応でも
+/// DoP対応のDACとプレーヤー(ビットパーフェクト再生)なら本物のDSD再生ができる。
+/// **正直な開示**: 音量調整・SRC・ミキサーを通る再生ではDSDが壊れノイズになる。DoP非対応DACでは使えない。
+///
+/// `container_bits`は24(DoP標準)または32。32bitは24bitのDoPデータを上位に左詰めした非標準寄りの入れ物で、
+/// 32bit出力のDAC/ドライバ経路(WASAPI排他32bit等)を使う環境向け(下位8bitは0)。対応DACはマーカーで判別する。
+/// DoPのPCMレートはDSDレート/16で、DSD64=176.4k・DSD128=352.8k・DSD256=705.6k・DSD512=1411.2kHz
+/// (44.1kHz系のみ。384kHzは48kHz系DSDの入れ物で、本ツールのDSDレートとは一致しない)。
+pub fn dsf_to_dop_wav(dsf_path: &str, wav_path: &str, container_bits: u8) -> Result<(), String> {
+    if container_bits != 24 && container_bits != 32 {
+        return Err("DoPのコンテナは24bitまたは32bitのみです".to_string());
+    }
+    use open_mqa::dop::{pack_dop_frames, DopConfig, DsdFormat};
+    let mut f = std::io::BufReader::new(std::fs::File::open(dsf_path).map_err(|e| format!("DSFを開けません: {e}"))?);
+    let mut head = [0u8; 92];
+    f.read_exact(&mut head).map_err(|e| format!("DSFヘッダを読めません: {e}"))?;
+    if &head[0..4] != b"DSD " {
+        return Err("DSFファイルではありません".to_string());
+    }
+    let channels = u32::from_le_bytes(head[52..56].try_into().unwrap()) as usize;
+    let rate = u32::from_le_bytes(head[56..60].try_into().unwrap());
+    let total_samples = u64::from_le_bytes(head[64..72].try_into().unwrap());
+    let cfg = DopConfig { format: DsdFormat { dsd_bitrate_hz: rate }, container_bits: 24 };
+    let pcm_rate = cfg.format.dop_pcm_sample_rate_hz();
+    let mut valid_bytes = total_samples.div_ceil(8) as usize;
+    valid_bytes += valid_bytes % 2; // DoPは1フレーム=DSD 2バイト
+    let mut out = std::io::BufWriter::with_capacity(1 << 20, std::fs::File::create(wav_path).map_err(|e| format!("出力を作成できません: {e}"))?);
+    let header = open_mqa::wav::encode_wav(&vec![Vec::new(); channels], pcm_rate, container_bits).map_err(|e| e.to_string())?;
+    out.write_all(&header).map_err(|e| e.to_string())?;
+    let mut data_bytes: u64 = 0;
+    let mut remaining = valid_bytes;
+    let mut block = vec![0u8; DSF_BLOCK_BYTES * channels];
+    while remaining > 0 {
+        f.read_exact(&mut block).map_err(|e| format!("DSFデータを読めません: {e}"))?;
+        let take = remaining.min(DSF_BLOCK_BYTES);
+        let per_ch: Vec<Vec<[u8; 3]>> = (0..channels)
+            .map(|ch| {
+                // DSFはLSBファースト、DoPは時間順のMSBファーストなのでビットを反転する。
+                let bytes: Vec<u8> = block[ch * DSF_BLOCK_BYTES..][..take].iter().map(|b| b.reverse_bits()).collect();
+                pack_dop_frames(&bytes, &cfg).map_err(|e| e.to_string())
+            })
+            .collect::<Result<_, _>>()?;
+        for i in 0..per_ch[0].len() {
+            for ch in &per_ch {
+                let fr = ch[i];
+                if container_bits == 32 {
+                    out.write_all(&[0, fr[2], fr[1], fr[0]]).map_err(|e| e.to_string())?;
+                    data_bytes += 4;
+                } else {
+                    out.write_all(&[fr[2], fr[1], fr[0]]).map_err(|e| e.to_string())?;
+                    data_bytes += 3;
+                }
+            }
+        }
+        remaining -= take;
+    }
+    let mut file = out.into_inner().map_err(|e| e.to_string())?;
+    let len = header.len() as u64;
+    file.seek(SeekFrom::Start(4)).map_err(|e| e.to_string())?;
+    file.write_all(&((len - 8 + data_bytes + (data_bytes & 1)) as u32).to_le_bytes()).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(len - 4)).map_err(|e| e.to_string())?;
+    file.write_all(&(data_bytes as u32).to_le_bytes()).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -363,6 +441,85 @@ mod tests {
             y[n] = acc;
         }
         assert!(y[4000..].iter().all(|v| v.abs() < 1e-6), "NTFの極は単位円内のはず");
+    }
+
+    /// 最適化したΔΣカーネルが、素直な参照実装とビット完全に一致すること(高速化で結果が変わっていない証明)。
+    #[test]
+    fn optimized_kernel_is_bit_identical_to_the_reference_implementation() {
+        let (b, a) = design_ntf_for_max_gain();
+        let n = 200_000;
+        let mut rng = 0x1234_5678_9abc_def0u64;
+        let x: Vec<f64> = (0..n)
+            .map(|i| {
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                0.4 * (2.0 * std::f64::consts::PI * 1000.0 * i as f64 / 2_822_400.0).sin() + 0.01 * ((rng >> 11) as f64 / (1u64 << 53) as f64 - 0.5)
+            })
+            .collect();
+        // 参照: 配列シフト方式の素直な実装(最適化前のコードそのまま)
+        let mut e_hist = [0.0f64; NTF_ORDER];
+        let mut yu_hist = [0.0f64; NTF_ORDER];
+        let mut reference = Vec::with_capacity(n);
+        for &u in &x {
+            let mut shaped = 0.0;
+            for k in 1..=NTF_ORDER {
+                shaped += b[k] * e_hist[k - 1] - a[k] * yu_hist[k - 1];
+            }
+            let v = u + shaped;
+            let y = if v >= 0.0 { 1.0 } else { -1.0 };
+            for k in (1..NTF_ORDER).rev() {
+                e_hist[k] = e_hist[k - 1];
+                yu_hist[k] = yu_hist[k - 1];
+            }
+            e_hist[0] = y - v;
+            yu_hist[0] = y - u;
+            reference.push(y > 0.0);
+        }
+        let mut m = DeltaSigma::new(&b, &a);
+        let fast: Vec<bool> = x.iter().map(|&u| m.step(u)).collect();
+        assert_eq!(reference, fast);
+    }
+
+    /// DSF→DoP WAVで、DSDのビット列がマーカー込みで完全に保存されること。
+    #[test]
+    fn dop_wav_preserves_the_dsd_bitstream_exactly() {
+        if !ffmpeg_ok() {
+            return;
+        }
+        let dir = std::env::temp_dir();
+        let wav = dir.join(format!("make_disk_dop_src_{}.wav", std::process::id()));
+        let dsf = dir.join(format!("make_disk_dop_{}.dsf", std::process::id()));
+        let dop = dir.join(format!("make_disk_dop_{}.dop.wav", std::process::id()));
+        write_exact_sine_wav(&wav, 1000.0, 0.5, 0.5, 44_100, 2);
+        convert_to_dsf(wav.to_str().unwrap(), dsf.to_str().unwrap(), 64, None).unwrap();
+        dsf_to_dop_wav(dsf.to_str().unwrap(), dop.to_str().unwrap(), 24).unwrap();
+        // 32bitコンテナ: 24bit版と同じDoPデータが上位24bitに左詰めされ、下位8bitは0であること。
+        let dop32 = dir.join(format!("make_disk_dop_{}.dop32.wav", std::process::id()));
+        dsf_to_dop_wav(dsf.to_str().unwrap(), dop32.to_str().unwrap(), 32).unwrap();
+        let a24 = open_mqa::wav::decode_wav(&std::fs::read(&dop).unwrap()).unwrap();
+        let a32 = open_mqa::wav::decode_wav(&std::fs::read(&dop32).unwrap()).unwrap();
+        assert_eq!(a32.bits_per_sample, 32);
+        assert_eq!(a24.sample_rate, a32.sample_rate);
+        for ch in 0..2 {
+            assert_eq!(a24.samples_per_channel[ch].len(), a32.samples_per_channel[ch].len());
+            assert!(a24.samples_per_channel[ch].iter().zip(&a32.samples_per_channel[ch]).all(|(x, y)| *y == *x << 8), "ch{ch}: 32bit=24bit<<8");
+        }
+        let _ = std::fs::remove_file(&dop32);
+        let dsf_bytes = std::fs::read(&dsf).unwrap();
+        let samples = u64::from_le_bytes(dsf_bytes[64..72].try_into().unwrap());
+        let valid = samples.div_ceil(8) as usize;
+        let frames = open_mqa::wav::decode_dop_wav(&std::fs::read(&dop).unwrap()).unwrap();
+        assert_eq!(frames.len(), 2);
+        for ch in 0..2 {
+            let back = open_mqa::dop::unpack_dop_frames(&frames[ch]).unwrap();
+            let expected: Vec<u8> = dsf_bytes[92 + ch * DSF_BLOCK_BYTES..].chunks(DSF_BLOCK_BYTES * 2).flat_map(|c| c[..DSF_BLOCK_BYTES.min(c.len())].iter().copied()).take(valid).map(|b| b.reverse_bits()).collect();
+            assert_eq!(&back[..valid], &expected[..], "ch{ch}");
+        }
+        assert_eq!(open_mqa::wav::decode_wav(&std::fs::read(&dop).unwrap()).unwrap().sample_rate, 176_400, "DSD64のDoPは176.4kHz");
+        for p in [wav, dsf, dop] {
+            let _ = std::fs::remove_file(p);
+        }
     }
 
     fn ffmpeg_ok() -> bool {
