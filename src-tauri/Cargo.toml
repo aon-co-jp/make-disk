@@ -1,6 +1,6 @@
 [package]
 name = "make-disk"
-version = "0.1.22"
+version = "0.1.23"
 description = "Cross-platform CD/DVD/Blu-ray writing & format conversion GUI"
 authors = ["aon-co-jp"]
 edition = "2021"
@@ -67,3 +67,8 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# Android配布APKは`--debug`ビルド(署名設定が無いため)で、全ABI分のデバッグ情報が入りv0.1.21で約1.58GBに膨らんだ。
+# 行番号だけを残してデバッグ情報を大幅に削り、APKを小さくする(バックトレースの行番号は残る)。
+[profile.dev]
+debug = "line-tables-only"

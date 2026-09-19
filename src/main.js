@@ -1134,6 +1134,6 @@ document.getElementById("preset-hires-disc-btn").addEventListener("click", () =>
     }
   }
   document.getElementById("output-iso").checked = true;
-  document.getElementById("dsd-companion-pcm").checked = true;
+  document.getElementById("dsd-companion-pcm").checked = false; // 多くの再生ソフトはDSDを自動でPCM変換して再生でき、容量も倍近く使うため既定では付けない
   log("プリセットを設定しました: DSD256 + 384kHz/32bit PCM + ISO。書き込むディスク種別(6)を選び、実行してください。 / Preset applied: DSD256 + 384 kHz/32-bit PCM + ISO. Pick the disc types (6) and run.");
 });
