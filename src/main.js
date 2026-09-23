@@ -607,6 +607,60 @@ async function logSourceTraits(f) {
   }
 }
 
+// 再生規格の上限(2026-09-23新設)。hz=最大サンプリング周波数、bits=最大ビット深度、
+// audioKbps=音声の最大ビットレート、videoKbps=映像の最大ビットレート、
+// videoAudioHz=動画内の音声に使う上限。null=上限なし(PC専用)。
+const PLAYBACK_SPECS = {
+  none: null,
+  cd: { label: "CD(CD-DA / Video CD)", hz: 44100, bits: 16, audioKbps: 1411, videoKbps: 1150, videoAudioHz: 44100 },
+  dvd: { label: "DVD-Video", hz: 96000, bits: 24, audioKbps: 6144, videoKbps: 9800, videoAudioHz: 48000 },
+  dvda: { label: "DVD-Audio", hz: 192000, bits: 24, audioKbps: 9600, videoKbps: 9800, videoAudioHz: 48000 },
+  bd: { label: "Blu-ray", hz: 192000, bits: 24, audioKbps: 27648, videoKbps: 40000, videoAudioHz: 48000 },
+  uhdbd: { label: "Ultra HD Blu-ray", hz: 192000, bits: 24, audioKbps: 27648, videoKbps: 100000, videoAudioHz: 48000 },
+  pc: { label: "PC専用 / PC only", hz: 768000, bits: 32, audioKbps: null, videoKbps: null, videoAudioHz: 192000 },
+};
+
+// 非可逆コーデック自身の上限(これを超える-ar/-bは指定できない、または無意味)。
+const CODEC_LIMITS = {
+  mp3: { hz: 48000, kbps: 320 },
+  aac: { hz: 96000, kbps: 512 },
+  ogg: { hz: 192000, kbps: 500 },
+  opus: { hz: 48000, kbps: 510 },
+  ac3: { hz: 48000, kbps: 640 },
+  eac3: { hz: 48000, kbps: 6144 },
+};
+
+function selectedPlaybackSpec() {
+  return PLAYBACK_SPECS[document.getElementById("playback-spec").value] ?? null;
+}
+
+(() => {
+  const sel = document.getElementById("playback-spec");
+  const detail = document.getElementById("playback-spec-detail");
+  const kbps = (v) => (v === null ? "上限なし / unlimited" : v >= 1000 ? `${+(v / 1000).toFixed(3)} Mbps` : `${v} kbps`);
+  sel.add(new Option("指定しない(元のまま) / No limit (keep source)", "none"));
+  for (const [key, sp] of Object.entries(PLAYBACK_SPECS)) {
+    if (!sp) continue;
+    sel.add(new Option(`${sp.label} — 最大 / max ${sp.hz / 1000}kHz・${sp.bits}bit・音声 / audio ${kbps(sp.audioKbps)}・映像 / video ${kbps(sp.videoKbps)}`, key));
+  }
+  const show = () => {
+    const sp = selectedPlaybackSpec();
+    detail.textContent = sp ? `${sp.label}: 最大 ${sp.hz / 1000}kHz / ${sp.bits}bit、音声 ${kbps(sp.audioKbps)}、映像 ${kbps(sp.videoKbps)} / max ${sp.hz / 1000} kHz, ${sp.bits}-bit, audio ${kbps(sp.audioKbps)}, video ${kbps(sp.videoKbps)}` : "";
+  };
+  sel.addEventListener("change", show);
+  show();
+
+  // サイズ/時間カットのYES/NOは排他で、必ずどちらか一方がYES(「選択しない」は無い、既定はサイズ)。
+  for (const [me, other] of [["cut-by-size", "cut-by-time"], ["cut-by-time", "cut-by-size"]]) {
+    document.querySelector(`input[name="${me}"][value="yes"]`).addEventListener("change", () => {
+      document.querySelector(`input[name="${other}"][value="no"]`).checked = true;
+    });
+    document.querySelector(`input[name="${me}"][value="no"]`).addEventListener("change", () => {
+      document.querySelector(`input[name="${other}"][value="yes"]`).checked = true;
+    });
+  }
+})();
+
 async function convertAll(formats, codecMap, mode, bitrateKbps) {
   // DSD作成時はPCMを同時に作らない仕様(2026-09-23)。DSD非対応のハードウェアでは
   // 再生側がDSD→PCMへ自動変換するため、PCM版は容量の無駄になる。
@@ -633,7 +687,8 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
     }
   }
 
-  const tasks = jobs.map(({ outputPath, f, format, codecArgs }) => async () => {
+  const tasks = jobs.map(({ outputPath, f, format, codecArgs: baseCodecArgs }) => async () => {
+    let codecArgs = baseCodecArgs;
     // (ジョブ生成ループ内の定数はここでは見えないため、formatから再度判定する)
     const dsdMatch = /^dsd(\d+)$/.exec(format);
     const hiresMatch = /^(dxd352|pcm\d+_\d+)$/.exec(format);
@@ -673,6 +728,45 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
         }
       }
       const isVideo = format in VIDEO_CODEC_ARGS;
+      // 再生規格の上限(7.6)に収める。
+      const spec = selectedPlaybackSpec();
+      if (spec) {
+        if (dsdMatch && spec !== PLAYBACK_SPECS.pc) {
+          log(`⚠ DSD(DSF)は${spec.label}の再生規格外です(PC等のDSD対応プレーヤー向け)。 / DSD (DSF) is outside the ${spec.label} standard.`);
+        }
+        if (hiresMatch) {
+          const m = /^(?:dxd(\d+)|pcm(\d+)_(\d+))$/.exec(format);
+          const khz = parseInt(m[1] ?? m[2], 10);
+          const bits = format === "dxd352" ? 24 : parseInt(m[3], 10);
+          if (khz * 1000 > spec.hz + 1000 || bits > spec.bits) {
+            log(`スキップ: ${format}は${spec.label}の上限(${spec.hz / 1000}kHz/${spec.bits}bit)を超えます。 / Skipped: ${format} exceeds the ${spec.label} limit.`);
+            return null;
+          }
+        }
+        const lim = CODEC_LIMITS[format];
+        const caps = [isVideo ? spec.videoKbps : spec.audioKbps, isVideo ? null : lim?.kbps].filter((v) => v !== null && v !== undefined);
+        if (caps.length > 0 && effectiveBitrateKbps > Math.min(...caps)) {
+          effectiveBitrateKbps = Math.min(...caps);
+          log(`${spec.label}の上限に合わせてビットレートを${effectiveBitrateKbps} kbpsにしました。 / Bitrate capped at ${effectiveBitrateKbps} kbps for ${spec.label}.`);
+        }
+        if (!dsdMatch && !hiresMatch && format !== "passthrough-mkv" && !/^hevc-hdr10/.test(format)) {
+          let srcHz = null;
+          try {
+            srcHz = (await invoke("probe_media", { path: f.path })).audio_sample_rate ?? null;
+          } catch (e) {
+            // 取得できなければ上限値をそのまま使う
+          }
+          const hzCap = Math.min(isVideo ? spec.videoAudioHz : spec.hz, lim?.hz ?? Infinity);
+          if (srcHz === null || srcHz > hzCap) {
+            codecArgs = [...codecArgs, "-ar", String(hzCap)];
+          }
+          if (spec.bits <= 16 && format === "flac") {
+            codecArgs = [...codecArgs, "-sample_fmt", "s16"];
+          } else if (spec.bits >= 24 && format === "wav") {
+            codecArgs = ["-c:a", "pcm_s24le", ...codecArgs.slice(2)];
+          }
+        }
+      }
       const resolution = isVideo ? await resolveResolutionSetting(f) : null;
       const fps = isVideo ? await resolveFpsSetting(f) : null;
       await invoke("convert_media", {
@@ -946,7 +1040,7 @@ document.getElementById("run-btn").addEventListener("click", async () => {
   const discTypes = checkedValues("disc-type");
   let wantIso = document.getElementById("output-iso").checked;
 
-  const mode = bitrateMode();
+  let mode = bitrateMode();
 
   // 「最高音質・最高画質」モード(2026-09-16新設): フォーマット未選択でも
   // 実行できる——音声フォーマットが1つも選ばれていなければロスレスWAVを
@@ -1016,53 +1110,61 @@ document.getElementById("run-btn").addEventListener("click", async () => {
     }
   }
 
-  // ── 収まらない分の自動調整方法(2026-09-16新設) ──────────────────
-  // ユーザー指示「サイズか、時分秒か、ディスクいっぱいか、AI判断で
-  // 自動カットのいずれかを選択可能」への対応。「ディスクいっぱい」
-  // (既定)は上のbitrate-modeの挙動をそのまま使うため、ここでは
-  // それ以外の3つだけを扱う。
-  const fitStrategy = document.querySelector('input[name="fit-strategy"]:checked').value;
+  // ── 元データのカット(2026-09-23再設計) ──────────────────
+  // 「サイズでカット」「時間でカット」はYES/NOの排他で必ずどちらか一方がYES(サイズ優先)。
+  // 後処理として「ディスクいっぱいに収める」「AI無音カット」をチェックで選べる。
+  const cutBySize = document.querySelector('input[name="cut-by-size"]:checked').value === "yes";
 
-  if (fitStrategy === "target_size") {
-    const targetMb = parseFloat(document.getElementById("fit-target-size-mb").value);
+  if (cutBySize) {
+    const targetMb = parseFloat(document.getElementById("cut-size-mb").value);
     if (!targetMb || targetMb <= 0) {
-      log("エラー: 目標サイズ(MB)を入力してください。 / Error: enter a target size in MB.");
-      return;
+      log("サイズ(MB)が未入力のため、サイズでのカットは行いません。 / No size (MB) entered — not cutting by size.");
+    } else {
+      const targetBytes = targetMb * 1024 * 1024;
+      for (const f of sourceFiles) {
+        if (f.cutRanges.length > 0) continue; // 手動編集済みは上書きしない
+        try {
+          const info = await invoke("probe_media", { path: f.path });
+          const srcBytes = ((info.bit_rate ?? 0) / 8) * info.duration_secs;
+          if (!srcBytes || !info.duration_secs) {
+            log(`警告: ${f.path} のサイズを判定できないためカットしません。 / Can't determine size; not cut.`);
+            continue;
+          }
+          if (srcBytes <= targetBytes) {
+            log(`${f.path}: 元データ(${(srcBytes / 1048576).toFixed(1)}MB)は${targetMb}MB以下のためカットしません。 / Already within ${targetMb} MB.`);
+            continue;
+          }
+          const keepSecs = (info.duration_secs * targetBytes) / srcBytes;
+          f.cutRanges = [{ startSecs: keepSecs, endSecs: null }];
+          log(`サイズでカット: ${f.path} を先頭から${formatHms(keepSecs)}(約${targetMb}MB)まで残します。 / Cut by size: keeping the first ${formatHms(keepSecs)} (~${targetMb} MB).`);
+        } catch (e) {
+          log(`警告: ${f.path} の情報取得に失敗: ${e}`);
+        }
+      }
     }
-    let totalDuration = 0;
-    for (const f of sourceFiles) {
-      totalDuration += await effectiveDurationSecs(f);
-    }
-    bitrateKbps = await invoke("calc_bitrate_for_target_size_kbps", {
-      targetBytes: Math.round(targetMb * 1024 * 1024),
-      totalDurationSecs: totalDuration,
-    });
-    log(`サイズ指定モード: 目標${targetMb}MBに収めるためのビットレートを算出しました: ${bitrateKbps} kbps / Target-size mode: computed ${bitrateKbps} kbps to fit ${targetMb}MB.`);
-  } else if (fitStrategy === "target_duration") {
-    const targetSecs = hmsToSecs(document.getElementById("fit-duration-h").value, document.getElementById("fit-duration-m").value, document.getElementById("fit-duration-s").value);
+  } else {
+    const targetSecs = hmsToSecs(document.getElementById("cut-time-h").value, document.getElementById("cut-time-m").value, document.getElementById("cut-time-s").value);
     if (!targetSecs || targetSecs <= 0) {
-      log("エラー: 目標の時間(時分秒)を入力してください。 / Error: enter a target duration.");
-      return;
-    }
-    for (const f of sourceFiles) {
-      if (f.cutRanges.length === 0) {
-        f.cutRanges = [{ startSecs: targetSecs, endSecs: null }];
+      log("時間(時分秒)が未入力のため、時間でのカットは行いません。 / No time entered — not cutting by time.");
+    } else {
+      for (const f of sourceFiles) {
+        if (f.cutRanges.length === 0) {
+          f.cutRanges = [{ startSecs: targetSecs, endSecs: null }];
+        }
       }
+      log(`時間でカット: 先頭から${formatHms(targetSecs)}までを残します(手動編集済みのファイルは変更しません)。 / Cut by time: keeping the first ${formatHms(targetSecs)} (manually edited files untouched).`);
     }
-    log(`時間指定モード: 先頭から${targetSecs}秒までに自動トリムしました(既に編集済みのファイルは変更していません)。 / Target-duration mode: auto-trimmed to the first ${targetSecs}s (files with existing manual edits were left untouched).`);
-  } else if (fitStrategy === "ai_auto_cut") {
+  }
+
+  if (document.getElementById("ai-auto-cut").checked) {
     // 「AI判断」の正直な開示: 実際にはffmpegの音量ベースの無音検出
-    // (silencedetect)による近似であり、意味的なシーン解析ではない
-    // (index.htmlの注記・convert::detect_silence_ranges参照)。
+    // (silencedetect)による近似であり、意味的なシーン解析ではない。
     for (const f of sourceFiles) {
-      if (f.cutRanges.length > 0) {
-        continue; // 既に手動編集済みのファイルは上書きしない
-      }
       log(`無音区間を検出中: ${f.path} ... / Detecting silence in: ${f.path} ...`);
       try {
         const silences = await invoke("detect_silence_ranges", { path: f.path, silenceThresholdDb: -30.0, minSilenceSecs: 0.5 });
         if (silences.length > 0) {
-          f.cutRanges = silences.map((s) => ({ startSecs: s.start_secs, endSecs: s.end_secs }));
+          f.cutRanges.push(...silences.map((x) => ({ startSecs: x.start_secs, endSecs: x.end_secs })));
           log(`  ${silences.length}箇所の無音区間を自動カット対象にしました。 / marked ${silences.length} silent range(s) for auto-cut.`);
         } else {
           log(`  無音区間は見つかりませんでした(カット無し)。 / no silence found (nothing to cut).`);
@@ -1071,6 +1173,17 @@ document.getElementById("run-btn").addEventListener("click", async () => {
         log(`  エラー: ${e}`);
       }
     }
+  }
+
+  // 後処理: カット後の実効尺でディスクいっぱいのビットレートを算出する。
+  if (document.getElementById("fill-disc").checked) {
+    if (discTypes.length === 0) {
+      log("エラー: 「ディスクいっぱいに収める」には6.でディスク種別を1つ以上選択してください。 / Error: pick a disc type in section 6 to fill the disc.");
+      return;
+    }
+    bitrateKbps = await computeAutoBitrateKbps(discTypes);
+    if (mode === "fixed") mode = "auto";
+    log(`ディスクいっぱいに収めるビットレート: ${bitrateKbps} kbps(選択中で最小容量のディスク基準) / Bitrate to fill the disc: ${bitrateKbps} kbps (smallest selected disc).`);
   }
   renderFileList(); // 自動トリム/自動カットで設定した区間を8.の編集欄にも反映する
 
