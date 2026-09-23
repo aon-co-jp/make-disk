@@ -51,7 +51,10 @@ pub fn parse_toc(bytes: &[u8]) -> Result<Vec<TrackInfo>, String> {
     let length = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
     let entries = (length.saturating_sub(2)) / 8;
     if entries == 0 || bytes.len() < 4 + entries * 8 {
-        return Err("TOCにトラックがありません(ディスクが入っていない、または音楽CDではありません)".to_string());
+        return Err(
+            "TOCにトラックがありません(ディスクが入っていない、または音楽CDではありません)"
+                .to_string(),
+        );
     }
     let mut raw: Vec<(u8, u8, i64)> = Vec::new(); // (番号, control, lba)
     for i in 0..entries {
@@ -65,7 +68,12 @@ pub fn parse_toc(bytes: &[u8]) -> Result<Vec<TrackInfo>, String> {
             break;
         }
         let next_lba = w[1].2;
-        tracks.push(TrackInfo { number: n, start_lba: lba, sectors: next_lba - lba, is_audio: control & 0x04 == 0 });
+        tracks.push(TrackInfo {
+            number: n,
+            start_lba: lba,
+            sectors: next_lba - lba,
+            is_audio: control & 0x04 == 0,
+        });
     }
     if tracks.is_empty() {
         return Err("有効なトラックが見つかりません".to_string());
@@ -107,11 +115,20 @@ fn write_wav_header<W: Write>(w: &mut W, data_bytes: u32) -> std::io::Result<()>
 }
 
 /// 1トラックを16bit/44.1kHz/ステレオのWAVとして`output`へ書き出す。
-pub fn rip_track(reader: &mut dyn SectorReader, track: &TrackInfo, output: &Path, secure: bool) -> Result<(), String> {
+pub fn rip_track(
+    reader: &mut dyn SectorReader,
+    track: &TrackInfo,
+    output: &Path,
+    secure: bool,
+) -> Result<(), String> {
     if !track.is_audio {
-        return Err(format!("トラック{}はデータトラックで、音声として取り込めません", track.number));
+        return Err(format!(
+            "トラック{}はデータトラックで、音声として取り込めません",
+            track.number
+        ));
     }
-    let file = std::fs::File::create(output).map_err(|e| format!("出力ファイルを作成できません: {e}"))?;
+    let file =
+        std::fs::File::create(output).map_err(|e| format!("出力ファイルを作成できません: {e}"))?;
     let mut out = std::io::BufWriter::new(file);
     let data_bytes = (track.sectors as usize * SECTOR_BYTES) as u32;
     write_wav_header(&mut out, data_bytes).map_err(|e| e.to_string())?;
@@ -119,11 +136,19 @@ pub fn rip_track(reader: &mut dyn SectorReader, track: &TrackInfo, output: &Path
     while done < track.sectors {
         let count = (track.sectors - done).min(CHUNK_SECTORS as i64) as u32;
         let lba = track.start_lba + done;
-        let data = if secure { secure_read(reader, lba, count)? } else { reader.read_sectors(lba, count)? };
+        let data = if secure {
+            secure_read(reader, lba, count)?
+        } else {
+            reader.read_sectors(lba, count)?
+        };
         if data.len() != count as usize * SECTOR_BYTES {
-            return Err(format!("LBA {lba}で想定外のサイズのデータが返りました({}バイト)", data.len()));
+            return Err(format!(
+                "LBA {lba}で想定外のサイズのデータが返りました({}バイト)",
+                data.len()
+            ));
         }
-        out.write_all(&data).map_err(|e| format!("書き込みに失敗しました: {e}"))?;
+        out.write_all(&data)
+            .map_err(|e| format!("書き込みに失敗しました: {e}"))?;
         done += count as i64;
     }
     out.flush().map_err(|e| e.to_string())
@@ -147,7 +172,16 @@ mod win {
 
     #[link(name = "kernel32")]
     extern "system" {
-        fn DeviceIoControl(h: *mut core::ffi::c_void, code: u32, inbuf: *const core::ffi::c_void, insz: u32, outbuf: *mut core::ffi::c_void, outsz: u32, returned: *mut u32, overlapped: *mut core::ffi::c_void) -> i32;
+        fn DeviceIoControl(
+            h: *mut core::ffi::c_void,
+            code: u32,
+            inbuf: *const core::ffi::c_void,
+            insz: u32,
+            outbuf: *mut core::ffi::c_void,
+            outsz: u32,
+            returned: *mut u32,
+            overlapped: *mut core::ffi::c_void,
+        ) -> i32;
     }
 
     pub struct Drive {
@@ -158,16 +192,38 @@ mod win {
         /// `"D:"`のようなドライブレターの光学ドライブを開く。
         pub fn open(letter: &str) -> Result<Self, String> {
             let path = format!("\\\\.\\{}", letter.trim_end_matches('\\'));
-            let file = std::fs::OpenOptions::new().read(true).share_mode(3).open(&path).map_err(|e| format!("ドライブ{letter}を開けません(ディスクが入っていない、または権限不足): {e}"))?;
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(3)
+                .open(&path)
+                .map_err(|e| {
+                    format!(
+                        "ドライブ{letter}を開けません(ディスクが入っていない、または権限不足): {e}"
+                    )
+                })?;
             Ok(Drive { file })
         }
 
         pub fn read_toc(&self) -> Result<Vec<u8>, String> {
             let mut buf = vec![0u8; 804];
             let mut returned = 0u32;
-            let ok = unsafe { DeviceIoControl(self.file.as_raw_handle() as *mut _, IOCTL_CDROM_READ_TOC, std::ptr::null(), 0, buf.as_mut_ptr() as *mut _, buf.len() as u32, &mut returned, std::ptr::null_mut()) };
+            let ok = unsafe {
+                DeviceIoControl(
+                    self.file.as_raw_handle() as *mut _,
+                    IOCTL_CDROM_READ_TOC,
+                    std::ptr::null(),
+                    0,
+                    buf.as_mut_ptr() as *mut _,
+                    buf.len() as u32,
+                    &mut returned,
+                    std::ptr::null_mut(),
+                )
+            };
             if ok == 0 {
-                return Err(format!("TOCを読めません(ディスクが入っていない可能性): {}", std::io::Error::last_os_error()));
+                return Err(format!(
+                    "TOCを読めません(ディスクが入っていない可能性): {}",
+                    std::io::Error::last_os_error()
+                ));
             }
             buf.truncate(returned as usize);
             Ok(buf)
@@ -176,12 +232,30 @@ mod win {
 
     impl SectorReader for Drive {
         fn read_sectors(&mut self, lba: i64, count: u32) -> Result<Vec<u8>, String> {
-            let info = RawReadInfo { disk_offset: lba * 2048, sector_count: count, track_mode: 2 };
+            let info = RawReadInfo {
+                disk_offset: lba * 2048,
+                sector_count: count,
+                track_mode: 2,
+            };
             let mut buf = vec![0u8; count as usize * SECTOR_BYTES];
             let mut returned = 0u32;
-            let ok = unsafe { DeviceIoControl(self.file.as_raw_handle() as *mut _, IOCTL_CDROM_RAW_READ, &info as *const _ as *const _, std::mem::size_of::<RawReadInfo>() as u32, buf.as_mut_ptr() as *mut _, buf.len() as u32, &mut returned, std::ptr::null_mut()) };
+            let ok = unsafe {
+                DeviceIoControl(
+                    self.file.as_raw_handle() as *mut _,
+                    IOCTL_CDROM_RAW_READ,
+                    &info as *const _ as *const _,
+                    std::mem::size_of::<RawReadInfo>() as u32,
+                    buf.as_mut_ptr() as *mut _,
+                    buf.len() as u32,
+                    &mut returned,
+                    std::ptr::null_mut(),
+                )
+            };
             if ok == 0 {
-                return Err(format!("LBA {lba}の読み取りに失敗しました: {}", std::io::Error::last_os_error()));
+                return Err(format!(
+                    "LBA {lba}の読み取りに失敗しました: {}",
+                    std::io::Error::last_os_error()
+                ));
             }
             buf.truncate(returned as usize);
             Ok(buf)
@@ -202,13 +276,21 @@ pub fn list_tracks(_drive: &str) -> Result<Vec<TrackInfo>, String> {
 
 /// 指定トラックを`out_dir`へ`Track01.wav`のように書き出し、生成したパスの一覧を返す。
 #[cfg(windows)]
-pub fn rip_tracks(drive: &str, track_numbers: &[u8], out_dir: &Path, secure: bool) -> Result<Vec<String>, String> {
+pub fn rip_tracks(
+    drive: &str,
+    track_numbers: &[u8],
+    out_dir: &Path,
+    secure: bool,
+) -> Result<Vec<String>, String> {
     let mut d = win::Drive::open(drive)?;
     let tracks = parse_toc(&d.read_toc()?)?;
     std::fs::create_dir_all(out_dir).map_err(|e| format!("出力フォルダを作成できません: {e}"))?;
     let mut outputs = Vec::new();
     for n in track_numbers {
-        let t = tracks.iter().find(|t| t.number == *n).ok_or_else(|| format!("トラック{n}は存在しません"))?;
+        let t = tracks
+            .iter()
+            .find(|t| t.number == *n)
+            .ok_or_else(|| format!("トラック{n}は存在しません"))?;
         let path = out_dir.join(format!("Track{n:02}.wav"));
         rip_track(&mut d, t, &path, secure)?;
         outputs.push(path.to_string_lossy().to_string());
@@ -217,8 +299,16 @@ pub fn rip_tracks(drive: &str, track_numbers: &[u8], out_dir: &Path, secure: boo
 }
 
 #[cfg(not(windows))]
-pub fn rip_tracks(_drive: &str, _track_numbers: &[u8], _out_dir: &Path, _secure: bool) -> Result<Vec<String>, String> {
-    Err("音楽CDの取り込みは現在Windowsのみ対応です / CD-DA ripping currently supports Windows only".to_string())
+pub fn rip_tracks(
+    _drive: &str,
+    _track_numbers: &[u8],
+    _out_dir: &Path,
+    _secure: bool,
+) -> Result<Vec<String>, String> {
+    Err(
+        "音楽CDの取り込みは現在Windowsのみ対応です / CD-DA ripping currently supports Windows only"
+            .to_string(),
+    )
 }
 
 #[cfg(test)]
@@ -227,11 +317,12 @@ mod tests {
 
     /// 3トラック(うち1つはデータ)+リードアウトの、実際のTOCバイナリ形式のデータを作る。
     fn sample_toc() -> Vec<u8> {
-        let entry = |control: u8, track: u8, m: u8, s: u8, f: u8| [0u8, control, track, 0, 0, m, s, f];
+        let entry =
+            |control: u8, track: u8, m: u8, s: u8, f: u8| [0u8, control, track, 0, 0, m, s, f];
         let entries = [
-            entry(0x10, 1, 0, 2, 0),   // 音声、LBA 0
-            entry(0x10, 2, 3, 2, 0),   // 音声、LBA 3*60*75=13500
-            entry(0x14, 3, 6, 2, 0),   // データ(Control bit2)、LBA 27000
+            entry(0x10, 1, 0, 2, 0),    // 音声、LBA 0
+            entry(0x10, 2, 3, 2, 0),    // 音声、LBA 3*60*75=13500
+            entry(0x14, 3, 6, 2, 0),    // データ(Control bit2)、LBA 27000
             entry(0x10, 0xAA, 8, 2, 0), // リードアウト、LBA 36000
         ];
         let mut v = vec![0u8; 4];
@@ -255,9 +346,20 @@ mod tests {
     fn toc_parsing_computes_lengths_and_detects_data_tracks() {
         let tracks = parse_toc(&sample_toc()).unwrap();
         assert_eq!(tracks.len(), 3);
-        assert_eq!(tracks[0], TrackInfo { number: 1, start_lba: 0, sectors: 13_500, is_audio: true });
+        assert_eq!(
+            tracks[0],
+            TrackInfo {
+                number: 1,
+                start_lba: 0,
+                sectors: 13_500,
+                is_audio: true
+            }
+        );
         assert_eq!(tracks[1].sectors, 13_500);
-        assert!(!tracks[2].is_audio, "Controlビット2が立つトラックはデータトラック");
+        assert!(
+            !tracks[2].is_audio,
+            "Controlビット2が立つトラックはデータトラック"
+        );
         assert!((tracks[0].duration_secs() - 180.0).abs() < 1e-9);
         assert!(parse_toc(&[0, 2, 1, 1]).is_err(), "空のTOCはエラー");
     }
@@ -270,7 +372,9 @@ mod tests {
 
     impl MockReader {
         fn sector_data(lba: i64, count: u32) -> Vec<u8> {
-            (0..count as usize * SECTOR_BYTES).map(|i| ((lba as usize * 31 + i) % 251) as u8).collect()
+            (0..count as usize * SECTOR_BYTES)
+                .map(|i| ((lba as usize * 31 + i) % 251) as u8)
+                .collect()
         }
     }
 
@@ -289,9 +393,16 @@ mod tests {
     #[test]
     fn secure_read_retries_until_two_reads_match() {
         // 最初の1回だけ壊れる: 1回目(壊れ)と2回目(正常)は不一致、3回目(正常)で2回目と一致して確定する。
-        let mut r = MockReader { corrupt_reads_left: 1, calls: 0 };
+        let mut r = MockReader {
+            corrupt_reads_left: 1,
+            calls: 0,
+        };
         let data = secure_read(&mut r, 100, 4).unwrap();
-        assert_eq!(data, MockReader::sector_data(100, 4), "壊れた読み取りは採用されず、正しいデータが返るはず");
+        assert_eq!(
+            data,
+            MockReader::sector_data(100, 4),
+            "壊れた読み取りは採用されず、正しいデータが返るはず"
+        );
         assert_eq!(r.calls, 3);
     }
 
@@ -304,22 +415,55 @@ mod tests {
                 Ok(vec![self.0; count as usize * SECTOR_BYTES])
             }
         }
-        assert!(secure_read(&mut Flaky(0), 0, 1).is_err(), "毎回結果が違うディスクはエラーになるはず");
+        assert!(
+            secure_read(&mut Flaky(0), 0, 1).is_err(),
+            "毎回結果が違うディスクはエラーになるはず"
+        );
     }
 
     #[test]
     fn ripping_writes_a_valid_wav_with_the_exact_audio_bytes() {
-        let track = TrackInfo { number: 1, start_lba: 500, sectors: 40, is_audio: true }; // チャンク16の倍数でない長さ
-        let path = std::env::temp_dir().join(format!("make_disk_cdda_test_{}.wav", std::process::id()));
-        let mut r = MockReader { corrupt_reads_left: 0, calls: 0 };
+        let track = TrackInfo {
+            number: 1,
+            start_lba: 500,
+            sectors: 40,
+            is_audio: true,
+        }; // チャンク16の倍数でない長さ
+        let path =
+            std::env::temp_dir().join(format!("make_disk_cdda_test_{}.wav", std::process::id()));
+        let mut r = MockReader {
+            corrupt_reads_left: 0,
+            calls: 0,
+        };
         rip_track(&mut r, &track, &path, true).unwrap();
         let bytes = std::fs::read(&path).unwrap();
         let _ = std::fs::remove_file(&path);
         assert_eq!(&bytes[0..4], b"RIFF");
         assert_eq!(bytes.len(), 44 + 40 * SECTOR_BYTES);
-        let expected: Vec<u8> = (0..40).step_by(16).flat_map(|off| MockReader::sector_data(500 + off as i64, (40 - off).min(16) as u32)).collect();
-        assert_eq!(&bytes[44..], &expected[..], "音声データはセクタの内容と一致するはず");
-        assert!(rip_track(&mut r, &TrackInfo { number: 2, start_lba: 0, sectors: 1, is_audio: false }, &path, false).is_err(), "データトラックは取り込めない");
+        let expected: Vec<u8> = (0..40)
+            .step_by(16)
+            .flat_map(|off| MockReader::sector_data(500 + off as i64, (40 - off).min(16) as u32))
+            .collect();
+        assert_eq!(
+            &bytes[44..],
+            &expected[..],
+            "音声データはセクタの内容と一致するはず"
+        );
+        assert!(
+            rip_track(
+                &mut r,
+                &TrackInfo {
+                    number: 2,
+                    start_lba: 0,
+                    sectors: 1,
+                    is_audio: false
+                },
+                &path,
+                false
+            )
+            .is_err(),
+            "データトラックは取り込めない"
+        );
     }
 
     /// 実機の光学ドライブでTOCを読む(ディスクが無い/データCDの場合は、その旨のエラーまたは音声トラック無しになる)。
@@ -332,7 +476,12 @@ mod tests {
             return;
         };
         match list_tracks(drive) {
-            Ok(tracks) => eprintln!("{drive}: {}トラック、音声{}本 → {:?}", tracks.len(), tracks.iter().filter(|t| t.is_audio).count(), tracks),
+            Ok(tracks) => eprintln!(
+                "{drive}: {}トラック、音声{}本 → {:?}",
+                tracks.len(),
+                tracks.iter().filter(|t| t.is_audio).count(),
+                tracks
+            ),
             Err(e) => eprintln!("{drive}: {e}"),
         }
     }
@@ -343,18 +492,38 @@ mod tests {
     fn real_disc_rips_the_first_audio_track() {
         let drives = crate::engine::burn::list_devices().unwrap_or_default();
         let Some(drive) = drives.first() else { return };
-        let Ok(tracks) = list_tracks(drive) else { return };
-        let Some(t) = tracks.iter().find(|t| t.is_audio) else { return };
-        eprintln!("{drive}: {}トラック、Track{} {}秒", tracks.len(), t.number, t.duration_secs() as u32);
-        let part = TrackInfo { sectors: t.sectors.min(1500), ..t.clone() };
+        let Ok(tracks) = list_tracks(drive) else {
+            return;
+        };
+        let Some(t) = tracks.iter().find(|t| t.is_audio) else {
+            return;
+        };
+        eprintln!(
+            "{drive}: {}トラック、Track{} {}秒",
+            tracks.len(),
+            t.number,
+            t.duration_secs() as u32
+        );
+        let part = TrackInfo {
+            sectors: t.sectors.min(1500),
+            ..t.clone()
+        };
         let out = std::env::temp_dir().join("make_disk_real_rip.wav");
         let mut d = win::Drive::open(drive).unwrap();
         let started = std::time::Instant::now();
         rip_track(&mut d, &part, &out, true).unwrap();
         let bytes = std::fs::read(&out).unwrap();
-        eprintln!("{}秒分を{:.1}秒で取り込み(セキュアリード)", part.sectors / 75, started.elapsed().as_secs_f64());
+        eprintln!(
+            "{}秒分を{:.1}秒で取り込み(セキュアリード)",
+            part.sectors / 75,
+            started.elapsed().as_secs_f64()
+        );
         assert_eq!(bytes.len(), 44 + part.sectors as usize * SECTOR_BYTES);
-        let peak = bytes[44..].chunks_exact(2).map(|c| i16::from_le_bytes([c[0], c[1]]).unsigned_abs()).max().unwrap();
+        let peak = bytes[44..]
+            .chunks_exact(2)
+            .map(|c| i16::from_le_bytes([c[0], c[1]]).unsigned_abs())
+            .max()
+            .unwrap();
         eprintln!("ピーク振幅: {peak}");
         let _ = std::fs::remove_file(&out);
         assert!(peak > 100, "無音のはずがない");
@@ -372,7 +541,12 @@ mod tests {
         let mut d = win::Drive::open(&drives[0]).unwrap();
         let started = std::time::Instant::now();
         rip_track(&mut d, t, std::path::Path::new(&out), true).unwrap();
-        eprintln!("Track{} {}秒を{:.1}秒で取り込み", t.number, t.duration_secs() as u32, started.elapsed().as_secs_f64());
+        eprintln!(
+            "Track{} {}秒を{:.1}秒で取り込み",
+            t.number,
+            t.duration_secs() as u32,
+            started.elapsed().as_secs_f64()
+        );
     }
 
     /// 実ディスクの全音声トラックを`MAKE_DISK_RIP_DIR`へ丸ごと取り込む(手動確認用、コピーコントロールCDの検証に使用)。
@@ -383,9 +557,17 @@ mod tests {
         let dir = std::env::var("MAKE_DISK_RIP_DIR").expect("set MAKE_DISK_RIP_DIR");
         let drives = crate::engine::burn::list_devices().unwrap();
         let tracks = list_tracks(&drives[0]).unwrap();
-        let nums: Vec<u8> = tracks.iter().filter(|t| t.is_audio).map(|t| t.number).collect();
+        let nums: Vec<u8> = tracks
+            .iter()
+            .filter(|t| t.is_audio)
+            .map(|t| t.number)
+            .collect();
         let started = std::time::Instant::now();
         let outs = rip_tracks(&drives[0], &nums, std::path::Path::new(&dir), true).unwrap();
-        eprintln!("{}トラックを{:.1}秒で取り込み", outs.len(), started.elapsed().as_secs_f64());
+        eprintln!(
+            "{}トラックを{:.1}秒で取り込み",
+            outs.len(),
+            started.elapsed().as_secs_f64()
+        );
     }
 }

@@ -1232,3 +1232,6 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
   検証: スタブUIのブラウザ操作(8.のカット追加・YES/NO排他・規格一覧表示)、`cargo test --lib probe`成功。**実ファイルでの変換E2E(カット位置・-ar・ビットレート上限)は未実施**。 / Fixed the inoperable cut editor, dropped PCM alongside DSD, redesigned cut-by-size/time + fill-disc + playback-spec limits, added multilingual docs.
 
 - **2026-09-23続き22 / Continued 22 — 出力先フォルダの検証**: ソース元と出力先は必ず別フォルダ(Windowsは大文字小文字・区切り文字の違いを無視して比較)。出力先選択時に同じフォルダなら選ばせない、出力先と同じフォルダのファイルはソースに追加しない、実行系ボタン(実行・結合・分割・PDF綴じ変換・CD取り込み)は出力先未選択/同一フォルダなら実行しない。警告は日英併記でダイアログ(`window.alert`)とログの両方に出す(`requireValidOutputFolder`)。スタブUIのブラウザ操作で4ケース確認。 / Source and output folders must differ; missing output folder blocks running; bilingual alerts.
+
+- **2026-09-23続き23 / Continued 23 — 再生と同時の変換でも他アプリを妨げない**: ユーザー要望「ブルーレイを再生しながらMP4→CD ISO変換してもBUGにならないように」。外部プロセス(ffmpeg/ffprobe/rs-*/Real-ESRGAN)は`sidecar::background_command`でWindowsの優先度「通常以下」(BELOW_NORMAL_PRIORITY_CLASS)+CREATE_NO_WINDOWで起動、アプリ内の重いワーカースレッド(DSD変調・CPU版AI超解像)は`lower_current_thread_priority`(SetThreadPriority BELOW_NORMAL)。マルチスレッドは維持し、他アプリがCPUを要する瞬間はそちらを優先する。関連テスト31件成功(DSD全レート速度テストは並列実行時のみ時間超過で失敗、単独では成功)。
+  同時に報告された「MP4→CDでWAV 108KB・ISO 160KB」は、現行コードの既定設定では再現せず(スタブUIのジョブは正常、実ffmpegで60秒MP4→WAV 10.6MB)。ユーザーのインストール版はv0.1.25で、本日の修正は未リリース。原因特定にはユーザーのログ欄の内容と元MP4の情報が必要。 / Background priority for all heavy work; the 108 KB WAV report could not be reproduced yet.

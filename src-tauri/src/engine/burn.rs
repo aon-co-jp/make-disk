@@ -42,7 +42,12 @@ fn is_windows_drive_letter(device: &str) -> bool {
 
 /// PowerShell(`Get-CimInstance Win32_CDROMDrive`)の出力からドライブレターを抽出する。
 fn parse_windows_drive_list(stdout: &str) -> Vec<String> {
-    stdout.lines().map(|l| l.trim()).filter(|l| is_windows_drive_letter(l)).map(|l| l.to_ascii_uppercase()).collect()
+    stdout
+        .lines()
+        .map(|l| l.trim())
+        .filter(|l| is_windows_drive_letter(l))
+        .map(|l| l.to_ascii_uppercase())
+        .collect()
 }
 
 /// WindowsではIMAPI2でISOを書き込む(2026-09-19新設)。本家xorrisoを同梱
@@ -58,7 +63,12 @@ fn burn_with_imapi(_image_path: &str, _drive: &str) -> Result<(), String> {
     Err("IMAPI2はWindows専用です".to_string())
 }
 
-pub fn burn_image(image_path: &str, device: &str, disc: DiscType, speed: WriteSpeed) -> Result<(), String> {
+pub fn burn_image(
+    image_path: &str,
+    device: &str,
+    disc: DiscType,
+    speed: WriteSpeed,
+) -> Result<(), String> {
     if is_windows_drive_letter(device) {
         return burn_with_imapi(image_path, device);
     }
@@ -77,7 +87,12 @@ pub fn burn_image(image_path: &str, device: &str, disc: DiscType, speed: WriteSp
             args.push("-v".into());
             args.push("-data".into());
         }
-        DiscType::Dvd47 | DiscType::DvdDl85 | DiscType::Bd25 | DiscType::Bd50 | DiscType::Bd100 | DiscType::Bd128 => {
+        DiscType::Dvd47
+        | DiscType::DvdDl85
+        | DiscType::Bd25
+        | DiscType::Bd50
+        | DiscType::Bd100
+        | DiscType::Bd128 => {
             args.push("-dao".into());
         }
     }
@@ -107,7 +122,9 @@ pub fn list_devices() -> Result<Vec<String>, String> {
             .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
             .output()
             .map_err(|e| format!("光学ドライブの列挙に失敗しました: {e}"))?;
-        Ok(parse_windows_drive_list(&String::from_utf8_lossy(&output.stdout)))
+        Ok(parse_windows_drive_list(&String::from_utf8_lossy(
+            &output.stdout,
+        )))
     }
     #[cfg(not(windows))]
     {
@@ -137,7 +154,10 @@ mod tests {
 
     #[test]
     fn parse_windows_drive_list_extracts_drive_letters_only() {
-        assert_eq!(parse_windows_drive_list("D:\r\ne:\r\n\r\ngarbage\r\n"), vec!["D:", "E:"]);
+        assert_eq!(
+            parse_windows_drive_list("D:\r\ne:\r\n\r\ngarbage\r\n"),
+            vec!["D:", "E:"]
+        );
         assert!(parse_windows_drive_list("").is_empty());
     }
 
@@ -171,6 +191,7 @@ mod real_disc_tests {
         let iso = std::env::var("MAKE_DISK_TEST_ISO").expect("set MAKE_DISK_TEST_ISO");
         let devices = list_devices().unwrap();
         assert!(!devices.is_empty(), "no writable optical drive");
-        burn_image(&iso, &devices[0], DiscType::Cd700, WriteSpeed::Auto).expect("burn should succeed");
+        burn_image(&iso, &devices[0], DiscType::Cd700, WriteSpeed::Auto)
+            .expect("burn should succeed");
     }
 }

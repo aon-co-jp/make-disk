@@ -45,12 +45,50 @@ use std::process::Command;
 pub fn resolve_tool(name: &str) -> Command {
     // rs-ffmpeg/rs-xorrisoはバージョン管理付きプラグインフォルダを最優先で探す(engine::plugins)。
     if let Some(plugin) = crate::engine::plugins::installed_plugin_path(name) {
-        return Command::new(plugin);
+        return background_command(plugin);
     }
     if let Some(sidecar) = find_sidecar(name) {
-        return Command::new(sidecar);
+        return background_command(sidecar);
     }
-    Command::new(name)
+    background_command(name)
+}
+
+/// 変換などの重い外部プロセス用の`Command`(2026-09-23新設)。
+///
+/// ブルーレイ再生などと同時に変換しても再生がカクつかないよう、Windowsでは
+/// 優先度を「通常以下」(BELOW_NORMAL_PRIORITY_CLASS)にして起動する。CPUは
+/// マルチスレッドのまま全コアを使うが、他のアプリがCPUを必要とする瞬間は
+/// そちらが優先され、空いている分だけ変換に回る。あわせてコンソール窓も出さない。
+pub fn background_command<S: AsRef<std::ffi::OsStr>>(program: S) -> Command {
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(BELOW_NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
+/// 呼び出し元スレッドの優先度を「通常以下」にする(アプリ内で行う重い処理用:
+/// DSD変調・CPU版AI超解像のワーカースレッド。外部プロセスの`background_command`と同じ目的)。
+/// Windows以外では何もしない(OSの既定スケジューラに任せる)。
+pub fn lower_current_thread_priority() {
+    #[cfg(windows)]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetCurrentThread() -> *mut std::ffi::c_void;
+            fn SetThreadPriority(thread: *mut std::ffi::c_void, priority: i32) -> i32;
+        }
+        const THREAD_PRIORITY_BELOW_NORMAL: i32 = -1;
+        // SAFETY: GetCurrentThreadは常に有効な疑似ハンドルを返し、SetThreadPriorityはそれを読むだけ。
+        unsafe {
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+        }
+    }
 }
 
 fn find_sidecar(name: &str) -> Option<PathBuf> {
@@ -94,12 +132,20 @@ mod tests {
         let name = "make-disk-test-fake-sidecar-tool";
         let sidecar_path = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
 
-        std::fs::write(&sidecar_path, b"not a real binary, just needs to exist for is_file()").unwrap();
+        std::fs::write(
+            &sidecar_path,
+            b"not a real binary, just needs to exist for is_file()",
+        )
+        .unwrap();
         let found = find_sidecar(name);
         let cmd = resolve_tool(name); // ファイルがまだ存在するうちに呼ぶこと(削除後だとフォールバックしてしまう)
         let _ = std::fs::remove_file(&sidecar_path); // 掃除は最後に必ず行う
 
-        assert_eq!(found.as_deref(), Some(sidecar_path.as_path()), "find_sidecar should locate the file placed next to the current executable");
+        assert_eq!(
+            found.as_deref(),
+            Some(sidecar_path.as_path()),
+            "find_sidecar should locate the file placed next to the current executable"
+        );
         // 見つかった場合はbareな名前ではなく、フルパスが使われているはず。
         assert!(!format!("{cmd:?}").contains(&format!("\"{name}\"")), "resolve_tool should use the full sidecar path, not the bare name, once a sidecar is found");
     }

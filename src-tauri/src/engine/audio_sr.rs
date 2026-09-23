@@ -41,7 +41,11 @@ const MARGIN_SECS: usize = 1;
 // ─────────────────────────── DSP ───────────────────────────
 
 fn gcd(a: usize, b: usize) -> usize {
-    if b == 0 { a } else { gcd(b, a % b) }
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
 }
 
 fn bessel_i0(x: f64) -> f64 {
@@ -69,7 +73,11 @@ pub fn resample_poly(x: &[f32], up: usize, down: usize) -> Vec<f32> {
     let mut h: Vec<f64> = (0..len)
         .map(|n| {
             let t = n as f64 - half as f64;
-            let sinc = if t == 0.0 { 1.0 } else { (std::f64::consts::PI * cutoff * t).sin() / (std::f64::consts::PI * cutoff * t) };
+            let sinc = if t == 0.0 {
+                1.0
+            } else {
+                (std::f64::consts::PI * cutoff * t).sin() / (std::f64::consts::PI * cutoff * t)
+            };
             let r = 2.0 * n as f64 / (len - 1) as f64 - 1.0;
             cutoff * sinc * bessel_i0(beta * (1.0 - r * r).max(0.0).sqrt()) / i0b
         })
@@ -101,7 +109,9 @@ fn resample_rate(x: &[f32], from: usize, to: usize) -> Vec<f32> {
 }
 
 fn hann_periodic(n: usize) -> Vec<f32> {
-    (0..n).map(|k| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * k as f32 / n as f32).cos()).collect()
+    (0..n)
+        .map(|k| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * k as f32 / n as f32).cos())
+        .collect()
 }
 
 /// scipy.signal.stft/istft互換(hann、boundary=zeros、padded、spectrumスケーリング)。
@@ -119,7 +129,14 @@ impl Stft {
         let mut planner = FftPlanner::<f32>::new();
         let win = hann_periodic(n_fft);
         let win_sum = win.iter().sum();
-        Stft { n_fft, hop, win, win_sum, fwd: planner.plan_fft_forward(n_fft), inv: planner.plan_fft_inverse(n_fft) }
+        Stft {
+            n_fft,
+            hop,
+            win,
+            win_sum,
+            fwd: planner.plan_fft_forward(n_fft),
+            inv: planner.plan_fft_inverse(n_fft),
+        }
     }
 
     fn bins(&self) -> usize {
@@ -173,7 +190,15 @@ impl Stft {
             }
         }
         let pad = self.n_fft / 2;
-        let mut out: Vec<f32> = (pad..total.saturating_sub(pad)).map(|i| if norm[i] > 1e-10 { x[i] / norm[i] } else { x[i] }).collect();
+        let mut out: Vec<f32> = (pad..total.saturating_sub(pad))
+            .map(|i| {
+                if norm[i] > 1e-10 {
+                    x[i] / norm[i]
+                } else {
+                    x[i]
+                }
+            })
+            .collect();
         out.resize(target_len, 0.0);
         out
     }
@@ -183,21 +208,31 @@ fn hz_to_mel(f: f64) -> f64 {
     let (f_sp, min_log_hz) = (200.0 / 3.0, 1000.0);
     let min_log_mel = min_log_hz / f_sp;
     let logstep = (6.4f64).ln() / 27.0;
-    if f < min_log_hz { f / f_sp } else { min_log_mel + (f / min_log_hz).ln() / logstep }
+    if f < min_log_hz {
+        f / f_sp
+    } else {
+        min_log_mel + (f / min_log_hz).ln() / logstep
+    }
 }
 
 fn mel_to_hz(m: f64) -> f64 {
     let (f_sp, min_log_hz) = (200.0 / 3.0, 1000.0);
     let min_log_mel = min_log_hz / f_sp;
     let logstep = (6.4f64).ln() / 27.0;
-    if m < min_log_mel { m * f_sp } else { min_log_hz * (logstep * (m - min_log_mel)).exp() }
+    if m < min_log_mel {
+        m * f_sp
+    } else {
+        min_log_hz * (logstep * (m - min_log_mel)).exp()
+    }
 }
 
 /// メルフィルタバンク(`[mel][bin]`)。LavaSRの学習時の前処理と同じ定義(fmin=0、fmax=8000、slaney風の面積正規化)。
 fn mel_filterbank(sr: usize, n_fft: usize, n_mels: usize, fmin: f64, fmax: f64) -> Vec<Vec<f32>> {
     let bins = n_fft / 2 + 1;
     let (m0, m1) = (hz_to_mel(fmin), hz_to_mel(fmax));
-    let edges: Vec<f64> = (0..n_mels + 2).map(|i| mel_to_hz(m0 + (m1 - m0) * i as f64 / (n_mels + 1) as f64)).collect();
+    let edges: Vec<f64> = (0..n_mels + 2)
+        .map(|i| mel_to_hz(m0 + (m1 - m0) * i as f64 / (n_mels + 1) as f64))
+        .collect();
     let mut fb = vec![vec![0f32; bins]; n_mels];
     for m in 0..n_mels {
         let (l, c, r) = (edges[m], edges[m + 1], edges[m + 2]);
@@ -217,7 +252,10 @@ fn mel_filterbank(sr: usize, n_fft: usize, n_mels: usize, fmin: f64, fmax: f64) 
 // ─────────────────────────── モデル取得・推論 ───────────────────────────
 
 fn model_dir() -> Result<PathBuf, String> {
-    Ok(crate::engine::plugins::plugin_dir().ok_or("プラグインフォルダを特定できません")?.join("audio-sr").join(format!("lavasr-{}", &HF_REVISION[..8])))
+    Ok(crate::engine::plugins::plugin_dir()
+        .ok_or("プラグインフォルダを特定できません")?
+        .join("audio-sr")
+        .join(format!("lavasr-{}", &HF_REVISION[..8])))
 }
 
 /// モデル(ONNX 2ファイル、約56MB)が無ければダウンロードする。導入済みならスキップ。
@@ -231,10 +269,15 @@ pub fn ensure_models() -> Result<PathBuf, String> {
         }
         let url = format!("{HF_BASE}/{HF_REVISION}/{name}");
         let mut bytes = Vec::new();
-        let resp = ureq::get(&url).call().map_err(|e| format!("音声モデルのダウンロードに失敗しました({url}): {e}"))?;
-        std::io::copy(&mut resp.into_reader(), &mut bytes).map_err(|e| format!("ダウンロードの読み取りに失敗しました: {e}"))?;
+        let resp = ureq::get(&url)
+            .call()
+            .map_err(|e| format!("音声モデルのダウンロードに失敗しました({url}): {e}"))?;
+        std::io::copy(&mut resp.into_reader(), &mut bytes)
+            .map_err(|e| format!("ダウンロードの読み取りに失敗しました: {e}"))?;
         let tmp = dir.join(format!("{name}.part"));
-        std::fs::write(&tmp, &bytes).and_then(|_| std::fs::rename(&tmp, &path)).map_err(|e| format!("モデルの保存に失敗しました: {e}"))?;
+        std::fs::write(&tmp, &bytes)
+            .and_then(|_| std::fs::rename(&tmp, &path))
+            .map_err(|e| format!("モデルの保存に失敗しました: {e}"))?;
     }
     Ok(dir)
 }
@@ -294,19 +337,31 @@ impl Lavasr {
             let mut input = vec![0f32; ENH_MELS * t];
             for m in 0..ENH_MELS {
                 for j in 0..t {
-                    let src = (start as isize - CONTEXT_FRAMES as isize + j as isize).clamp(0, frames as isize - 1) as usize;
+                    let src = (start as isize - CONTEXT_FRAMES as isize + j as isize)
+                        .clamp(0, frames as isize - 1) as usize;
                     input[m * t + j] = mel[m * frames + src];
                 }
             }
-            let x = tract_ndarray::Array3::from_shape_vec((1, ENH_MELS, t), input).map_err(|e| e.to_string())?.into_tensor();
-            let hidden = self.backbone.run(tvec!(x.into())).map_err(|e| format!("backbone推論に失敗しました: {e}"))?;
+            let x = tract_ndarray::Array3::from_shape_vec((1, ENH_MELS, t), input)
+                .map_err(|e| e.to_string())?
+                .into_tensor();
+            let hidden = self
+                .backbone
+                .run(tvec!(x.into()))
+                .map_err(|e| format!("backbone推論に失敗しました: {e}"))?;
             let h = hidden[0].clone().into_tensor();
-            let heads = self.head.run(tvec!(h.into())).map_err(|e| format!("spec_head推論に失敗しました: {e}"))?;
+            let heads = self
+                .head
+                .run(tvec!(h.into()))
+                .map_err(|e| format!("spec_head推論に失敗しました: {e}"))?;
             let re = heads[0].to_array_view::<f32>().map_err(|e| e.to_string())?; // [1][bins][t]
             let im = heads[1].to_array_view::<f32>().map_err(|e| e.to_string())?;
             for j in 0..core {
                 for k in 0..bins {
-                    out_spec[(start + j) * bins + k] = Complex::new(re[[0, k, CONTEXT_FRAMES + j]], im[[0, k, CONTEXT_FRAMES + j]]);
+                    out_spec[(start + j) * bins + k] = Complex::new(
+                        re[[0, k, CONTEXT_FRAMES + j]],
+                        im[[0, k, CONTEXT_FRAMES + j]],
+                    );
                 }
             }
             start += core;
@@ -336,7 +391,9 @@ pub fn limit_generated_hf(y: &[f32], generated: &[f32], fc: f32) -> Vec<f32> {
     let (_, sg) = stft.forward(generated);
     let freq = |k: usize| k as f32 * (OUT_SR as f32 / 2.0) / (bins - 1) as f32;
     let (lo_a, lo_b) = (fc * 0.6, fc * 0.95);
-    let fit_bins: Vec<usize> = (0..bins).filter(|&k| freq(k) >= lo_a && freq(k) < lo_b).collect();
+    let fit_bins: Vec<usize> = (0..bins)
+        .filter(|&k| freq(k) >= lo_a && freq(k) < lo_b)
+        .collect();
     let mut out = vec![Complex::new(0.0, 0.0); frames * bins];
     for f in 0..frames {
         // log10パワーを周波数に対して最小二乗で直線当てはめ
@@ -351,7 +408,14 @@ pub fn limit_generated_hf(y: &[f32], generated: &[f32], fc: f32) -> Vec<f32> {
         }
         let n = fit_bins.len() as f64;
         let denom = n * sxx - sx * sx;
-        let (slope, icpt) = if denom.abs() < 1e-9 { (0.0, sy_ / n.max(1.0)) } else { ((n * sxy - sx * sy_) / denom, (sy_ - (n * sxy - sx * sy_) / denom * sx) / n) };
+        let (slope, icpt) = if denom.abs() < 1e-9 {
+            (0.0, sy_ / n.max(1.0))
+        } else {
+            (
+                (n * sxy - sx * sy_) / denom,
+                (sy_ - (n * sxy - sx * sy_) / denom * sx) / n,
+            )
+        };
         let slope = slope.min(-1e-5); // 上向きには外挿しない
         for k in 0..bins {
             let fk = freq(k);
@@ -385,7 +449,10 @@ pub fn detect_cutoff_hz(x48: &[f32]) -> Option<f32> {
             power[k] += spec[f * bins + k].norm_sqr() as f64;
         }
     }
-    let db: Vec<f64> = power.iter().map(|p| 10.0 * (p / frames as f64 + 1e-20).log10()).collect();
+    let db: Vec<f64> = power
+        .iter()
+        .map(|p| 10.0 * (p / frames as f64 + 1e-20).log10())
+        .collect();
     let mut prefix = vec![0f64; bins + 1];
     for k in 0..bins {
         prefix[k + 1] = prefix[k] + db[k];
@@ -393,7 +460,10 @@ pub fn detect_cutoff_hz(x48: &[f32]) -> Option<f32> {
     let bin_hz = OUT_SR as f64 / 2.0 / (bins - 1) as f64;
     let (win, gap) = ((800.0 / bin_hz) as usize, (600.0 / bin_hz) as usize);
     let mean = |a: usize, b: usize| (prefix[b] - prefix[a]) / (b - a) as f64;
-    let (k_lo, k_hi) = ((3_000.0 / bin_hz) as usize + win, (19_500.0 / bin_hz) as usize);
+    let (k_lo, k_hi) = (
+        (3_000.0 / bin_hz) as usize + win,
+        (19_500.0 / bin_hz) as usize,
+    );
     let (mut best_k, mut best_drop) = (0usize, f64::MIN);
     for k in k_lo..=k_hi.min(bins - 1 - gap - win) {
         let drop = mean(k - win, k) - mean(k + gap, k + gap + win);
@@ -402,7 +472,10 @@ pub fn detect_cutoff_hz(x48: &[f32]) -> Option<f32> {
         }
     }
     if std::env::var("MAKE_DISK_DEBUG_CUTOFF").is_ok() {
-        eprintln!("  最大の落ち込み: {best_drop:.1} dB @ {:.0} Hz", (best_k + gap / 2) as f64 * bin_hz);
+        eprintln!(
+            "  最大の落ち込み: {best_drop:.1} dB @ {:.0} Hz",
+            (best_k + gap / 2) as f64 * bin_hz
+        );
     }
     (best_drop >= 25.0).then(|| ((best_k + gap / 2) as f64 * bin_hz) as f32)
 }
@@ -411,7 +484,11 @@ pub fn detect_cutoff_hz(x48: &[f32]) -> Option<f32> {
 
 /// 1チャンネル(48kHz)を処理して、入力+頭打ちした生成高域の信号を返す。
 /// `cutoff_hz`が`None`なら自動検出し、帯域が欠けていなければ入力をそのまま返す。
-pub fn extend_channel(model: &Lavasr, x48: &[f32], cutoff_hz: Option<f32>) -> Result<Vec<f32>, String> {
+pub fn extend_channel(
+    model: &Lavasr,
+    x48: &[f32],
+    cutoff_hz: Option<f32>,
+) -> Result<Vec<f32>, String> {
     let Some(fc) = cutoff_hz.or_else(|| detect_cutoff_hz(x48)) else {
         return Ok(x48.to_vec());
     };
@@ -442,13 +519,23 @@ pub fn read_f32_wav(path: &Path) -> Result<(u32, Vec<Vec<f32>>), String> {
         let size = u32::from_le_bytes([b[pos + 4], b[pos + 5], b[pos + 6], b[pos + 7]]) as usize;
         let body = &b[pos + 8..(pos + 8 + size).min(b.len())];
         match id {
-            b"fmt " => fmt = Some((u16::from_le_bytes([body[0], body[1]]), u16::from_le_bytes([body[2], body[3]]), u32::from_le_bytes([body[4], body[5], body[6], body[7]]), u16::from_le_bytes([body[14], body[15]]))),
+            b"fmt " => {
+                fmt = Some((
+                    u16::from_le_bytes([body[0], body[1]]),
+                    u16::from_le_bytes([body[2], body[3]]),
+                    u32::from_le_bytes([body[4], body[5], body[6], body[7]]),
+                    u16::from_le_bytes([body[14], body[15]]),
+                ))
+            }
             b"data" => data = Some(body),
             _ => {}
         }
         pos += 8 + size + (size & 1);
     }
-    let ((tag, ch, sr, bits), data) = (fmt.ok_or("fmtチャンクがありません")?, data.ok_or("dataチャンクがありません")?);
+    let ((tag, ch, sr, bits), data) = (
+        fmt.ok_or("fmtチャンクがありません")?,
+        data.ok_or("dataチャンクがありません")?,
+    );
     if !(tag == 3 || tag == 0xFFFE) || bits != 32 {
         return Err("32bit float WAVのみ対応です".to_string());
     }
@@ -458,7 +545,12 @@ pub fn read_f32_wav(path: &Path) -> Result<(u32, Vec<Vec<f32>>), String> {
     for f in 0..frames {
         for (c, o) in out.iter_mut().enumerate() {
             let i = (f * ch + c) * 4;
-            o.push(f32::from_le_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]));
+            o.push(f32::from_le_bytes([
+                data[i],
+                data[i + 1],
+                data[i + 2],
+                data[i + 3],
+            ]));
         }
     }
     Ok((sr, out))
@@ -490,7 +582,11 @@ pub fn write_f32_wav(path: &Path, sr: u32, channels: &[Vec<f32>]) -> Result<(), 
 }
 
 /// 48kHz 32bit float WAVを読み、各チャンネルを帯域拡張して`output`へ書く。
-pub fn extend_wav_file(input: &Path, output: &Path, cutoff_hz: Option<f32>) -> Result<Option<f32>, String> {
+pub fn extend_wav_file(
+    input: &Path,
+    output: &Path,
+    cutoff_hz: Option<f32>,
+) -> Result<Option<f32>, String> {
     let (sr, channels) = read_f32_wav(input)?;
     if sr as usize != OUT_SR {
         return Err(format!("入力は48kHzである必要があります(実際: {sr}Hz)"));
@@ -502,7 +598,10 @@ pub fn extend_wav_file(input: &Path, output: &Path, cutoff_hz: Option<f32>) -> R
         return Ok(None);
     };
     let model = Lavasr::load()?;
-    let processed: Result<Vec<Vec<f32>>, String> = channels.iter().map(|c| extend_channel(&model, c, Some(fc))).collect();
+    let processed: Result<Vec<Vec<f32>>, String> = channels
+        .iter()
+        .map(|c| extend_channel(&model, c, Some(fc)))
+        .collect();
     write_f32_wav(output, sr, &processed?)?;
     Ok(Some(fc))
 }
@@ -512,7 +611,9 @@ mod tests {
     use super::*;
 
     fn sine(freq: f32, secs: f32, sr: usize) -> Vec<f32> {
-        (0..(secs * sr as f32) as usize).map(|n| (2.0 * std::f32::consts::PI * freq * n as f32 / sr as f32).sin() * 0.5).collect()
+        (0..(secs * sr as f32) as usize)
+            .map(|n| (2.0 * std::f32::consts::PI * freq * n as f32 / sr as f32).sin() * 0.5)
+            .collect()
     }
 
     #[test]
@@ -522,18 +623,30 @@ mod tests {
         assert_eq!(y.len(), 44_100);
         let y64: Vec<f64> = y.iter().map(|v| *v as f64).collect();
         let (snr, amp) = crate::engine::dsd::sine_fit_snr_db(&y64, 1000.0, 44_100.0, 4000);
-        assert!(snr > 70.0, "リサンプル後の1kHz正弦波SNRが高いはず(実際: {snr} dB)");
+        assert!(
+            snr > 70.0,
+            "リサンプル後の1kHz正弦波SNRが高いはず(実際: {snr} dB)"
+        );
         assert!((amp - 0.5).abs() < 0.005, "振幅が保たれるはず(実際: {amp})");
     }
 
     #[test]
     fn stft_round_trip_reconstructs_the_signal() {
         let stft = Stft::new(2048, 512);
-        let x: Vec<f32> = (0..30_000).map(|i| ((i * 7919 % 2003) as f32 / 1000.0 - 1.0) * 0.5).collect();
+        let x: Vec<f32> = (0..30_000)
+            .map(|i| ((i * 7919 % 2003) as f32 / 1000.0 - 1.0) * 0.5)
+            .collect();
         let (frames, spec) = stft.forward(&x);
         let y = stft.inverse(frames, &spec, x.len());
-        let max_err = x.iter().zip(&y).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
-        assert!(max_err < 1e-4, "STFT→ISTFTで元に戻るはず(最大誤差 {max_err})");
+        let max_err = x
+            .iter()
+            .zip(&y)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0f32, f32::max);
+        assert!(
+            max_err < 1e-4,
+            "STFT→ISTFTで元に戻るはず(最大誤差 {max_err})"
+        );
     }
 
     #[test]
@@ -542,11 +655,20 @@ mod tests {
         let fb = mel_filterbank(44_100, 2048, 80, 0.0, 8000.0);
         assert_eq!(fb.len(), 80);
         assert_eq!(fb[0].len(), 1025);
-        let argmax = |row: &Vec<f32>| row.iter().enumerate().fold((0, 0f32), |m, (i, v)| if *v > m.1 { (i, *v) } else { m }).0;
+        let argmax = |row: &Vec<f32>| {
+            row.iter()
+                .enumerate()
+                .fold((0, 0f32), |m, (i, v)| if *v > m.1 { (i, *v) } else { m })
+                .0
+        };
         // メル軸で等間隔なので、中心bin(argmax)は単調増加し、8kHz(bin約371)を超えない。
         let centers: Vec<usize> = fb.iter().map(argmax).collect();
         assert!(centers.windows(2).all(|w| w[0] <= w[1]));
-        assert!(*centers.last().unwrap() <= 372, "最終フィルタの中心は約8kHz以下(実際: bin {})", centers.last().unwrap());
+        assert!(
+            *centers.last().unwrap() <= 372,
+            "最終フィルタの中心は約8kHz以下(実際: bin {})",
+            centers.last().unwrap()
+        );
     }
 
     /// 信号全体を1回のFFTで厳密に帯域制限する(テスト用。フレーム単位のマスクは境界で漏れる)。
@@ -580,10 +702,18 @@ mod tests {
             .collect();
         for fc_true in [8_000.0f32, 10_000.0, 14_000.0] {
             let limited = brickwall_lowpass(&noise, fc_true);
-            let fc = detect_cutoff_hz(&limited).unwrap_or_else(|| panic!("{fc_true}Hzで帯域が切れた信号のカットオフを検出できるはず"));
-            assert!((fc - fc_true).abs() < 600.0, "検出したカットオフは約{fc_true}Hzのはず(実際: {fc})");
+            let fc = detect_cutoff_hz(&limited).unwrap_or_else(|| {
+                panic!("{fc_true}Hzで帯域が切れた信号のカットオフを検出できるはず")
+            });
+            assert!(
+                (fc - fc_true).abs() < 600.0,
+                "検出したカットオフは約{fc_true}Hzのはず(実際: {fc})"
+            );
         }
-        assert!(detect_cutoff_hz(&noise).is_none(), "全帯域の信号は素通し(検出なし)のはず");
+        assert!(
+            detect_cutoff_hz(&noise).is_none(),
+            "全帯域の信号は素通し(検出なし)のはず"
+        );
     }
 
     #[test]
@@ -593,7 +723,12 @@ mod tests {
         let g = sine(10_000.0, 2.0, OUT_SR);
         let hf = limit_generated_hf(&y, &g, 8000.0);
         let rms = |v: &[f32]| (v.iter().map(|x| x * x).sum::<f32>() / v.len() as f32).sqrt();
-        assert!(rms(&hf) < rms(&g) * 0.05, "入力に高域が無いのに大きな生成高域は抑え込まれるはず(rms {} vs {})", rms(&hf), rms(&g));
+        assert!(
+            rms(&hf) < rms(&g) * 0.05,
+            "入力に高域が無いのに大きな生成高域は抑え込まれるはず(rms {} vs {})",
+            rms(&hf),
+            rms(&g)
+        );
         // 低域(1kHz)の生成分は含まれない(高域のみを返す)。
         let low = limit_generated_hf(&y, &sine(1000.0, 2.0, OUT_SR), 8000.0);
         assert!(rms(&low) < 1e-3, "カットオフ未満の成分は返さないはず");
@@ -604,7 +739,11 @@ mod tests {
     #[test]
     fn real_model_improves_lsd_over_the_unprocessed_baseline_on_real_music() {
         let dir = std::path::Path::new("C:\\AUDIO");
-        let Some(src) = std::fs::read_dir(dir).ok().and_then(|d| d.filter_map(|e| e.ok()).map(|e| e.path()).find(|p| p.to_string_lossy().ends_with("(1).mp4"))) else {
+        let Some(src) = std::fs::read_dir(dir).ok().and_then(|d| {
+            d.filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .find(|p| p.to_string_lossy().ends_with("(1).mp4"))
+        }) else {
             eprintln!("評価用の音源が無いためスキップ");
             return;
         };
@@ -619,7 +758,25 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let wav = tmp.join("clip.wav");
         let st = std::process::Command::new("ffmpeg")
-            .args(["-v", "error", "-y", "-ss", "600", "-t", "8", "-i", src.to_str().unwrap(), "-vn", "-ac", "1", "-ar", "48000", "-c:a", "pcm_f32le", wav.to_str().unwrap()])
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-ss",
+                "600",
+                "-t",
+                "8",
+                "-i",
+                src.to_str().unwrap(),
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "48000",
+                "-c:a",
+                "pcm_f32le",
+                wav.to_str().unwrap(),
+            ])
             .output()
             .unwrap();
         assert!(st.status.success());
@@ -644,12 +801,18 @@ mod tests {
             let (frames, sa) = stft.forward(a);
             let (_, sb) = stft.forward(b);
             let bins = stft.bins();
-            let ks: Vec<usize> = (0..bins).filter(|&k| { let f = k as f32 * 24_000.0 / (bins - 1) as f32; f >= lo && f <= hi }).collect();
+            let ks: Vec<usize> = (0..bins)
+                .filter(|&k| {
+                    let f = k as f32 * 24_000.0 / (bins - 1) as f32;
+                    f >= lo && f <= hi
+                })
+                .collect();
             let mut total = 0f64;
             for f in 0..frames {
                 let mut s = 0f64;
                 for &k in &ks {
-                    let d = ((sa[f * bins + k].norm_sqr() + 1e-12) as f64).log10() - ((sb[f * bins + k].norm_sqr() + 1e-12) as f64).log10();
+                    let d = ((sa[f * bins + k].norm_sqr() + 1e-12) as f64).log10()
+                        - ((sb[f * bins + k].norm_sqr() + 1e-12) as f64).log10();
                     s += d * d;
                 }
                 total += (s / ks.len() as f64).sqrt();

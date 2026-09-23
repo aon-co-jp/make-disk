@@ -129,9 +129,13 @@ pub struct AiDenoise {
 static RNNOISE_MODEL: &[u8] = include_bytes!("../../models/rnnoise-general.rnnn");
 
 fn rnnoise_model_path() -> Result<std::path::PathBuf, String> {
-    let path = std::env::temp_dir().join(format!("make-disk-rnnoise-general-{}.rnnn", RNNOISE_MODEL.len()));
+    let path = std::env::temp_dir().join(format!(
+        "make-disk-rnnoise-general-{}.rnnn",
+        RNNOISE_MODEL.len()
+    ));
     if fs::metadata(&path).map(|m| m.len() as usize).ok() != Some(RNNOISE_MODEL.len()) {
-        fs::write(&path, RNNOISE_MODEL).map_err(|e| format!("AIモデルの展開に失敗しました: {e}"))?;
+        fs::write(&path, RNNOISE_MODEL)
+            .map_err(|e| format!("AIモデルの展開に失敗しました: {e}"))?;
     }
     Ok(path)
 }
@@ -140,7 +144,10 @@ fn rnnoise_model_path() -> Result<std::path::PathBuf, String> {
 /// エスケープする必要があり、`\`はパス区切りと紛らわしいため`/`へ置き換える。
 fn push_ai_denoise_args(args: &mut Vec<String>, denoise: &Option<AiDenoise>) -> Result<(), String> {
     if let Some(d) = denoise {
-        let p = rnnoise_model_path()?.to_string_lossy().replace('\\', "/").replace(':', "\\\\:");
+        let p = rnnoise_model_path()?
+            .to_string_lossy()
+            .replace('\\', "/")
+            .replace(':', "\\\\:");
         args.push("-af".into());
         args.push(format!("arnndn=m={p}:mix={}", d.mix.clamp(-1.0, 1.0)));
     }
@@ -158,7 +165,11 @@ pub struct Resolution {
 /// 戻り値の各要素は(開始秒, 終了秒。Noneならファイル末尾まで)。
 fn keep_segments_from_cuts(cuts: &[CutRange]) -> Vec<(f64, Option<f64>)> {
     let mut sorted: Vec<&CutRange> = cuts.iter().collect();
-    sorted.sort_by(|a, b| a.start_secs.partial_cmp(&b.start_secs).unwrap_or(std::cmp::Ordering::Equal));
+    sorted.sort_by(|a, b| {
+        a.start_secs
+            .partial_cmp(&b.start_secs)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let mut keep = Vec::new();
     let mut prev_end: f64 = 0.0;
@@ -192,8 +203,18 @@ pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
         }
         // 1) 元音声を48kHz/32bit floatのWAVへ展開(トリミング適用。AIノイズ除去は帯域拡張の**前**に行う:
         //    逆順だと拡張器がノイズから高域を作ってしまう)。2) 帯域拡張。3) 結果を入力に通常の変換を行う。
-        let tag = format!("{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
-        let (decoded, extended) = (std::env::temp_dir().join(format!("make-disk-bwe-in-{tag}.wav")), std::env::temp_dir().join(format!("make-disk-bwe-out-{tag}.wav")));
+        let tag = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        let (decoded, extended) = (
+            std::env::temp_dir().join(format!("make-disk-bwe-in-{tag}.wav")),
+            std::env::temp_dir().join(format!("make-disk-bwe-out-{tag}.wav")),
+        );
         let mut args: Vec<String> = Vec::new();
         if let Some(t) = &job.trim {
             if let Some(start) = t.start_secs {
@@ -208,16 +229,27 @@ pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
         }
         args.extend(["-vn".into(), "-ac".into(), "2".into()]);
         push_ai_denoise_args(&mut args, &job.ai_denoise)?;
-        args.extend(["-ar".into(), "48000".into(), "-c:a".into(), "pcm_f32le".into(), "-y".into(), decoded.to_string_lossy().to_string()]);
+        args.extend([
+            "-ar".into(),
+            "48000".into(),
+            "-c:a".into(),
+            "pcm_f32le".into(),
+            "-y".into(),
+            decoded.to_string_lossy().to_string(),
+        ]);
         let prep = run_ffmpeg(&merge_audio_filters(args));
-        let result = prep.and_then(|_| crate::engine::audio_sr::extend_wav_file(&decoded, &extended, bwe.cutoff_hz)).and_then(|_| {
-            let mut next = job.clone();
-            next.input_path = extended.to_string_lossy().to_string();
-            next.trim = None;
-            next.audio_bwe = None;
-            next.ai_denoise = None; // 既に前段で適用済み
-            run_convert(&next)
-        });
+        let result = prep
+            .and_then(|_| {
+                crate::engine::audio_sr::extend_wav_file(&decoded, &extended, bwe.cutoff_hz)
+            })
+            .and_then(|_| {
+                let mut next = job.clone();
+                next.input_path = extended.to_string_lossy().to_string();
+                next.trim = None;
+                next.audio_bwe = None;
+                next.ai_denoise = None; // 既に前段で適用済み
+                run_convert(&next)
+            });
         let _ = fs::remove_file(&decoded);
         let _ = fs::remove_file(&extended);
         return result;
@@ -246,7 +278,11 @@ pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
         crate::engine::dsd::convert_to_dsf(&job.input_path, &job.output_path, mult, trim)?;
         if let Some(bits) = job.dop_wav_bits {
             let dop_path = std::path::Path::new(&job.output_path).with_extension("dop.wav");
-            crate::engine::dsd::dsf_to_dop_wav(&job.output_path, &dop_path.to_string_lossy(), bits)?;
+            crate::engine::dsd::dsf_to_dop_wav(
+                &job.output_path,
+                &dop_path.to_string_lossy(),
+                bits,
+            )?;
         }
         return Ok(());
     }
@@ -264,11 +300,25 @@ pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
 fn detect_av1_encoder() -> Option<(&'static str, Vec<&'static str>)> {
     static CACHE: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
     let name = CACHE.get_or_init(|| {
-        let out = resolve_tool("ffmpeg").args(["-hide_banner", "-encoders"]).output().ok()?;
+        let out = resolve_tool("ffmpeg")
+            .args(["-hide_banner", "-encoders"])
+            .output()
+            .ok()?;
         let text = String::from_utf8_lossy(&out.stdout).to_string();
-        ["libsvtav1", "libaom-av1"].into_iter().find(|e| text.contains(e))
+        ["libsvtav1", "libaom-av1"]
+            .into_iter()
+            .find(|e| text.contains(e))
     });
-    name.map(|n| (n, if n == "libaom-av1" { vec!["-cpu-used", "6", "-row-mt", "1"] } else { vec!["-preset", "8"] }))
+    name.map(|n| {
+        (
+            n,
+            if n == "libaom-av1" {
+                vec!["-cpu-used", "6", "-row-mt", "1"]
+            } else {
+                vec!["-preset", "8"]
+            },
+        )
+    })
 }
 
 /// codec_args内の疑似コーデック`-c:v av1`を、実際に使えるAV1エンコーダへ置き換える。
@@ -282,7 +332,11 @@ fn resolve_av1_codec_args(codec_args: &[String]) -> Result<Vec<String>, String> 
             out.push(enc.to_string());
             out.extend(extra.into_iter().map(String::from));
             i += 2;
-        } else if codec_args[i] == "-af" && codec_args.get(i + 1).is_some_and(|v| v == "hq-resample" || v.starts_with("hq-resample@")) {
+        } else if codec_args[i] == "-af"
+            && codec_args
+                .get(i + 1)
+                .is_some_and(|v| v == "hq-resample" || v.starts_with("hq-resample@"))
+        {
             // 疑似フィルタ`hq-resample[@出力レートHz]`を、使える最高品質のリサンプラ+ディザへ置き換える。
             // レートはフィルタ内(out_sample_rate)で指定する——`-ar`だと後段に標準設定のリサンプラが
             // 追加されて高品質設定が無駄になるため。
@@ -309,7 +363,20 @@ pub fn hq_resample_filter() -> &'static str {
     static CACHE: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
     CACHE.get_or_init(|| {
         let soxr_ok = resolve_tool("ffmpeg")
-            .args(["-hide_banner", "-v", "error", "-f", "lavfi", "-i", "sine=d=0.05", "-af", "aresample=resampler=soxr", "-f", "null", "-"])
+            .args([
+                "-hide_banner",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=d=0.05",
+                "-af",
+                "aresample=resampler=soxr",
+                "-f",
+                "null",
+                "-",
+            ])
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
@@ -351,8 +418,10 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
 
     // MKV出力のときだけ複数トラック(元の全音声・字幕+追加トラック)を扱う。追加トラックの`-i`は、出力側の`-t`より前に置く
     // (`-t`は直後の入力にも掛かってしまうため)。
-    let mkv = crate::engine::mkv_tracks::is_mkv_output(&job.output_path) && !is_audio_only_output(&job.output_path);
-    let extras: &[crate::engine::mkv_tracks::ExtraTrack] = if mkv { &job.extra_tracks } else { &[] };
+    let mkv = crate::engine::mkv_tracks::is_mkv_output(&job.output_path)
+        && !is_audio_only_output(&job.output_path);
+    let extras: &[crate::engine::mkv_tracks::ExtraTrack] =
+        if mkv { &job.extra_tracks } else { &[] };
     if let Some(trim) = &job.trim {
         if let Some(start) = trim.start_secs {
             args.push("-ss".into());
@@ -360,7 +429,10 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
         }
         args.push("-i".into());
         args.push(job.input_path.clone());
-        args.extend(crate::engine::mkv_tracks::extra_input_args(extras, trim.start_secs));
+        args.extend(crate::engine::mkv_tracks::extra_input_args(
+            extras,
+            trim.start_secs,
+        ));
         if let Some(dur) = trim.duration_secs {
             args.push("-t".into());
             args.push(dur.to_string());
@@ -380,11 +452,17 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
         let already_mapped = job.codec_args.iter().any(|a| a == "-map");
         let keep_all = job.mkv_keep_all_tracks.unwrap_or(true) && !already_mapped;
         if keep_all || !extras.is_empty() {
-            let (a, s) = (crate::engine::mkv_tracks::count_streams(&job.input_path, 'a'), crate::engine::mkv_tracks::count_streams(&job.input_path, 's'));
+            let (a, s) = (
+                crate::engine::mkv_tracks::count_streams(&job.input_path, 'a'),
+                crate::engine::mkv_tracks::count_streams(&job.input_path, 's'),
+            );
             // 追加トラックだけ指定して元の全保持を切った場合は、映像+音声1本など既定の選択が消えないよう元の映像・音声もマップする。
             let mut m = crate::engine::mkv_tracks::map_args(extras, keep_all, a, s);
             if !keep_all && !already_mapped && !extras.is_empty() {
-                let mut base: Vec<String> = ["-map", "0:v?", "-map", "0:a:0?"].iter().map(|x| x.to_string()).collect();
+                let mut base: Vec<String> = ["-map", "0:v?", "-map", "0:a:0?"]
+                    .iter()
+                    .map(|x| x.to_string())
+                    .collect();
                 base.append(&mut m);
                 m = base;
             }
@@ -419,7 +497,10 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
     }
 
     let output_path = Path::new(&job.output_path);
-    let ext = output_path.extension().and_then(|e| e.to_str()).unwrap_or("mp4");
+    let ext = output_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("mp4");
     let tmp_dir = output_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
@@ -430,7 +511,11 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
         let _ = fs::remove_dir_all(tmp_dir);
     };
 
-    let hw_encoder = if job.frame_accurate { detect_hw_video_encoder() } else { None };
+    let hw_encoder = if job.frame_accurate {
+        detect_hw_video_encoder()
+    } else {
+        None
+    };
 
     let mut segment_paths: Vec<std::path::PathBuf> = Vec::new();
     for (i, (start, end)) in keep.iter().enumerate() {
@@ -502,7 +587,12 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
     // フォーマット変換・ビットレート・解像度・フレームレートいずれの
     // 指定も無ければ、結合も-c copyで完全に再エンコード無しにする
     // (最速・無劣化)。
-    if job.codec_args.is_empty() && job.bitrate.is_none() && job.resolution.is_none() && job.fps.is_none() && job.ai_denoise.is_none() {
+    if job.codec_args.is_empty()
+        && job.bitrate.is_none()
+        && job.resolution.is_none()
+        && job.fps.is_none()
+        && job.ai_denoise.is_none()
+    {
         concat_args.push("-c".into());
         concat_args.push("copy".into());
     } else {
@@ -559,8 +649,17 @@ fn detect_hw_video_encoder() -> Option<&'static str> {
 fn hw_encoder_actually_works(encoder: &str) -> bool {
     resolve_tool("ffmpeg")
         .args([
-            "-f", "lavfi", "-i", "color=black:size=64x64:rate=1",
-            "-frames:v", "1", "-c:v", encoder, "-f", "null", "-",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=black:size=64x64:rate=1",
+            "-frames:v",
+            "1",
+            "-c:v",
+            encoder,
+            "-f",
+            "null",
+            "-",
         ])
         .output()
         .map(|o| o.status.success())
@@ -569,13 +668,22 @@ fn hw_encoder_actually_works(encoder: &str) -> bool {
 
 /// `-c copy`(全ストリーム無変換コピー)指定か。Dolby Vision/Atmos等を壊さず保持するモード。
 fn codec_args_are_stream_copy(codec_args: &[String]) -> bool {
-    codec_args.windows(2).any(|w| w[0] == "-c" && w[1] == "copy")
+    codec_args
+        .windows(2)
+        .any(|w| w[0] == "-c" && w[1] == "copy")
 }
 
 /// 出力が音声専用のコンテナ/拡張子か。
 fn is_audio_only_output(output_path: &str) -> bool {
-    let ext = std::path::Path::new(output_path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    matches!(ext.as_str(), "mp3" | "wav" | "flac" | "aac" | "m4a" | "ogg" | "opus" | "ac3" | "eac3" | "mka")
+    let ext = std::path::Path::new(output_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    matches!(
+        ext.as_str(),
+        "mp3" | "wav" | "flac" | "aac" | "m4a" | "ogg" | "opus" | "ac3" | "eac3" | "mka"
+    )
 }
 
 /// ビットレート指定を追加する。音声専用出力には`-b:a`、動画には`-b:v`を使う
@@ -583,7 +691,14 @@ fn is_audio_only_output(output_path: &str) -> bool {
 fn push_bitrate_args(args: &mut Vec<String>, bitrate: &Option<BitrateMode>, output_path: &str) {
     match bitrate {
         Some(BitrateMode::Fixed(kbps)) | Some(BitrateMode::AutoMaxForCapacity(kbps)) => {
-            args.push(if is_audio_only_output(output_path) { "-b:a" } else { "-b:v" }.into());
+            args.push(
+                if is_audio_only_output(output_path) {
+                    "-b:a"
+                } else {
+                    "-b:v"
+                }
+                .into(),
+            );
             args.push(format!("{kbps}k"));
         }
         None => {}
@@ -597,8 +712,16 @@ pub(crate) fn apply_opus_limits(args: &mut Vec<String>) {
     if !args.windows(2).any(|w| w[0] == "-c:a" && w[1] == "libopus") {
         return;
     }
-    let channels = args.windows(2).find(|w| w[0] == "-ac").and_then(|w| w[1].parse::<u32>().ok()).unwrap_or(2);
-    let cap_kbps = if channels <= 2 { 510 } else { 256 * channels as u64 };
+    let channels = args
+        .windows(2)
+        .find(|w| w[0] == "-ac")
+        .and_then(|w| w[1].parse::<u32>().ok())
+        .unwrap_or(2);
+    let cap_kbps = if channels <= 2 {
+        510
+    } else {
+        256 * channels as u64
+    };
     if let Some(i) = args.iter().position(|a| a == "-b:a") {
         if let Some(v) = args.get_mut(i + 1) {
             if let Some(kbps) = v.strip_suffix('k').and_then(|n| n.parse::<u64>().ok()) {
@@ -648,7 +771,11 @@ pub struct SilenceRange {
 /// 部分」とみなして自動的にカット候補にする、という単純だが実用的な
 /// 近似——本当の意味でのシーン重要度判定(退屈な場面の検出等)は
 /// 行っていない。
-pub fn detect_silence_ranges(path: &str, silence_threshold_db: f64, min_silence_secs: f64) -> Result<Vec<SilenceRange>, String> {
+pub fn detect_silence_ranges(
+    path: &str,
+    silence_threshold_db: f64,
+    min_silence_secs: f64,
+) -> Result<Vec<SilenceRange>, String> {
     let output = resolve_tool("ffmpeg")
         .args([
             "-i",
@@ -670,13 +797,25 @@ pub fn detect_silence_ranges(path: &str, silence_threshold_db: f64, min_silence_
     for line in stderr.lines() {
         if let Some(idx) = line.find("silence_start: ") {
             let rest = &line[idx + "silence_start: ".len()..];
-            if let Some(v) = rest.split_whitespace().next().and_then(|s| s.parse::<f64>().ok()) {
+            if let Some(v) = rest
+                .split_whitespace()
+                .next()
+                .and_then(|s| s.parse::<f64>().ok())
+            {
                 pending_start = Some(v);
             }
         } else if let Some(idx) = line.find("silence_end: ") {
             let rest = &line[idx + "silence_end: ".len()..];
-            if let (Some(start), Some(end)) = (pending_start.take(), rest.split_whitespace().next().and_then(|s| s.parse::<f64>().ok())) {
-                ranges.push(SilenceRange { start_secs: start, end_secs: end });
+            if let (Some(start), Some(end)) = (
+                pending_start.take(),
+                rest.split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse::<f64>().ok()),
+            ) {
+                ranges.push(SilenceRange {
+                    start_secs: start,
+                    end_secs: end,
+                });
             }
         }
     }
@@ -725,7 +864,10 @@ pub fn fixed_length_segments(total_secs: f64, segment_secs: f64) -> Vec<TrimRang
     while start < total_secs {
         let remaining = total_secs - start;
         let len = remaining.min(segment_secs);
-        segments.push(TrimRange { start_secs: Some(start), duration_secs: Some(len) });
+        segments.push(TrimRange {
+            start_secs: Some(start),
+            duration_secs: Some(len),
+        });
         start += segment_secs;
     }
     segments
@@ -739,9 +881,16 @@ pub fn fixed_length_segments(total_secs: f64, segment_secs: f64) -> Vec<TrimRang
 /// 結合できる。`has_video`は呼び出し側(フロントエンド)が入力の
 /// 拡張子から判定して渡す(全入力が動画か、全て音声かのどちらかを
 /// 前提とする——動画と音声の混在結合は現時点で未対応)。
-pub fn concat_media(input_paths: &[String], output_path: &str, has_video: bool) -> Result<(), String> {
+pub fn concat_media(
+    input_paths: &[String],
+    output_path: &str,
+    has_video: bool,
+) -> Result<(), String> {
     if input_paths.len() < 2 {
-        return Err("結合には2つ以上のファイルが必要です / concatenation needs at least 2 files".to_string());
+        return Err(
+            "結合には2つ以上のファイルが必要です / concatenation needs at least 2 files"
+                .to_string(),
+        );
     }
 
     let mut cmd = resolve_tool("ffmpeg");
@@ -771,9 +920,14 @@ pub fn concat_media(input_paths: &[String], output_path: &str, has_video: bool) 
     }
     cmd.args(["-y", output_path]);
 
-    let output = cmd.output().map_err(|e| format!("ffmpegの起動に失敗しました(未インストールの可能性): {e}"))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("ffmpegの起動に失敗しました(未インストールの可能性): {e}"))?;
     if !output.status.success() {
-        return Err(format!("ffmpegによる結合が失敗しました: {}", String::from_utf8_lossy(&output.stderr)));
+        return Err(format!(
+            "ffmpegによる結合が失敗しました: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
     }
     Ok(())
 }
@@ -828,7 +982,10 @@ mod tests {
 
     #[test]
     fn single_middle_cut_produces_two_keep_segments() {
-        let cuts = vec![CutRange { start_secs: 100.0, end_secs: Some(200.0) }];
+        let cuts = vec![CutRange {
+            start_secs: 100.0,
+            end_secs: Some(200.0),
+        }];
         let keep = keep_segments_from_cuts(&cuts);
         assert_eq!(keep, vec![(0.0, Some(100.0)), (200.0, None)]);
     }
@@ -838,9 +995,18 @@ mod tests {
         // 「最初の0〜120をカット」「途中の600〜660をカット」
         // 「最後の1000〜末尾をカット」の3つを同時指定するケース。
         let cuts = vec![
-            CutRange { start_secs: 0.0, end_secs: Some(120.0) },
-            CutRange { start_secs: 600.0, end_secs: Some(660.0) },
-            CutRange { start_secs: 1000.0, end_secs: None },
+            CutRange {
+                start_secs: 0.0,
+                end_secs: Some(120.0),
+            },
+            CutRange {
+                start_secs: 600.0,
+                end_secs: Some(660.0),
+            },
+            CutRange {
+                start_secs: 1000.0,
+                end_secs: None,
+            },
         ];
         let keep = keep_segments_from_cuts(&cuts);
         assert_eq!(keep, vec![(120.0, Some(600.0)), (660.0, Some(1000.0))]);
@@ -849,8 +1015,14 @@ mod tests {
     #[test]
     fn overlapping_cuts_are_merged() {
         let cuts = vec![
-            CutRange { start_secs: 0.0, end_secs: Some(300.0) },
-            CutRange { start_secs: 200.0, end_secs: Some(400.0) },
+            CutRange {
+                start_secs: 0.0,
+                end_secs: Some(300.0),
+            },
+            CutRange {
+                start_secs: 200.0,
+                end_secs: Some(400.0),
+            },
         ];
         let keep = keep_segments_from_cuts(&cuts);
         assert_eq!(keep, vec![(400.0, None)]);
@@ -859,8 +1031,14 @@ mod tests {
     #[test]
     fn cuts_after_an_eof_cut_are_ignored() {
         let cuts = vec![
-            CutRange { start_secs: 500.0, end_secs: None },
-            CutRange { start_secs: 100.0, end_secs: Some(200.0) },
+            CutRange {
+                start_secs: 500.0,
+                end_secs: None,
+            },
+            CutRange {
+                start_secs: 100.0,
+                end_secs: Some(200.0),
+            },
         ];
         let keep = keep_segments_from_cuts(&cuts);
         assert_eq!(keep, vec![(0.0, Some(100.0)), (200.0, Some(500.0))]);
@@ -871,7 +1049,11 @@ mod tests {
     // の実機テストと同じ方針: fakeな成功にしない)。
 
     fn ffmpeg_available() -> bool {
-        Command::new("ffmpeg").arg("-version").output().map(|o| o.status.success()).unwrap_or(false)
+        Command::new("ffmpeg")
+            .arg("-version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
 
     /// (幅, 高さ, フレームレート)を実ffprobeで取得する
@@ -879,10 +1061,14 @@ mod tests {
     fn probe_video_dimensions_and_fps(path: &Path) -> (u32, u32, f64) {
         let output = Command::new("ffprobe")
             .args([
-                "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=width,height,r_frame_rate",
-                "-of", "csv=p=0",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,r_frame_rate",
+                "-of",
+                "csv=p=0",
                 path.to_str().unwrap(),
             ])
             .output()
@@ -901,23 +1087,47 @@ mod tests {
 
     fn probe_duration_secs(path: &Path) -> f64 {
         let output = Command::new("ffprobe")
-            .args(["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", path.to_str().unwrap()])
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path.to_str().unwrap(),
+            ])
             .output()
             .expect("ffprobe should run");
-        String::from_utf8_lossy(&output.stdout).trim().parse().expect("ffprobe should print a duration")
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .expect("ffprobe should print a duration")
     }
 
     fn make_test_video(dir: &Path, name: &str, duration_secs: u32) -> std::path::PathBuf {
         let path = dir.join(name);
         let status = Command::new("ffmpeg")
             .args([
-                "-y", "-f", "lavfi", "-i", &format!("testsrc=duration={duration_secs}:size=320x240:rate=10"),
-                "-c:v", "libx264", "-g", "10", "-pix_fmt", "yuv420p",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                &format!("testsrc=duration={duration_secs}:size=320x240:rate=10"),
+                "-c:v",
+                "libx264",
+                "-g",
+                "10",
+                "-pix_fmt",
+                "yuv420p",
                 path.to_str().unwrap(),
             ])
             .output()
             .expect("ffmpeg should run");
-        assert!(status.status.success(), "test fixture generation failed: {}", String::from_utf8_lossy(&status.stderr));
+        assert!(
+            status.status.success(),
+            "test fixture generation failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        );
         path
     }
 
@@ -927,13 +1137,22 @@ mod tests {
         let path = dir.join(name);
         let status = Command::new("ffmpeg")
             .args([
-                "-y", "-f", "lavfi", "-i", "sine=frequency=1000:duration=6",
-                "-af", "volume=enable='between(t,2,4)':volume=0",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=1000:duration=6",
+                "-af",
+                "volume=enable='between(t,2,4)':volume=0",
                 path.to_str().unwrap(),
             ])
             .output()
             .expect("ffmpeg should run");
-        assert!(status.status.success(), "test fixture generation failed: {}", String::from_utf8_lossy(&status.stderr));
+        assert!(
+            status.status.success(),
+            "test fixture generation failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        );
         path
     }
 
@@ -944,17 +1163,31 @@ mod tests {
             return;
         }
 
-        let tmp = std::env::temp_dir().join(format!("make_disk_test_silence_{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("make_disk_test_silence_{}", std::process::id()));
         fs::create_dir_all(&tmp).unwrap();
         let source = make_test_audio_with_silence_gap(&tmp, "source_with_gap.wav");
 
-        let ranges = detect_silence_ranges(source.to_str().unwrap(), -30.0, 0.5).expect("detect_silence_ranges should succeed");
+        let ranges = detect_silence_ranges(source.to_str().unwrap(), -30.0, 0.5)
+            .expect("detect_silence_ranges should succeed");
         let _ = fs::remove_dir_all(&tmp);
 
-        assert_eq!(ranges.len(), 1, "expected exactly one silence range, got {ranges:?}");
+        assert_eq!(
+            ranges.len(),
+            1,
+            "expected exactly one silence range, got {ranges:?}"
+        );
         let r = &ranges[0];
-        assert!((r.start_secs - 2.0).abs() < 0.2, "silence should start around 2.0s, got {}", r.start_secs);
-        assert!((r.end_secs - 4.0).abs() < 0.2, "silence should end around 4.0s, got {}", r.end_secs);
+        assert!(
+            (r.start_secs - 2.0).abs() < 0.2,
+            "silence should start around 2.0s, got {}",
+            r.start_secs
+        );
+        assert!(
+            (r.end_secs - 4.0).abs() < 0.2,
+            "silence should end around 4.0s, got {}",
+            r.end_secs
+        );
     }
 
     #[test]
@@ -978,9 +1211,18 @@ mod tests {
             bitrate: None,
             trim: None,
             cut_ranges: Some(vec![
-                CutRange { start_secs: 0.0, end_secs: Some(3.0) },
-                CutRange { start_secs: 8.0, end_secs: Some(10.0) },
-                CutRange { start_secs: 16.0, end_secs: None },
+                CutRange {
+                    start_secs: 0.0,
+                    end_secs: Some(3.0),
+                },
+                CutRange {
+                    start_secs: 8.0,
+                    end_secs: Some(10.0),
+                },
+                CutRange {
+                    start_secs: 16.0,
+                    end_secs: None,
+                },
             ]),
             frame_accurate: false,
             resolution: None,
@@ -1027,8 +1269,14 @@ mod tests {
             bitrate: None,
             trim: None,
             cut_ranges: Some(vec![
-                CutRange { start_secs: 0.0, end_secs: Some(2.0) },
-                CutRange { start_secs: 7.0, end_secs: None },
+                CutRange {
+                    start_secs: 0.0,
+                    end_secs: Some(2.0),
+                },
+                CutRange {
+                    start_secs: 7.0,
+                    end_secs: None,
+                },
             ]),
             frame_accurate: true,
             resolution: None,
@@ -1060,7 +1308,8 @@ mod tests {
             return;
         }
 
-        let tmp = std::env::temp_dir().join(format!("make_disk_test_res_fps_{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("make_disk_test_res_fps_{}", std::process::id()));
         fs::create_dir_all(&tmp).unwrap();
         let source = make_test_video(&tmp, "source.mp4", 2);
         let output = tmp.join("output.mp4");
@@ -1070,12 +1319,20 @@ mod tests {
         let job = ConvertJob {
             input_path: source.to_string_lossy().to_string(),
             output_path: output.to_string_lossy().to_string(),
-            codec_args: vec!["-c:v".to_string(), "libx264".to_string(), "-pix_fmt".to_string(), "yuv420p".to_string()],
+            codec_args: vec![
+                "-c:v".to_string(),
+                "libx264".to_string(),
+                "-pix_fmt".to_string(),
+                "yuv420p".to_string(),
+            ],
             bitrate: None,
             trim: None,
             cut_ranges: None,
             frame_accurate: false,
-            resolution: Some(Resolution { width: 1920, height: 1080 }),
+            resolution: Some(Resolution {
+                width: 1920,
+                height: 1080,
+            }),
             fps: Some(30),
             ai_denoise: None,
             dsd_rate: None,
@@ -1091,8 +1348,15 @@ mod tests {
         let (width, height, fps) = probe_video_dimensions_and_fps(&output);
         let _ = fs::remove_dir_all(&tmp);
 
-        assert_eq!((width, height), (1920, 1080), "指定した解像度(1920x1080)に変換されているはず");
-        assert!((fps - 30.0).abs() < 0.1, "指定したフレームレート(30fps)に変換されているはず、実際: {fps}");
+        assert_eq!(
+            (width, height),
+            (1920, 1080),
+            "指定した解像度(1920x1080)に変換されているはず"
+        );
+        assert!(
+            (fps - 30.0).abs() < 0.1,
+            "指定したフレームレート(30fps)に変換されているはず、実際: {fps}"
+        );
     }
 
     #[test]
@@ -1124,10 +1388,28 @@ mod tests {
             audio_bwe: None,
         };
         run_convert(&job).expect("audio-only conversion from a video input should succeed");
-        let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "format=bit_rate", "-of", "default=nw=1:nk=1", output.to_str().unwrap()]).output().unwrap();
-        let kbps: f64 = String::from_utf8_lossy(&out.stdout).trim().parse::<f64>().unwrap() / 1000.0;
+        let out = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "format=bit_rate",
+                "-of",
+                "default=nw=1:nk=1",
+                output.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        let kbps: f64 = String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse::<f64>()
+            .unwrap()
+            / 1000.0;
         let _ = fs::remove_dir_all(&tmp);
-        assert!((kbps - 64.0).abs() < 8.0, "指定した64kbpsが音声出力に効いているはず(実際: {kbps} kbps)");
+        assert!(
+            (kbps - 64.0).abs() < 8.0,
+            "指定した64kbpsが音声出力に効いているはず(実際: {kbps} kbps)"
+        );
     }
 
     #[test]
@@ -1159,10 +1441,24 @@ mod tests {
             audio_bwe: None,
         };
         run_convert(&job).expect("AV1+Opus conversion should succeed");
-        let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
+        let out = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_name",
+                "-of",
+                "csv=p=0",
+                output.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
         let codecs = String::from_utf8_lossy(&out.stdout).to_string();
         let _ = fs::remove_dir_all(&tmp);
-        assert!(codecs.contains("av1") && codecs.contains("opus"), "出力はAV1+Opusのはず(実際: {codecs})");
+        assert!(
+            codecs.contains("av1") && codecs.contains("opus"),
+            "出力はAV1+Opusのはず(実際: {codecs})"
+        );
     }
 
     #[test]
@@ -1193,7 +1489,18 @@ mod tests {
             audio_bwe: None,
         };
         run_convert(&job).expect("Opus conversion should succeed");
-        let out = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", output.to_str().unwrap()]).output().unwrap();
+        let out = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_name",
+                "-of",
+                "csv=p=0",
+                output.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
         let codecs = String::from_utf8_lossy(&out.stdout).trim().to_string();
         let _ = fs::remove_dir_all(&tmp);
         assert_eq!(codecs, "opus");
@@ -1202,10 +1509,37 @@ mod tests {
     fn make_surround_video(dir: &Path, name: &str) -> std::path::PathBuf {
         let path = dir.join(name);
         let st = Command::new("ffmpeg")
-            .args(["-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=320x240:rate=10", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-filter_complex", "[1:a]pan=5.1|c0=c0|c1=c0|c2=c0|c3=c0|c4=c0|c5=c0[a]", "-map", "0:v", "-map", "[a]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "ac3", path.to_str().unwrap()])
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=2:size=320x240:rate=10",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=2",
+                "-filter_complex",
+                "[1:a]pan=5.1|c0=c0|c1=c0|c2=c0|c3=c0|c4=c0|c5=c0[a]",
+                "-map",
+                "0:v",
+                "-map",
+                "[a]",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "ac3",
+                path.to_str().unwrap(),
+            ])
             .output()
             .unwrap();
-        assert!(st.status.success(), "{}", String::from_utf8_lossy(&st.stderr));
+        assert!(
+            st.status.success(),
+            "{}",
+            String::from_utf8_lossy(&st.stderr)
+        );
         path
     }
 
@@ -1214,7 +1548,8 @@ mod tests {
         if !ffmpeg_available() {
             return;
         }
-        let tmp = std::env::temp_dir().join(format!("make_disk_test_surround_{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("make_disk_test_surround_{}", std::process::id()));
         fs::create_dir_all(&tmp).unwrap();
         let source = make_surround_video(&tmp, "src.mkv");
         let mk = |out: &Path, codec: Vec<&str>| ConvertJob {
@@ -1225,7 +1560,10 @@ mod tests {
             trim: None,
             cut_ranges: None,
             frame_accurate: false,
-            resolution: Some(Resolution { width: 640, height: 480 }),
+            resolution: Some(Resolution {
+                width: 640,
+                height: 480,
+            }),
             fps: Some(30),
             ai_denoise: None,
             dsd_rate: None,
@@ -1236,26 +1574,69 @@ mod tests {
             audio_bwe: None,
         };
         let channels = |p: &Path| -> String {
-            let o = Command::new("ffprobe").args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels,codec_name", "-of", "csv=p=0", p.to_str().unwrap()]).output().unwrap();
+            let o = Command::new("ffprobe")
+                .args([
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "a:0",
+                    "-show_entries",
+                    "stream=channels,codec_name",
+                    "-of",
+                    "csv=p=0",
+                    p.to_str().unwrap(),
+                ])
+                .output()
+                .unwrap();
             String::from_utf8_lossy(&o.stdout).trim().to_string()
         };
         let eac3 = tmp.join("out.eac3");
         run_convert(&mk(&eac3, vec!["-c:a", "eac3"])).expect("E-AC-3");
         let copy = tmp.join("out.mkv");
-        run_convert(&mk(&copy, vec!["-map", "0", "-c", "copy"])).expect("stream copy must ignore bitrate/resolution/fps");
+        run_convert(&mk(&copy, vec!["-map", "0", "-c", "copy"]))
+            .expect("stream copy must ignore bitrate/resolution/fps");
         let (e, c) = (channels(&eac3), channels(&copy));
         let dims = probe_video_dimensions_and_fps(&copy);
         let _ = fs::remove_dir_all(&tmp);
         assert_eq!(e, "eac3,6", "E-AC-3は5.1を保持するはず");
-        assert_eq!(c, "ac3,6", "無変換コピーは音声コーデックとチャンネル数をそのまま保持するはず");
-        assert_eq!((dims.0, dims.1), (320, 240), "無変換コピーでは解像度指定は適用されず元のまま");
+        assert_eq!(
+            c, "ac3,6",
+            "無変換コピーは音声コーデックとチャンネル数をそのまま保持するはず"
+        );
+        assert_eq!(
+            (dims.0, dims.1),
+            (320, 240),
+            "無変換コピーでは解像度指定は適用されず元のまま"
+        );
     }
 
     fn mean_volume_db(path: &Path) -> f64 {
-        let o = Command::new("ffmpeg").args(["-hide_banner", "-i", path.to_str().unwrap(), "-af", "volumedetect", "-f", "null", "-"]).output().unwrap();
+        let o = Command::new("ffmpeg")
+            .args([
+                "-hide_banner",
+                "-i",
+                path.to_str().unwrap(),
+                "-af",
+                "volumedetect",
+                "-f",
+                "null",
+                "-",
+            ])
+            .output()
+            .unwrap();
         let text = String::from_utf8_lossy(&o.stderr).to_string();
-        let line = text.lines().find(|l| l.contains("mean_volume")).expect("mean_volume line");
-        line.split("mean_volume:").nth(1).unwrap().trim().trim_end_matches(" dB").trim().parse().unwrap()
+        let line = text
+            .lines()
+            .find(|l| l.contains("mean_volume"))
+            .expect("mean_volume line");
+        line.split("mean_volume:")
+            .nth(1)
+            .unwrap()
+            .trim()
+            .trim_end_matches(" dB")
+            .trim()
+            .parse()
+            .unwrap()
     }
 
     #[test]
@@ -1263,11 +1644,22 @@ mod tests {
         if !ffmpeg_available() {
             return;
         }
-        let tmp = std::env::temp_dir().join(format!("make_disk_test_denoise_{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("make_disk_test_denoise_{}", std::process::id()));
         fs::create_dir_all(&tmp).unwrap();
         // ホワイトノイズのみの音声(4秒)。ノイズ除去なら大きく下がるはず。
         let noisy = tmp.join("noise.wav");
-        let st = Command::new("ffmpeg").args(["-y", "-f", "lavfi", "-i", "anoisesrc=d=4:c=white:a=0.3:r=48000", noisy.to_str().unwrap()]).output().unwrap();
+        let st = Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "anoisesrc=d=4:c=white:a=0.3:r=48000",
+                noisy.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
         assert!(st.status.success());
         let out = tmp.join("clean.wav");
         let job = ConvertJob {
@@ -1291,7 +1683,10 @@ mod tests {
         run_convert(&job).expect("AI denoise conversion should succeed");
         let (before, after) = (mean_volume_db(&noisy), mean_volume_db(&out));
         let _ = fs::remove_dir_all(&tmp);
-        assert!(after < before - 6.0, "RNNoiseでノイズが6dB以上下がるはず(前: {before} dB, 後: {after} dB)");
+        assert!(
+            after < before - 6.0,
+            "RNNoiseでノイズが6dB以上下がるはず(前: {before} dB, 後: {after} dB)"
+        );
     }
 
     fn hires_job(input: &Path, output: &Path, args: &[&str], denoise: bool) -> ConvertJob {
@@ -1316,8 +1711,24 @@ mod tests {
     }
 
     fn decode_f32_mono(path: &Path) -> Vec<f64> {
-        let o = Command::new("ffmpeg").args(["-v", "error", "-i", path.to_str().unwrap(), "-af", "pan=mono|c0=c0", "-f", "f32le", "-"]).output().unwrap();
-        o.stdout.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f64).collect()
+        let o = Command::new("ffmpeg")
+            .args([
+                "-v",
+                "error",
+                "-i",
+                path.to_str().unwrap(),
+                "-af",
+                "pan=mono|c0=c0",
+                "-f",
+                "f32le",
+                "-",
+            ])
+            .output()
+            .unwrap();
+        o.stdout
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]) as f64)
+            .collect()
     }
 
     /// 高解像度PCM(R-2R等マルチビットDAC向け): 352.8kHz/24bitで出力され、1kHz正弦波の再現SNRが高いこと。
@@ -1332,21 +1743,69 @@ mod tests {
         crate::engine::dsd::write_exact_sine_wav(&src, 1000.0, 0.875, 2.0, 44100, 2);
 
         for (name, args, rate, bits) in [
-            ("dxd352.wav", vec!["-af", "hq-resample@352800", "-c:a", "pcm_s24le"], 352_800u32, "24"),
-            ("pcm705.wav", vec!["-af", "hq-resample@705600", "-c:a", "pcm_s32le"], 705_600u32, "32"),
-            ("pcm384_32.wav", vec!["-af", "hq-resample@384000", "-c:a", "pcm_s32le"], 384_000u32, "32"),
-            ("pcm352_32.wav", vec!["-af", "hq-resample@352800", "-c:a", "pcm_s32le"], 352_800u32, "32"),
+            (
+                "dxd352.wav",
+                vec!["-af", "hq-resample@352800", "-c:a", "pcm_s24le"],
+                352_800u32,
+                "24",
+            ),
+            (
+                "pcm705.wav",
+                vec!["-af", "hq-resample@705600", "-c:a", "pcm_s32le"],
+                705_600u32,
+                "32",
+            ),
+            (
+                "pcm384_32.wav",
+                vec!["-af", "hq-resample@384000", "-c:a", "pcm_s32le"],
+                384_000u32,
+                "32",
+            ),
+            (
+                "pcm352_32.wav",
+                vec!["-af", "hq-resample@352800", "-c:a", "pcm_s32le"],
+                352_800u32,
+                "32",
+            ),
         ] {
             let out = tmp.join(name);
-            run_convert(&hires_job(&src, &out, &args, false)).expect("high-resolution PCM conversion");
-            let probe = Command::new("ffprobe").args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=sample_rate,bits_per_sample,bits_per_raw_sample", "-of", "csv=p=0", out.to_str().unwrap()]).output().unwrap();
+            run_convert(&hires_job(&src, &out, &args, false))
+                .expect("high-resolution PCM conversion");
+            let probe = Command::new("ffprobe")
+                .args([
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "a:0",
+                    "-show_entries",
+                    "stream=sample_rate,bits_per_sample,bits_per_raw_sample",
+                    "-of",
+                    "csv=p=0",
+                    out.to_str().unwrap(),
+                ])
+                .output()
+                .unwrap();
             let text = String::from_utf8_lossy(&probe.stdout).to_string();
-            assert!(text.contains(&rate.to_string()), "{name}のサンプルレートは{rate}Hzのはず(実際: {text})");
+            assert!(
+                text.contains(&rate.to_string()),
+                "{name}のサンプルレートは{rate}Hzのはず(実際: {text})"
+            );
             let samples = decode_f32_mono(&out);
-            let (snr, amp) = crate::engine::dsd::sine_fit_snr_db(&samples, 1000.0, rate as f64, rate as usize / 10);
+            let (snr, amp) = crate::engine::dsd::sine_fit_snr_db(
+                &samples,
+                1000.0,
+                rate as f64,
+                rate as usize / 10,
+            );
             eprintln!("{name}: {rate} Hz / {bits} bit — 1kHz SNR {snr:.1} dB, 振幅 {amp:.4}");
-            assert!(snr > 90.0, "{name}: リサンプル品質SNRは90dB超のはず(実際: {snr} dB)");
-            assert!((amp - 0.875).abs() < 0.01, "{name}: 振幅が保たれるはず(実際: {amp})");
+            assert!(
+                snr > 90.0,
+                "{name}: リサンプル品質SNRは90dB超のはず(実際: {snr} dB)"
+            );
+            assert!(
+                (amp - 0.875).abs() < 0.01,
+                "{name}: 振幅が保たれるはず(実際: {amp})"
+            );
         }
         let _ = fs::remove_dir_all(&tmp);
     }
@@ -1360,18 +1819,56 @@ mod tests {
         let tmp = std::env::temp_dir().join(format!("make_disk_test_comp_{}", std::process::id()));
         fs::create_dir_all(&tmp).unwrap();
         let src = tmp.join("noise.wav");
-        let st = Command::new("ffmpeg").args(["-y", "-f", "lavfi", "-i", "anoisesrc=d=3:c=white:a=0.3:r=48000", src.to_str().unwrap()]).output().unwrap();
+        let st = Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "anoisesrc=d=3:c=white:a=0.3:r=48000",
+                src.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
         assert!(st.status.success());
         let out = tmp.join("companion.flac");
-        let args = ["-af", "hq-resample@352800", "-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24"];
+        let args = [
+            "-af",
+            "hq-resample@352800",
+            "-c:a",
+            "flac",
+            "-sample_fmt",
+            "s32",
+            "-bits_per_raw_sample",
+            "24",
+        ];
         // ノイズ除去を併用: 高品質リサンプル(352.8kHz)とRNNoiseの両方が適用されるはず。
         run_convert(&hires_job(&src, &out, &args, true)).expect("companion FLAC with denoise");
-        let probe = Command::new("ffprobe").args(["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=codec_name,sample_rate,bits_per_raw_sample", "-of", "csv=p=0", out.to_str().unwrap()]).output().unwrap();
+        let probe = Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=codec_name,sample_rate,bits_per_raw_sample",
+                "-of",
+                "csv=p=0",
+                out.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
         let text = String::from_utf8_lossy(&probe.stdout).trim().to_string();
         let (before, after) = (mean_volume_db(&src), mean_volume_db(&out));
         let _ = fs::remove_dir_all(&tmp);
-        assert!(text.contains("flac") && text.contains("352800"), "FLAC 352.8kHzのはず(実際: {text})");
-        assert!(after < before - 3.0, "ノイズ除去も適用されているはず(前: {before} dB, 後: {after} dB)");
+        assert!(
+            text.contains("flac") && text.contains("352800"),
+            "FLAC 352.8kHzのはず(実際: {text})"
+        );
+        assert!(
+            after < before - 3.0,
+            "ノイズ除去も適用されているはず(前: {before} dB, 後: {after} dB)"
+        );
     }
 
     /// 変換パイプライン全体(ノイズ除去なし→帯域拡張→FLAC出力)を実音源・実モデルで検証する。
@@ -1379,7 +1876,11 @@ mod tests {
     /// 音源またはモデルを用意できない環境ではスキップする。
     #[test]
     fn real_pipeline_extends_the_band_of_a_lowpassed_music_clip_and_keeps_the_low_band() {
-        let Some(src) = std::fs::read_dir("C:\\AUDIO").ok().and_then(|d| d.filter_map(|e| e.ok()).map(|e| e.path()).find(|p| p.to_string_lossy().ends_with("(1).mp4"))) else {
+        let Some(src) = std::fs::read_dir("C:\\AUDIO").ok().and_then(|d| {
+            d.filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .find(|p| p.to_string_lossy().ends_with("(1).mp4"))
+        }) else {
             eprintln!("評価用の音源が無いためスキップ");
             return;
         };
@@ -1387,7 +1888,8 @@ mod tests {
             eprintln!("モデルまたはffmpegを用意できないためスキップ");
             return;
         }
-        let tmp = std::env::temp_dir().join(format!("make_disk_test_bwe_pipe_{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("make_disk_test_bwe_pipe_{}", std::process::id()));
         fs::create_dir_all(&tmp).unwrap();
         let lowpassed = tmp.join("lp.wav");
         // 8kHzでかなり急峻に帯域制限する(2次を6段)。
@@ -1395,35 +1897,100 @@ mod tests {
             .args(["-v", "error", "-y", "-ss", "600", "-t", "8", "-i", src.to_str().unwrap(), "-vn", "-ac", "2", "-ar", "48000", "-af", "lowpass=f=8000:poles=2,lowpass=f=8000:poles=2,lowpass=f=8000:poles=2,lowpass=f=8000:poles=2,lowpass=f=8000:poles=2,lowpass=f=8000:poles=2", "-c:a", "pcm_s16le", lowpassed.to_str().unwrap()])
             .output()
             .unwrap();
-        assert!(st.status.success(), "{}", String::from_utf8_lossy(&st.stderr));
+        assert!(
+            st.status.success(),
+            "{}",
+            String::from_utf8_lossy(&st.stderr)
+        );
         let out = tmp.join("out.flac");
         let mut job = hires_job(&lowpassed, &out, &["-c:a", "flac"], false);
         job.audio_bwe = Some(AudioBwe { cutoff_hz: None }); // 自動検出
         run_convert(&job).expect("bandwidth extension pipeline should succeed");
 
         let band_power = |path: &Path, lo: f32, hi: f32| -> f64 {
-            let o = Command::new("ffmpeg").args(["-v", "error", "-i", path.to_str().unwrap(), "-af", "pan=mono|c0=c0,ashowinfo", "-f", "null", "-"]).output().unwrap();
+            let o = Command::new("ffmpeg")
+                .args([
+                    "-v",
+                    "error",
+                    "-i",
+                    path.to_str().unwrap(),
+                    "-af",
+                    "pan=mono|c0=c0,ashowinfo",
+                    "-f",
+                    "null",
+                    "-",
+                ])
+                .output()
+                .unwrap();
             let _ = o;
-            let raw = Command::new("ffmpeg").args(["-v", "error", "-i", path.to_str().unwrap(), "-af", "pan=mono|c0=c0", "-ar", "48000", "-f", "f32le", "-"]).output().unwrap();
-            let x: Vec<f32> = raw.stdout.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect();
+            let raw = Command::new("ffmpeg")
+                .args([
+                    "-v",
+                    "error",
+                    "-i",
+                    path.to_str().unwrap(),
+                    "-af",
+                    "pan=mono|c0=c0",
+                    "-ar",
+                    "48000",
+                    "-f",
+                    "f32le",
+                    "-",
+                ])
+                .output()
+                .unwrap();
+            let x: Vec<f32> = raw
+                .stdout
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| f32::from_le_bytes(*c))
+                .collect();
             let n = x.len().min(48_000 * 6);
             let mut planner = rustfft::FftPlanner::<f32>::new();
             let fft = planner.plan_fft_forward(n);
-            let mut buf: Vec<rustfft::num_complex::Complex<f32>> = x[..n].iter().map(|v| rustfft::num_complex::Complex::new(*v, 0.0)).collect();
+            let mut buf: Vec<rustfft::num_complex::Complex<f32>> = x[..n]
+                .iter()
+                .map(|v| rustfft::num_complex::Complex::new(*v, 0.0))
+                .collect();
             fft.process(&mut buf);
-            (0..n / 2).filter(|&k| { let f = k as f32 * 48_000.0 / n as f32; f >= lo && f <= hi }).map(|k| buf[k].norm_sqr() as f64).sum::<f64>() / n as f64
+            (0..n / 2)
+                .filter(|&k| {
+                    let f = k as f32 * 48_000.0 / n as f32;
+                    f >= lo && f <= hi
+                })
+                .map(|k| buf[k].norm_sqr() as f64)
+                .sum::<f64>()
+                / n as f64
         };
-        let (hf_in, hf_out) = (band_power(&lowpassed, 10_000.0, 16_000.0), band_power(&out, 10_000.0, 16_000.0));
-        let (lf_in, lf_out) = (band_power(&lowpassed, 100.0, 7_000.0), band_power(&out, 100.0, 7_000.0));
+        let (hf_in, hf_out) = (
+            band_power(&lowpassed, 10_000.0, 16_000.0),
+            band_power(&out, 10_000.0, 16_000.0),
+        );
+        let (lf_in, lf_out) = (
+            band_power(&lowpassed, 100.0, 7_000.0),
+            band_power(&out, 100.0, 7_000.0),
+        );
         let _ = fs::remove_dir_all(&tmp);
         eprintln!("高域(10-16kHz)のパワー: {hf_in:.3e} → {hf_out:.3e}、低域(0.1-7kHz): {lf_in:.3e} → {lf_out:.3e}");
         assert!(hf_out > hf_in * 10.0, "高域が生成されて増えるはず");
-        assert!((lf_out / lf_in - 1.0).abs() < 0.02, "低域のパワーは保たれるはず(比 {})", lf_out / lf_in);
+        assert!(
+            (lf_out / lf_in - 1.0).abs() < 0.02,
+            "低域のパワーは保たれるはず(比 {})",
+            lf_out / lf_in
+        );
     }
 
     #[test]
     fn merge_audio_filters_joins_multiple_af_into_one_chain() {
-        let merged = merge_audio_filters(vec!["-c:a".into(), "flac".into(), "-af".into(), "a".into(), "-af".into(), "b=1".into()]);
+        let merged = merge_audio_filters(vec![
+            "-c:a".into(),
+            "flac".into(),
+            "-af".into(),
+            "a".into(),
+            "-af".into(),
+            "b=1".into(),
+        ]);
         assert_eq!(merged, vec!["-c:a", "flac", "-af", "a,b=1"]);
     }
 
@@ -1431,9 +1998,27 @@ mod tests {
     fn equal_interval_segments_splits_into_n_equal_parts() {
         let segments = equal_interval_segments(100.0, 4);
         assert_eq!(segments.len(), 4);
-        assert_eq!(segments[0], TrimRange { start_secs: Some(0.0), duration_secs: Some(25.0) });
-        assert_eq!(segments[1], TrimRange { start_secs: Some(25.0), duration_secs: Some(25.0) });
-        assert_eq!(segments[3], TrimRange { start_secs: Some(75.0), duration_secs: Some(25.0) });
+        assert_eq!(
+            segments[0],
+            TrimRange {
+                start_secs: Some(0.0),
+                duration_secs: Some(25.0)
+            }
+        );
+        assert_eq!(
+            segments[1],
+            TrimRange {
+                start_secs: Some(25.0),
+                duration_secs: Some(25.0)
+            }
+        );
+        assert_eq!(
+            segments[3],
+            TrimRange {
+                start_secs: Some(75.0),
+                duration_secs: Some(25.0)
+            }
+        );
     }
 
     #[test]
@@ -1445,18 +2030,36 @@ mod tests {
     #[test]
     fn fixed_length_segments_splits_with_a_shorter_remainder_at_the_end() {
         let segments = fixed_length_segments(250.0, 100.0);
-        assert_eq!(segments, vec![
-            TrimRange { start_secs: Some(0.0), duration_secs: Some(100.0) },
-            TrimRange { start_secs: Some(100.0), duration_secs: Some(100.0) },
-            TrimRange { start_secs: Some(200.0), duration_secs: Some(50.0) },
-        ]);
+        assert_eq!(
+            segments,
+            vec![
+                TrimRange {
+                    start_secs: Some(0.0),
+                    duration_secs: Some(100.0)
+                },
+                TrimRange {
+                    start_secs: Some(100.0),
+                    duration_secs: Some(100.0)
+                },
+                TrimRange {
+                    start_secs: Some(200.0),
+                    duration_secs: Some(50.0)
+                },
+            ]
+        );
     }
 
     #[test]
     fn fixed_length_segments_exact_division_has_no_remainder() {
         let segments = fixed_length_segments(200.0, 100.0);
         assert_eq!(segments.len(), 2);
-        assert_eq!(segments[1], TrimRange { start_secs: Some(100.0), duration_secs: Some(100.0) });
+        assert_eq!(
+            segments[1],
+            TrimRange {
+                start_secs: Some(100.0),
+                duration_secs: Some(100.0)
+            }
+        );
     }
 
     #[test]
@@ -1467,20 +2070,40 @@ mod tests {
 
     /// `concat_media`は音声トラックも結合対象にするため、`make_test_video`
     /// (映像のみ)ではなく、無音の音声トラックも持つテスト動画を作る。
-    fn make_test_video_with_audio(dir: &Path, name: &str, duration_secs: u32) -> std::path::PathBuf {
+    fn make_test_video_with_audio(
+        dir: &Path,
+        name: &str,
+        duration_secs: u32,
+    ) -> std::path::PathBuf {
         let path = dir.join(name);
         let status = Command::new("ffmpeg")
             .args([
                 "-y",
-                "-f", "lavfi", "-i", &format!("testsrc=duration={duration_secs}:size=320x240:rate=10"),
-                "-f", "lavfi", "-i", &format!("anullsrc=r=44100:cl=stereo:d={duration_secs}"),
-                "-c:v", "libx264", "-g", "10", "-pix_fmt", "yuv420p",
-                "-c:a", "aac",
+                "-f",
+                "lavfi",
+                "-i",
+                &format!("testsrc=duration={duration_secs}:size=320x240:rate=10"),
+                "-f",
+                "lavfi",
+                "-i",
+                &format!("anullsrc=r=44100:cl=stereo:d={duration_secs}"),
+                "-c:v",
+                "libx264",
+                "-g",
+                "10",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
                 path.to_str().unwrap(),
             ])
             .output()
             .expect("ffmpeg should run");
-        assert!(status.status.success(), "test fixture generation failed: {}", String::from_utf8_lossy(&status.stderr));
+        assert!(
+            status.status.success(),
+            "test fixture generation failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        );
         path
     }
 
@@ -1491,16 +2114,28 @@ mod tests {
             return;
         }
 
-        let tmp = std::env::temp_dir().join(format!("make_disk_test_concat_{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("make_disk_test_concat_{}", std::process::id()));
         fs::create_dir_all(&tmp).unwrap();
         let a = make_test_video_with_audio(&tmp, "a.mp4", 3);
         let b = make_test_video_with_audio(&tmp, "b.mp4", 4);
         let output = tmp.join("concat_output.mp4");
 
-        concat_media(&[a.to_string_lossy().to_string(), b.to_string_lossy().to_string()], output.to_str().unwrap(), true).expect("concat_media should succeed");
+        concat_media(
+            &[
+                a.to_string_lossy().to_string(),
+                b.to_string_lossy().to_string(),
+            ],
+            output.to_str().unwrap(),
+            true,
+        )
+        .expect("concat_media should succeed");
 
         let result_duration = probe_duration_secs(&output);
-        assert!((result_duration - 7.0).abs() < 0.5, "結合後の尺は3秒+4秒=7秒に近いはず、実際: {result_duration}s");
+        assert!(
+            (result_duration - 7.0).abs() < 0.5,
+            "結合後の尺は3秒+4秒=7秒に近いはず、実際: {result_duration}s"
+        );
 
         let _ = fs::remove_dir_all(&tmp);
     }
@@ -1510,14 +2145,24 @@ mod tests {
         let v = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         let mut a = v(&["-c:a", "libopus", "-b:a", "900k"]);
         apply_opus_limits(&mut a);
-        assert!(a.windows(2).any(|w| w[0] == "-b:a" && w[1] == "510k"), "{a:?}");
+        assert!(
+            a.windows(2).any(|w| w[0] == "-b:a" && w[1] == "510k"),
+            "{a:?}"
+        );
         assert!(a.windows(2).any(|w| w[0] == "-ar" && w[1] == "48000"));
         let mut a = v(&["-c:a", "libopus", "-ac", "6", "-b:a", "900k"]);
         apply_opus_limits(&mut a);
-        assert!(a.contains(&"900k".to_string()), "6chは1536kbpsまで許容: {a:?}");
+        assert!(
+            a.contains(&"900k".to_string()),
+            "6chは1536kbpsまで許容: {a:?}"
+        );
         let mut a = v(&["-c:a", "libopus", "-b:a", "128k", "-ar", "24000"]);
         apply_opus_limits(&mut a);
-        assert_eq!(a, v(&["-c:a", "libopus", "-b:a", "128k", "-ar", "24000"]), "上限内・レート指定済みは変更しない");
+        assert_eq!(
+            a,
+            v(&["-c:a", "libopus", "-b:a", "128k", "-ar", "24000"]),
+            "上限内・レート指定済みは変更しない"
+        );
         let mut a = v(&["-c:a", "aac", "-b:a", "900k"]);
         apply_opus_limits(&mut a);
         assert_eq!(a, v(&["-c:a", "aac", "-b:a", "900k"]));
@@ -1525,34 +2170,85 @@ mod tests {
 
     fn stream_summary(path: &Path) -> Vec<String> {
         let out = Command::new("ffprobe")
-            .args(["-v", "error", "-show_entries", "stream=codec_type:stream_tags=language,title", "-of", "csv=p=0", path.to_str().unwrap()])
+            .args([
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=codec_type:stream_tags=language,title",
+                "-of",
+                "csv=p=0",
+                path.to_str().unwrap(),
+            ])
             .output()
             .expect("ffprobe should run");
-        String::from_utf8_lossy(&out.stdout).lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect()
     }
 
     /// 映像1+音声2(jpn/eng)+字幕1(jpn)のMKVを作る。
     fn make_multitrack_mkv(dir: &Path) -> std::path::PathBuf {
         let srt = dir.join("in.srt");
-        fs::write(&srt, "1
+        fs::write(
+            &srt,
+            "1
 00:00:00,000 --> 00:00:01,500
 こんにちは
 
-").unwrap();
+",
+        )
+        .unwrap();
         let path = dir.join("multi.mkv");
         let status = Command::new("ffmpeg")
             .args([
-                "-y", "-f", "lavfi", "-i", "testsrc=duration=3:size=320x240:rate=10",
-                "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-f", "lavfi", "-i", "sine=frequency=880:duration=3",
-                "-i", srt.to_str().unwrap(),
-                "-map", "0:v", "-map", "1:a", "-map", "2:a", "-map", "3:s",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-c:s", "srt",
-                "-metadata:s:a:0", "language=jpn", "-metadata:s:a:1", "language=eng", "-metadata:s:s:0", "language=jpn",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=3:size=320x240:rate=10",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=3",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=880:duration=3",
+                "-i",
+                srt.to_str().unwrap(),
+                "-map",
+                "0:v",
+                "-map",
+                "1:a",
+                "-map",
+                "2:a",
+                "-map",
+                "3:s",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-c:s",
+                "srt",
+                "-metadata:s:a:0",
+                "language=jpn",
+                "-metadata:s:a:1",
+                "language=eng",
+                "-metadata:s:s:0",
+                "language=jpn",
                 path.to_str().unwrap(),
             ])
             .output()
             .expect("ffmpeg should run");
-        assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
+        assert!(
+            status.status.success(),
+            "{}",
+            String::from_utf8_lossy(&status.stderr)
+        );
         path
     }
 
@@ -1560,7 +2256,14 @@ mod tests {
         ConvertJob {
             input_path: input.to_str().unwrap().to_string(),
             output_path: output.to_str().unwrap().to_string(),
-            codec_args: vec!["-c:v".into(), "libx264".into(), "-pix_fmt".into(), "yuv420p".into(), "-c:a".into(), "aac".into()],
+            codec_args: vec![
+                "-c:v".into(),
+                "libx264".into(),
+                "-pix_fmt".into(),
+                "yuv420p".into(),
+                "-c:a".into(),
+                "aac".into(),
+            ],
             bitrate: None,
             trim: None,
             cut_ranges: None,
@@ -1582,22 +2285,40 @@ mod tests {
         if !ffmpeg_available() {
             return;
         }
-        let tmp = std::env::temp_dir().join(format!("make_disk_test_mkv_keep_{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("make_disk_test_mkv_keep_{}", std::process::id()));
         fs::create_dir_all(&tmp).unwrap();
         let src = make_multitrack_mkv(&tmp);
         let out = tmp.join("out.mkv");
         run_convert(&mkv_job(&src, &out)).expect("MKV conversion should succeed");
         let s = stream_summary(&out);
         eprintln!("{s:?}");
-        assert_eq!(s.iter().filter(|l| l.starts_with("audio")).count(), 2, "音声は2本のまま: {s:?}");
-        assert_eq!(s.iter().filter(|l| l.starts_with("subtitle")).count(), 1, "字幕は1本のまま: {s:?}");
-        assert!(s.iter().any(|l| l.contains("eng")) && s.iter().any(|l| l.contains("jpn")), "言語タグが残る: {s:?}");
+        assert_eq!(
+            s.iter().filter(|l| l.starts_with("audio")).count(),
+            2,
+            "音声は2本のまま: {s:?}"
+        );
+        assert_eq!(
+            s.iter().filter(|l| l.starts_with("subtitle")).count(),
+            1,
+            "字幕は1本のまま: {s:?}"
+        );
+        assert!(
+            s.iter().any(|l| l.contains("eng")) && s.iter().any(|l| l.contains("jpn")),
+            "言語タグが残る: {s:?}"
+        );
         // 保持をオフにするとffmpegの既定(音声1本・字幕1本)に戻る
         let out2 = tmp.join("out_default.mkv");
         let mut job = mkv_job(&src, &out2);
         job.mkv_keep_all_tracks = Some(false);
         run_convert(&job).unwrap();
-        assert_eq!(stream_summary(&out2).iter().filter(|l| l.starts_with("audio")).count(), 1);
+        assert_eq!(
+            stream_summary(&out2)
+                .iter()
+                .filter(|l| l.starts_with("audio"))
+                .count(),
+            1
+        );
         let _ = fs::remove_dir_all(&tmp);
     }
 
@@ -1606,30 +2327,73 @@ mod tests {
         if !ffmpeg_available() {
             return;
         }
-        let tmp = std::env::temp_dir().join(format!("make_disk_test_mkv_extra_{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("make_disk_test_mkv_extra_{}", std::process::id()));
         fs::create_dir_all(&tmp).unwrap();
         let src = make_multitrack_mkv(&tmp);
         let extra_audio = tmp.join("commentary.wav");
-        assert!(Command::new("ffmpeg").args(["-y", "-f", "lavfi", "-i", "sine=frequency=220:duration=3", extra_audio.to_str().unwrap()]).output().unwrap().status.success());
+        assert!(Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=220:duration=3",
+                extra_audio.to_str().unwrap()
+            ])
+            .output()
+            .unwrap()
+            .status
+            .success());
         let extra_sub = tmp.join("eng.srt");
-        fs::write(&extra_sub, "1
+        fs::write(
+            &extra_sub,
+            "1
 00:00:00,000 --> 00:00:01,500
 Hello
 
-").unwrap();
+",
+        )
+        .unwrap();
         let out = tmp.join("out.mkv");
         let mut job = mkv_job(&src, &out);
         job.extra_tracks = vec![
-            crate::engine::mkv_tracks::ExtraTrack { path: extra_audio.to_str().unwrap().into(), kind: "audio".into(), language: Some("fra".into()), title: Some("Commentary".into()) },
-            crate::engine::mkv_tracks::ExtraTrack { path: extra_sub.to_str().unwrap().into(), kind: "subtitle".into(), language: Some("eng".into()), title: None },
+            crate::engine::mkv_tracks::ExtraTrack {
+                path: extra_audio.to_str().unwrap().into(),
+                kind: "audio".into(),
+                language: Some("fra".into()),
+                title: Some("Commentary".into()),
+            },
+            crate::engine::mkv_tracks::ExtraTrack {
+                path: extra_sub.to_str().unwrap().into(),
+                kind: "subtitle".into(),
+                language: Some("eng".into()),
+                title: None,
+            },
         ];
         run_convert(&job).expect("MKV with extra tracks should succeed");
         let s = stream_summary(&out);
         eprintln!("{s:?}");
-        assert_eq!(s.iter().filter(|l| l.starts_with("audio")).count(), 3, "元2本+追加1本: {s:?}");
-        assert_eq!(s.iter().filter(|l| l.starts_with("subtitle")).count(), 2, "元1本+追加1本: {s:?}");
-        assert!(s.iter().any(|l| l.starts_with("audio") && l.contains("fra") && l.contains("Commentary")), "追加音声の言語・タイトル: {s:?}");
-        assert!(s.iter().any(|l| l.starts_with("subtitle") && l.contains("eng")), "追加字幕の言語: {s:?}");
+        assert_eq!(
+            s.iter().filter(|l| l.starts_with("audio")).count(),
+            3,
+            "元2本+追加1本: {s:?}"
+        );
+        assert_eq!(
+            s.iter().filter(|l| l.starts_with("subtitle")).count(),
+            2,
+            "元1本+追加1本: {s:?}"
+        );
+        assert!(
+            s.iter()
+                .any(|l| l.starts_with("audio") && l.contains("fra") && l.contains("Commentary")),
+            "追加音声の言語・タイトル: {s:?}"
+        );
+        assert!(
+            s.iter()
+                .any(|l| l.starts_with("subtitle") && l.contains("eng")),
+            "追加字幕の言語: {s:?}"
+        );
         let _ = fs::remove_dir_all(&tmp);
     }
 }
