@@ -8,6 +8,14 @@ use engine::iso;
 use engine::pdf::{self, BindingDirection};
 use engine::probe;
 
+/// 欲しい部分をAIが探して切り出し範囲を提案する(時間がかかり得るため別スレッドで実行し、画面を固めない)。
+#[tauri::command]
+async fn ai_suggest_range(path: String, request: String, length_secs: f64, llm_url: String) -> Result<engine::ai_range::Suggestion, String> {
+    tauri::async_runtime::spawn_blocking(move || engine::ai_range::suggest_range(&path, &request, length_secs, &llm_url))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn probe_media(path: String) -> Result<probe::MediaInfo, String> {
     probe::probe(&path)
@@ -229,6 +237,7 @@ pub fn run() {
             calc_fixed_length_segments,
             list_cd_tracks,
             rip_cd_tracks,
+            ai_suggest_range,
             pick_output_tree,
         ]);
 
@@ -258,6 +267,7 @@ pub fn run() {
         calc_fixed_length_segments,
         list_cd_tracks,
         rip_cd_tracks,
+        ai_suggest_range,
     ]);
 
     builder.run(tauri::generate_context!()).expect("error while running tauri application");

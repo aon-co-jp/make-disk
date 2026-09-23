@@ -10,7 +10,8 @@ const convertFileSrc = window.__TAURI__.core.convertFileSrc;
 
 /**
  * @typedef {{ startSecs: number, endSecs: number | null }} CutRange
- * @typedef {{ path: string, cutRanges: CutRange[], frameAccurate: boolean }} SourceFile
+ * @typedef {{ startSecs: number, endSecs: number }} ExtractRange
+ * @typedef {{ path: string, cutRanges: CutRange[], frameAccurate: boolean, extract?: ExtractRange | null }} SourceFile
  */
 /** @type {SourceFile[]} */
 let sourceFiles = [];
@@ -117,7 +118,13 @@ function buildTimeInputs(labelText, initialSecs, videoEl, onSetFromPlayhead) {
   label.textContent = labelText;
 
   wrap.append(label, hEl, document.createTextNode(":"), mEl, document.createTextNode(":"), sEl, setBtn);
-  return { el: wrap, getSecs: () => hmsToSecs(hEl.value, mEl.value, sEl.value) };
+  const setSecs = (secs) => {
+    const t = secsToHms(secs);
+    hEl.value = t.h;
+    mEl.value = t.m;
+    sEl.value = t.sec;
+  };
+  return { el: wrap, getSecs: () => hmsToSecs(hEl.value, mEl.value, sEl.value), setSecs };
 }
 
 function renderCutEditor(container, file, index) {
@@ -224,8 +231,134 @@ function renderCutEditor(container, file, index) {
     document.createTextNode(" フレーム精度で正確にカットする(GPUエンコーダがあれば自動使用、無ければCPU) / Frame-accurate cut (uses GPU encoder if available)")
   );
 
-  container.append(document.createElement("h4"), rangeList, addForm, frameAccurateLabel);
-  container.querySelector("h4").textContent = "カットする区間(いくつでも追加可)";
+  // ── 必要な部分だけ切り出す(高速、2026-09-23新設) ──
+  // 5時間の元データから60分・10分だけ欲しい場合に、全体を処理せず、開始位置へ直接シークして
+  // 必要な長さだけを読み込む(ffmpegの入力側シーク`-ss`+`-t`)。処理時間は切り出す長さにほぼ比例する。
+  const extractBox = document.createElement("div");
+  extractBox.className = "extract-box";
+  const extractTitle = document.createElement("h4");
+  extractTitle.textContent = "必要な部分だけ切り出す(高速・長い元データ向け) / Extract only the part you need (fast, for long sources)";
+  const extractHint = document.createElement("p");
+  extractHint.className = "hint";
+  extractHint.textContent =
+    "5時間の元データでも、欲しい部分(例: 60分・10分)だけを直接読み込むので、処理時間は切り出す長さぶんだけで済みます。切り出しを設定すると、下の「カットする区間」は使われません。 / " +
+    "Even from a 5-hour source, only the part you want (e.g. 60 or 10 minutes) is read, so processing takes about as long as that part. When set, the cut ranges below are not used.";
+  const exStart = buildTimeInputs("開始 / Start", file.extract?.startSecs ?? 0, dummyVideo);
+  const exEnd = buildTimeInputs("終了 / End", file.extract?.endSecs ?? 0, dummyVideo);
+  const exStatus = document.createElement("span");
+  const showExtract = () => {
+    exStatus.textContent = file.extract
+      ? `設定中 / Set: ${formatHms(file.extract.startSecs)} 〜 ${formatHms(file.extract.endSecs)}(${formatHms(file.extract.endSecs - file.extract.startSecs)})`
+      : "未設定(全体を使う) / Not set (whole file)";
+  };
+  const exSetBtn = document.createElement("button");
+  exSetBtn.type = "button";
+  exSetBtn.textContent = "この範囲だけ切り出す / Extract this range";
+  exSetBtn.addEventListener("click", () => {
+    const startSecs = exStart.getSecs();
+    const endSecs = exEnd.getSecs();
+    if (endSecs <= startSecs) {
+      warn("切り出しの終了位置は開始位置より後にしてください。", "The end of the extract range must be after its start.");
+      return;
+    }
+    file.extract = { startSecs, endSecs };
+    showExtract();
+    renderFileNames();
+  });
+  const exClearBtn = document.createElement("button");
+  exClearBtn.type = "button";
+  exClearBtn.textContent = "切り出しを解除 / Clear";
+  exClearBtn.addEventListener("click", () => {
+    file.extract = null;
+    showExtract();
+    renderFileNames();
+  });
+  showExtract();
+  const exForm = document.createElement("div");
+  exForm.className = "cut-range-form";
+  exForm.append(exStart.el, exEnd.el, exSetBtn, exClearBtn);
+  // ── AIで探す(aruaru-llm、2026-09-23新設) ──
+  // 欲しい内容を文章で書くと、字幕(または音声の書き起こし)から合う範囲を探し、上の開始・終了へ入れる。
+  const aiBox = document.createElement("div");
+  aiBox.className = "cut-range-form";
+  const aiReq = document.createElement("input");
+  aiReq.type = "text";
+  aiReq.placeholder = "欲しい内容(例: 龍神の開運の説明の部分) / What you want (e.g. the part explaining ...)";
+  aiReq.style.minWidth = "18em";
+  aiReq.style.flex = "1";
+  const aiLen = document.createElement("input");
+  aiLen.type = "number";
+  aiLen.min = "1";
+  aiLen.value = "10";
+  aiLen.style.width = "5em";
+  const aiLenLabel = document.createElement("label");
+  aiLenLabel.append("長さ / Length ", aiLen, " 分 / min");
+  const aiUrl = document.createElement("input");
+  aiUrl.type = "text";
+  aiUrl.style.width = "14em";
+  aiUrl.title = "aruaru-llmのURL / aruaru-llm URL";
+  try {
+    aiUrl.value = localStorage.getItem("make-disk.aruaruLlmUrl") || "http://127.0.0.1:4600";
+  } catch (e) {
+    aiUrl.value = "http://127.0.0.1:4600";
+  }
+  const aiBtn = document.createElement("button");
+  aiBtn.type = "button";
+  aiBtn.textContent = "AIで探す / Find with AI";
+  const aiResult = document.createElement("div");
+  aiResult.className = "hint";
+  const applyRange = (st, en) => {
+    exStart.setSecs(st);
+    exEnd.setSecs(en);
+    file.extract = { startSecs: st, endSecs: en };
+    showExtract();
+    renderFileNames();
+  };
+  aiBtn.addEventListener("click", async () => {
+    const request = aiReq.value.trim();
+    const minutes = parseFloat(aiLen.value);
+    if (!request || !(minutes > 0)) {
+      warn("欲しい内容と長さ(分)を入力してください。", "Enter what you want and the length in minutes.");
+      return;
+    }
+    try {
+      localStorage.setItem("make-disk.aruaruLlmUrl", aiUrl.value.trim());
+    } catch (e) {
+      // 保存できなくても続行
+    }
+    aiBtn.disabled = true;
+    aiResult.textContent = "探しています…(字幕が無い長い動画は、音声の書き起こしに時間がかかります) / Searching… (long videos without subtitles take time to transcribe)";
+    try {
+      const r = await invoke("ai_suggest_range", { path: file.path, request, lengthSecs: minutes * 60, llmUrl: aiUrl.value.trim() });
+      applyRange(r.start_secs, r.end_secs);
+      const src = { subtitle_file: "字幕ファイル / subtitle file", embedded_subtitle: "埋め込み字幕 / embedded subtitles", transcribe: "音声の書き起こし / transcription" }[r.source] || r.source;
+      aiResult.textContent = `提案 / Suggested: ${formatHms(r.start_secs)} 〜 ${formatHms(r.end_secs)}(手掛かり / from: ${src})。${r.note}`;
+      // 他の候補も選べるようにする
+      const list = document.createElement("ul");
+      r.candidates.forEach((c, i) => {
+        const li = document.createElement("li");
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = `候補${i + 1} / Option ${i + 1}: ${formatHms(c.start_secs)}〜${formatHms(c.end_secs)}`;
+        b.addEventListener("click", () => applyRange(c.start_secs, c.end_secs));
+        const pv = document.createElement("span");
+        pv.textContent = ` ${c.preview.slice(0, 80)}…`;
+        li.append(b, pv);
+        list.appendChild(li);
+      });
+      aiResult.appendChild(list);
+    } catch (e) {
+      aiResult.textContent = `見つけられませんでした / Could not find: ${e}`;
+    } finally {
+      aiBtn.disabled = false;
+    }
+  });
+  aiBox.append(aiReq, aiLenLabel, aiUrl, aiBtn);
+
+  extractBox.append(extractTitle, extractHint, exForm, exStatus, aiBox, aiResult);
+
+  container.append(extractBox, document.createElement("h4"), rangeList, addForm, frameAccurateLabel);
+  container.querySelectorAll("h4")[1].textContent = "カットする区間(いくつでも追加可)";
 }
 
 // 8.「時間指定・トリミング」節の編集対象(sourceFilesのインデックス)。
@@ -237,6 +370,7 @@ const cutEditorHost = document.getElementById("cut-editor-host");
 const cutEmptyNote = document.getElementById("cut-empty");
 
 function fileLabel(f) {
+  if (f.extract) return f.path + ` (切り出し ${formatHms(f.extract.startSecs)}〜${formatHms(f.extract.endSecs)})`;
   return f.path + (f.cutRanges.length > 0 ? ` (カット${f.cutRanges.length}件)` : "");
 }
 
@@ -515,6 +649,7 @@ function baseName(path) {
 /** カット区間を考慮した実効尺(自動ビットレート算出用)。
  * カット区間の合計を元の尺から差し引く。 */
 async function effectiveDurationSecs(f) {
+  if (f.extract) return Math.max(0, f.extract.endSecs - f.extract.startSecs);
   let total = 0;
   try {
     const info = await invoke("probe_media", { path: f.path });
@@ -712,6 +847,10 @@ function selectedPlaybackSpec() {
   }
 })();
 
+// 変換に失敗した件数(実行ごとにリセット)。1件でも失敗したら、壊れた/不完全な出力を
+// ISO化・書き込みしないために使う(2026-09-23、0.6秒のWAVがISOに入った実バグの再発防止)。
+let conversionFailures = 0;
+
 async function convertAll(formats, codecMap, mode, bitrateKbps) {
   // DSD作成時はPCMを同時に作らない仕様(2026-09-23)。DSD非対応のハードウェアでは
   // 再生側がDSD→PCMへ自動変換するため、PCM版は容量の無駄になる。
@@ -826,8 +965,9 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           output_path: outputPath,
           codec_args: codecArgs,
           bitrate: format === "wav" || format === "flac" || hiresMatch || dsdMatch ? null : { [mode === "auto" || mode === "max_quality" ? "auto_max_for_capacity" : "fixed"]: effectiveBitrateKbps },
-          trim: null,
-          cut_ranges: f.cutRanges.length > 0 ? f.cutRanges.map((r) => ({ start_secs: r.startSecs, end_secs: r.endSecs })) : null,
+          // 切り出し(高速)があればそれを優先し、開始位置へ直接シークして必要な長さだけを処理する。
+          trim: f.extract ? { start_secs: f.extract.startSecs, duration_secs: f.extract.endSecs - f.extract.startSecs } : null,
+          cut_ranges: !f.extract && f.cutRanges.length > 0 ? f.cutRanges.map((r) => ({ start_secs: r.startSecs, end_secs: r.endSecs })) : null,
           frame_accurate: f.frameAccurate,
           resolution,
           fps,
@@ -858,6 +998,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
   });
 
   const results = await runWithConcurrencyLimit(tasks, conversionConcurrency());
+  conversionFailures += results.filter((p) => p === null).length;
   return results.filter((p) => p !== null);
 }
 
@@ -1047,6 +1188,11 @@ document.getElementById("run-btn").addEventListener("click", async () => {
     return;
   }
   if (!requireValidOutputFolder()) return;
+  for (const f of sourceFiles) {
+    if (f.extract && f.cutRanges.length > 0) {
+      log(`注意: ${f.path} は切り出しが設定されているため、カット区間(${f.cutRanges.length}件)は使いません。 / Note: an extract range is set for this file, so its cut ranges are not used.`);
+    }
+  }
 
   // PDF見開き変換(2026-09-16新設)。音声/動画とは独立して、ソースに
   // 含まれるPDFがあれば見開き画像として先に書き出す。
@@ -1161,7 +1307,7 @@ document.getElementById("run-btn").addEventListener("click", async () => {
     } else {
       const targetBytes = targetMb * 1024 * 1024;
       for (const f of sourceFiles) {
-        if (f.cutRanges.length > 0) continue; // 手動編集済みは上書きしない
+        if (f.cutRanges.length > 0 || f.extract) continue; // 手動編集済みは上書きしない
         try {
           const info = await invoke("probe_media", { path: f.path });
           const srcBytes = ((info.bit_rate ?? 0) / 8) * info.duration_secs;
@@ -1174,7 +1320,7 @@ document.getElementById("run-btn").addEventListener("click", async () => {
             continue;
           }
           const keepSecs = (info.duration_secs * targetBytes) / srcBytes;
-          f.cutRanges = [{ startSecs: keepSecs, endSecs: null }];
+          f.extract = { startSecs: 0, endSecs: keepSecs }; // 先頭から必要な長さだけを高速に読み込む
           log(`サイズでカット: ${f.path} を先頭から${formatHms(keepSecs)}(約${targetMb}MB)まで残します。 / Cut by size: keeping the first ${formatHms(keepSecs)} (~${targetMb} MB).`);
         } catch (e) {
           log(`警告: ${f.path} の情報取得に失敗: ${e}`);
@@ -1187,8 +1333,8 @@ document.getElementById("run-btn").addEventListener("click", async () => {
       log("時間(時分秒)が未入力のため、時間でのカットは行いません。 / No time entered — not cutting by time.");
     } else {
       for (const f of sourceFiles) {
-        if (f.cutRanges.length === 0) {
-          f.cutRanges = [{ startSecs: targetSecs, endSecs: null }];
+        if (f.cutRanges.length === 0 && !f.extract) {
+          f.extract = { startSecs: 0, endSecs: targetSecs }; // 先頭から必要な長さだけを高速に読み込む
         }
       }
       log(`時間でカット: 先頭から${formatHms(targetSecs)}までを残します(手動編集済みのファイルは変更しません)。 / Cut by time: keeping the first ${formatHms(targetSecs)} (manually edited files untouched).`);
@@ -1232,11 +1378,19 @@ document.getElementById("run-btn").addEventListener("click", async () => {
   // 音声変換・動画変換もお互いを待たず並行して進める(2026-09-16変更、
   // 「MP4をWAVに変換しつつISO化」のような組み合わせも含め、全体として
   // 非同期・マルチスレッドに実行する)。
+  conversionFailures = 0;
   const [audioOutputs, videoOutputs] = await Promise.all([
     audioFormats.length > 0 ? convertAll(audioFormats, AUDIO_CODEC_ARGS, mode, bitrateKbps) : Promise.resolve([]),
     videoFormats.length > 0 ? convertAll(videoFormats, VIDEO_CODEC_ARGS, mode, bitrateKbps) : Promise.resolve([]),
   ]);
   const convertedPaths = [...audioOutputs, ...videoOutputs];
+  if (conversionFailures > 0 && (wantIso || discTypes.length > 0)) {
+    warn(
+      `変換に失敗したファイルが${conversionFailures}件あるため、ISO作成とディスクへの書き込みを中止しました。ログのエラー内容を確認してください。`,
+      `${conversionFailures} conversion(s) failed, so ISO creation and disc burning were cancelled. Check the errors in the log.`
+    );
+    return;
+  }
 
   if (wantIso || discTypes.length > 0) {
     const isoPath = `${outputFolder}/output.iso`;
