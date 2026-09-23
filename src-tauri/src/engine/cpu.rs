@@ -125,6 +125,18 @@ pub fn estimate_cpu_encode_speed() -> CpuEncodeEstimate {
 ///
 /// 非力なCPUには軽いpreset(ultrafast/veryfast)を、強力なCPUには
 /// より圧縮効率の良い(=遅い)presetを割り当てる。
+/// 「必要な部分だけ切り出す(高速)」用の、速度優先のx264 `-preset`(2026-09-23新設)。
+/// `recommended_x264_preset`は画質寄り(強いCPUほど`slow`)だが、切り出しでは「待たずに済む」ことが
+/// 目的なので、同じopen-cpuの判定から速度寄りの値を選ぶ。
+pub fn fast_x264_preset() -> &'static str {
+    match estimate_cpu_encode_speed().speed_hint {
+        "fast" => "faster",
+        "moderate" => "veryfast",
+        "slow" => "superfast",
+        _ => "ultrafast",
+    }
+}
+
 pub fn recommended_x264_preset() -> &'static str {
     match estimate_cpu_encode_speed().speed_hint {
         "fast" => "slow",

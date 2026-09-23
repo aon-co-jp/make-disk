@@ -1,3 +1,4 @@
+pub mod ai_range;
 pub mod ai_upscale;
 pub mod audio_sr;
 pub mod burn;

@@ -374,7 +374,12 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
     if is_audio_only_output(&job.output_path) {
         args.push("-vn".into()); // 動画入力から音声だけを取り出す場合に映像ストリームを含めない
     }
-    args.extend(resolve_av1_codec_args(&job.codec_args)?);
+    let codec_args = resolve_av1_codec_args(&job.codec_args)?;
+    // 「必要な部分だけ切り出す(高速)」(trim指定)のときは、切り出した部分の再エンコードも速くする:
+    // H.264はGPUのハードウェアエンコーダ(NVENC→QuickSync→AMF、実際に試しエンコードして動くものだけ)を使い、
+    // GPUが無ければopen-cpuの判定から速度優先の`-preset`を選ぶ。
+    let codec_args = if job.trim.is_some() { accelerate_h264_args(codec_args) } else { codec_args };
+    args.extend(codec_args);
     if mkv {
         // `-map`を既に含むコーデック指定(passthrough等)では元の全マップ追加は不要。
         let already_mapped = job.codec_args.iter().any(|a| a == "-map");
@@ -419,7 +424,13 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
     }
 
     let output_path = Path::new(&job.output_path);
-    let ext = output_path.extension().and_then(|e| e.to_str()).unwrap_or("mp4");
+    // 中間の区間ファイルは、出力の拡張子ではなく常にMatroska(.mkv)にする(2026-09-23の実バグ修正)。
+    // 以前は出力の拡張子をそのまま使っていたため、MP4→WAVでは`-c copy`でAACをWAVの入れ物へ
+    // 無変換で詰めることになり、フレーム境界が失われて結合時にほぼ復号できず、3時間33分の元から
+    // 0.627秒のWAVしかできなかった(実ファイルで再現・確認)。MKVはAV1/H.264/AAC/Opus等どの
+    // コーデックもそのまま入れられる。
+    let ext = "mkv";
+    let audio_only = is_audio_only_output(&job.output_path);
     let tmp_dir = output_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
@@ -442,8 +453,11 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
         }
         args.push("-i".into());
         args.push(job.input_path.clone());
+        if audio_only {
+            args.push("-vn".into()); // 音声だけの出力では映像を取り出さない(無駄な容量・時間を省く)
+        }
 
-        if job.frame_accurate {
+        if job.frame_accurate && !audio_only {
             // カット境界をフレーム単位で正確に切るにはエンコードが要る
             // (`-c copy`はキーフレーム単位の精度しか出せない)。
             // CPUソフトエンコード(libx264等)は5時間級の動画では非現実的な
@@ -498,6 +512,9 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
         "-i".into(),
         list_path.to_string_lossy().to_string(),
     ];
+    if audio_only {
+        concat_args.push("-vn".into());
+    }
 
     // フォーマット変換・ビットレート・解像度・フレームレートいずれの
     // 指定も無ければ、結合も-c copyで完全に再エンコード無しにする
@@ -548,12 +565,27 @@ fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<()
 /// ことを実際に確認した。そのため、候補ごとに実際に1フレームだけ
 /// 試しエンコードしてみて、本当に成功するものだけを採用する。
 fn detect_hw_video_encoder() -> Option<&'static str> {
-    for candidate in ["h264_nvenc", "h264_qsv", "h264_amf"] {
-        if hw_encoder_actually_works(candidate) {
-            return Some(candidate);
+    // 試しエンコードは1回数百ミリ秒〜かかるため、結果はプロセス内でキャッシュする。
+    static CACHE: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(|| ["h264_nvenc", "h264_qsv", "h264_amf"].into_iter().find(|c| hw_encoder_actually_works(c)))
+}
+
+/// `-c:v libx264`をGPUのハードウェアエンコーダへ置き換える(無ければ速度優先の`-preset`を付ける)。
+/// `-preset`が既に指定されていればCPUの場合は触らない。H.264以外の指定はそのまま返す。
+fn accelerate_h264_args(mut args: Vec<String>) -> Vec<String> {
+    let Some(i) = args.iter().position(|a| a == "-c:v") else { return args };
+    if args.get(i + 1).map(String::as_str) != Some("libx264") {
+        return args;
+    }
+    match detect_hw_video_encoder() {
+        Some(hw) => args[i + 1] = hw.to_string(),
+        None => {
+            if !args.iter().any(|a| a == "-preset") {
+                args.extend(["-preset".to_string(), cpu::fast_x264_preset().to_string()]);
+            }
         }
     }
-    None
+    args
 }
 
 fn hw_encoder_actually_works(encoder: &str) -> bool {
@@ -1379,12 +1411,23 @@ mod tests {
     /// 音源またはモデルを用意できない環境ではスキップする。
     #[test]
     fn real_pipeline_extends_the_band_of_a_lowpassed_music_clip_and_keeps_the_low_band() {
-        let Some(src) = std::fs::read_dir("C:\\AUDIO").ok().and_then(|d| d.filter_map(|e| e.ok()).map(|e| e.path()).find(|p| p.to_string_lossy().ends_with("(1).mp4"))) else {
+        // 評価用の音楽素材。後から同じ名前の形(…(1).mp4)の別ファイル(話し声の動画など)がフォルダに増えても
+        // 変わらないよう、最も古いものを使う(2026-09-23、新しい動画が選ばれて失敗したため)。
+        let Some(src) = std::fs::read_dir("C:\\AUDIO").ok().and_then(|d| {
+            d.filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.to_string_lossy().ends_with("(1).mp4"))
+                .min_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok())
+        }) else {
             eprintln!("評価用の音源が無いためスキップ");
             return;
         };
         if crate::engine::audio_sr::ensure_models().is_err() || !ffmpeg_available() {
             eprintln!("モデルまたはffmpegを用意できないためスキップ");
+            return;
+        }
+        if crate::engine::probe::probe(&src.to_string_lossy()).map(|i| i.duration_secs < 610.0).unwrap_or(true) {
+            eprintln!("評価用の音源が短すぎる(10分未満)ためスキップ: {}", src.display());
             return;
         }
         let tmp = std::env::temp_dir().join(format!("make_disk_test_bwe_pipe_{}", std::process::id()));
@@ -1632,4 +1675,51 @@ Hello
         assert!(s.iter().any(|l| l.starts_with("subtitle") && l.contains("eng")), "追加字幕の言語: {s:?}");
         let _ = fs::remove_dir_all(&tmp);
     }
+    /// 2026-09-23の実バグの回帰テスト: 動画(MP4)から音声だけのWAVをカット付きで作ると、
+    /// 以前は中間区間ファイルを出力と同じ.wavで`-c copy`していたためAACが壊れ、極端に短いWAVになった。
+    #[test]
+    fn real_ffmpeg_cut_from_mp4_to_wav_keeps_the_expected_duration() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_cut_wav_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let src = make_test_video_with_audio(&tmp, "src.mp4", 20);
+        let out = tmp.join("out.wav");
+        let job = ConvertJob {
+            input_path: src.to_string_lossy().to_string(),
+            output_path: out.to_string_lossy().to_string(),
+            codec_args: vec!["-c:a".into(), "pcm_s16le".into()],
+            bitrate: None,
+            trim: None,
+            cut_ranges: Some(vec![CutRange { start_secs: 12.0, end_secs: None }]),
+            frame_accurate: false,
+            resolution: None,
+            fps: None,
+            ai_denoise: None,
+            dsd_rate: None,
+            dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
+            ai_upscale: None,
+            audio_bwe: None,
+        };
+        run_convert(&job).expect("MP4→WAVのカット変換は成功するはず");
+        let dur = crate::engine::probe::probe(&out.to_string_lossy()).unwrap().duration_secs;
+        let _ = fs::remove_dir_all(&tmp);
+        assert!((dur - 12.0).abs() < 0.5, "先頭12秒が残るはず、実際: {dur}秒");
+    }
+
+    #[test]
+    fn accelerate_h264_args_only_touches_libx264() {
+        let v = |a: &[&str]| a.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        // H.264以外(音声のみ・VP9)はそのまま
+        assert_eq!(accelerate_h264_args(v(&["-c:a", "pcm_s16le"])), v(&["-c:a", "pcm_s16le"]));
+        assert_eq!(accelerate_h264_args(v(&["-c:v", "libvpx-vp9", "-c:a", "libopus"])), v(&["-c:v", "libvpx-vp9", "-c:a", "libopus"]));
+        // libx264はGPUエンコーダへ置き換わるか、速度優先の-presetが付く
+        let out = accelerate_h264_args(v(&["-c:v", "libx264", "-c:a", "aac"]));
+        let enc = &out[1];
+        assert!(enc.starts_with("h264_") || (enc == "libx264" && out.iter().any(|a| a == "-preset")), "{out:?}");
+    }
+
 }
