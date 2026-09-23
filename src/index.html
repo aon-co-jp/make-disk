@@ -60,7 +60,7 @@
           <label><input type="checkbox" name="audio-format" value="dsd1024" /> DSD1024 (45.2MHz, DSF)</label>
         </div>
         <p class="hint">ハードウェア(DAC)が対応していれば、DSD音源はそのまま再生されます。対応していない場合は、(DSD対応の再生ソフトなら)自動的にPCM音源に変換されて再生されます。そのため、通常はPCM版を別に作る必要はありません。ただし、DSFに対応していない再生ソフト(標準のWindowsプレーヤーなど)では再生できません。 / If your hardware (DAC) supports DSD, the DSD audio is played as is. If it does not, a DSD-capable player automatically converts it to PCM for playback, so you normally do not need a separate PCM version. Players without DSF support (such as the standard Windows player) cannot play it at all.</p>
-        <label><input type="checkbox" id="dsd-companion-pcm" /> DSD非対応の機器でも聴けるよう、DSDと同時にPCM版(FLAC 24bit/352.8kHz)も作る / Also write a PCM companion (FLAC 24-bit/352.8 kHz) next to DSD for devices without DSD support</label>
+        <p class="hint">DSDを作成するときは、PCM(WAV/FLAC/高解像度PCM)は同時に作りません(選択していても自動で除外します)。 / When creating DSD, PCM (WAV/FLAC/high-res PCM) is not created alongside it (automatically skipped even if checked).</p>
         <div class="row">
           <label><input type="checkbox" id="dsd-dop-wav" /> DoP(DSD over PCM)のWAVも作る / Also write a DoP (DSD over PCM) WAV</label>
           <select id="dsd-dop-bits">
@@ -70,8 +70,8 @@
         </div>
         <p class="hint">DoP対応DAC+ビットパーフェクト再生専用(音量調整・SRCを通るとノイズ)。PCMレートはDSDレート/16(DSD64=176.4k、DSD128=352.8k、DSD256=705.6k、DSD512=1411.2kHz。384kHzは48kHz系DSDの入れ物で本ツールのDSDとは一致しません)。 / For DoP-capable DACs with bit-perfect playback only (volume control or resampling turns it into noise). PCM rate = DSD rate / 16 (DSD64 = 176.4k, DSD128 = 352.8k, DSD256 = 705.6k, DSD512 = 1411.2 kHz; 384 kHz belongs to 48 kHz-family DSD, which this tool does not produce).</p>
         <p class="hint">
-          ※ΔΣ(1bit)とマルチビットの「良いとこ取り」: DSDファイルは仕様上1bitのため、マルチビット(R-2R等)向けには高解像度PCMを別に出力します。DSD非対応機器へのフォールバックはファイルの中では行えない(再生機器の機能)ので、PCM版を並べて出力します。<br />
-          Best of both: a DSD file is 1-bit by definition, so for multi-bit (R-2R) DACs we write high-resolution PCM separately. Automatic fallback cannot live inside the file (it is a player/DAC feature), so a PCM companion is written alongside.<br />
+          ※DSDを作成するときはPCM版を同時に作りません。DSD非対応のハードウェアでは再生側が自動でPCMへ変換するため、PCM版は容量の無駄になります。<br />
+          When creating DSD, no PCM version is written alongside: on hardware without DSD support the player converts to PCM automatically, so a PCM copy only wastes space.<br />
           ※DSDはPCM→1bitのΔΣ変調で自前変換しDSFファイルとして保存します(ffmpegはDSDを書き出せないため)。ファイルが非常に大きく(ステレオ1分あたり DSD64≈42MB、DSD128≈85MB、DSD256≈170MB、DSD512≈339MB、DSD1024≈678MB)、高レートほど変換に時間がかかります。音量は安定性のため-6dBに抑えます。Super Audio CDの規格ディスクではなくDSFファイルです。DSD非対応の機器・アプリでは再生できないか、再生ソフト側でPCMへ変換されます(ファイル自体には自動変換の仕組みはありません)。<br />
           DSD is produced by our own PCM-to-1-bit delta-sigma converter and saved as DSF (ffmpeg cannot write DSD). Files are very large (per stereo minute: DSD64 ~42 MB, DSD128 ~85 MB, DSD256 ~170 MB, DSD512 ~339 MB, DSD1024 ~678 MB) and higher rates convert slowly. Level is reduced by 6 dB for stability. This is a DSF file, not a Super Audio CD disc. Devices/apps without DSD support may not play it, or the player software converts it to PCM — the file itself has no automatic fallback.
         </p>
@@ -332,6 +332,11 @@
           動画を再生して見ながらマウスで、または時:分:秒を直接数字で入力して指定できます。
           動画は再生し続ける必要はなく、シーク(早送り位置指定)だけで確認できます。
         </p>
+        <label>編集するファイル / File to edit:
+          <select id="cut-target"></select>
+        </label>
+        <p id="cut-empty" class="hint">先に「1.」でファイルを追加してください。 / Add files in section 1 first.</p>
+        <div id="cut-editor-host"></div>
       </section>
 
       <section>

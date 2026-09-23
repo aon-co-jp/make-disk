@@ -10,7 +10,7 @@ const convertFileSrc = window.__TAURI__.core.convertFileSrc;
 
 /**
  * @typedef {{ startSecs: number, endSecs: number | null }} CutRange
- * @typedef {{ path: string, cutRanges: CutRange[], frameAccurate: boolean, editing: boolean }} SourceFile
+ * @typedef {{ path: string, cutRanges: CutRange[], frameAccurate: boolean }} SourceFile
  */
 /** @type {SourceFile[]} */
 let sourceFiles = [];
@@ -36,9 +36,6 @@ const VIDEO_CODEC_ARGS = {
   // 全ストリーム無変換コピー(Dolby Vision RPU・Atmos・字幕等を保持)。
   "passthrough-mkv": ["-map", "0", "-c", "copy"],
 };
-
-// DSDと同時に作るPCM版(FLAC 24bit / 352.8kHz)。
-const DSD_COMPANION_CODEC_ARGS = ["-af", "hq-resample@352800", "-c:a", "flac", "-sample_fmt", "s32", "-bits_per_raw_sample", "24"];
 
 const AUDIO_CODEC_ARGS = {
   mp3: ["-c:a", "libmp3lame"],
@@ -128,18 +125,21 @@ function renderCutEditor(container, file, index) {
   container.className = "cut-editor";
 
   const isVideo = /\.(mp4|mkv|avi|mov|webm)$/i.test(file.path);
+  const isAudio = /\.(mp3|wav|flac|aac|m4a|ogg|opus)$/i.test(file.path);
   let video = null;
-  if (isVideo) {
-    video = document.createElement("video");
+  if (isVideo || isAudio) {
+    // 音声も<audio>で再生・シークでき、「現在位置」ボタンで時刻を取り込める。
+    video = document.createElement(isVideo ? "video" : "audio");
     video.controls = true;
     video.preload = "metadata";
     video.style.maxWidth = "100%";
+    video.style.width = "100%";
     video.src = convertFileSrc(file.path);
     container.appendChild(video);
   } else {
     const note = document.createElement("p");
     note.className = "hint";
-    note.textContent = "音声ファイルのプレビューは未対応です。数字で時:分:秒を直接指定してください。 / Preview isn't available for audio files — enter times directly.";
+    note.textContent = "このファイル形式はプレビューできません。数字で時:分:秒を直接指定してください。 / Preview isn't available for this format — enter times directly.";
     container.appendChild(note);
   }
 
@@ -155,6 +155,7 @@ function renderCutEditor(container, file, index) {
       removeBtn.addEventListener("click", () => {
         file.cutRanges.splice(ri, 1);
         renderRangeList();
+        renderFileNames();
       });
       li.appendChild(removeBtn);
       rangeList.appendChild(li);
@@ -185,6 +186,7 @@ function renderCutEditor(container, file, index) {
     }
     file.cutRanges.push({ startSecs, endSecs });
     renderRangeList();
+    renderFileNames();
   });
 
   addForm.append(startInput.el, endInput.el, toEofLabel, addBtn);
@@ -226,6 +228,49 @@ function renderCutEditor(container, file, index) {
   container.querySelector("h4").textContent = "カットする区間(いくつでも追加可)";
 }
 
+// 8.「時間指定・トリミング」節の編集対象(sourceFilesのインデックス)。
+// 以前は編集UIが1.のファイル一覧の中にしか無く、8.の節には説明文しか無かったため
+// 8.から実際には操作できなかった(2026-09-23修正)。
+let cutTargetIndex = -1;
+const cutTargetSel = document.getElementById("cut-target");
+const cutEditorHost = document.getElementById("cut-editor-host");
+const cutEmptyNote = document.getElementById("cut-empty");
+
+function fileLabel(f) {
+  return f.path + (f.cutRanges.length > 0 ? ` (カット${f.cutRanges.length}件)` : "");
+}
+
+/** エディタを作り直さずにファイル名表示(カット件数)だけ更新する。 */
+function renderFileNames() {
+  fileListEl.querySelectorAll(".file-name").forEach((el, i) => {
+    if (sourceFiles[i]) el.textContent = fileLabel(sourceFiles[i]);
+  });
+  Array.from(cutTargetSel.options).forEach((o) => {
+    const f = sourceFiles[parseInt(o.value, 10)];
+    if (f) o.textContent = fileLabel(f);
+  });
+}
+
+function renderCutSection() {
+  cutTargetSel.innerHTML = "";
+  if (cutTargetIndex >= sourceFiles.length) cutTargetIndex = sourceFiles.length - 1;
+  if (cutTargetIndex < 0 && sourceFiles.length > 0) cutTargetIndex = 0;
+  sourceFiles.forEach((f, i) => cutTargetSel.add(new Option(fileLabel(f), String(i))));
+  cutTargetSel.disabled = sourceFiles.length === 0;
+  cutEmptyNote.hidden = sourceFiles.length > 0;
+  cutEditorHost.innerHTML = "";
+  if (cutTargetIndex >= 0) {
+    cutTargetSel.value = String(cutTargetIndex);
+    renderCutEditor(cutEditorHost, sourceFiles[cutTargetIndex], cutTargetIndex);
+  }
+}
+
+cutTargetSel.addEventListener("change", () => {
+  cutTargetIndex = parseInt(cutTargetSel.value, 10);
+  renderCutSection();
+});
+renderCutSection();
+
 function renderFileList() {
   fileListEl.innerHTML = "";
   sourceFiles.forEach((f, i) => {
@@ -234,31 +279,28 @@ function renderFileList() {
 
     const name = document.createElement("span");
     name.className = "file-name";
-    name.textContent = f.path + (f.cutRanges.length > 0 ? ` (カット${f.cutRanges.length}件)` : "");
+    name.textContent = fileLabel(f);
 
     const editBtn = document.createElement("button");
-    editBtn.textContent = f.editing ? "閉じる" : "編集...";
+    editBtn.textContent = "編集...";
     editBtn.addEventListener("click", () => {
-      f.editing = !f.editing;
-      renderFileList();
+      cutTargetIndex = i;
+      renderCutSection();
+      cutTargetSel.scrollIntoView({ behavior: "smooth", block: "start" });
     });
 
     const removeBtn = document.createElement("button");
     removeBtn.textContent = "削除";
     removeBtn.addEventListener("click", () => {
       sourceFiles.splice(i, 1);
+      if (cutTargetIndex > i) cutTargetIndex--;
       renderFileList();
     });
 
     li.append(name, editBtn, removeBtn);
     fileListEl.appendChild(li);
-
-    if (f.editing) {
-      const editorLi = document.createElement("li");
-      renderCutEditor(editorLi, f, i);
-      fileListEl.appendChild(editorLi);
-    }
   });
+  renderCutSection();
 }
 
 document.getElementById("add-files-btn").addEventListener("click", async () => {
@@ -272,7 +314,7 @@ document.getElementById("add-files-btn").addEventListener("click", async () => {
   if (!selected) return;
   const paths = Array.isArray(selected) ? selected : [selected];
   for (const path of paths) {
-    sourceFiles.push({ path, cutRanges: [], frameAccurate: false, editing: false });
+    sourceFiles.push({ path, cutRanges: [], frameAccurate: false });
   }
   renderFileList();
 });
@@ -317,7 +359,7 @@ document.getElementById("cdda-rip-btn").addEventListener("click", async () => {
   log(`取り込み中(${tracks.length}トラック)... / Ripping ${tracks.length} track(s)...`);
   try {
     const outs = await invoke("rip_cd_tracks", { drive: document.getElementById("cdda-drive").value, tracks, outputDir: outputFolder + "/CD-rip", secure: document.getElementById("cdda-secure").checked });
-    for (const path of outs) sourceFiles.push({ path, cutRanges: [], frameAccurate: false, editing: false });
+    for (const path of outs) sourceFiles.push({ path, cutRanges: [], frameAccurate: false });
     renderFileList();
     log(`取り込み完了 / Ripped ${outs.length} track(s) → ${outputFolder}/CD-rip`);
   } catch (e) {
@@ -566,6 +608,16 @@ async function logSourceTraits(f) {
 }
 
 async function convertAll(formats, codecMap, mode, bitrateKbps) {
+  // DSD作成時はPCMを同時に作らない仕様(2026-09-23)。DSD非対応のハードウェアでは
+  // 再生側がDSD→PCMへ自動変換するため、PCM版は容量の無駄になる。
+  // (DoP WAVはDSDデータそのものをPCMの入れ物に詰めたものなので対象外)
+  if (codecMap === AUDIO_CODEC_ARGS && formats.some((x) => /^dsd\d+$/.test(x))) {
+    const pcm = formats.filter((x) => /^(wav|flac|dxd352|pcm\d+_\d+)$/.test(x));
+    if (pcm.length > 0) {
+      formats = formats.filter((x) => !pcm.includes(x));
+      log(`DSD作成時はPCM(${pcm.join(", ")})を作りません(DSD非対応機器では再生側が自動でPCMへ変換します)。 / PCM (${pcm.join(", ")}) is skipped when creating DSD (players convert DSD to PCM automatically on hardware without DSD).`);
+    }
+  }
   const jobs = [];
   for (const format of formats) {
     const codecArgs = codecMap[format];
@@ -578,16 +630,6 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
       const hiresMatch = /^(dxd352|pcm\d+_\d+)$/.exec(format);
       const outputPath = dsdMatch ? `${outputFolder}/${baseName(f.path)}.dsd${dsdMatch[1]}.dsf` : hiresMatch ? `${outputFolder}/${baseName(f.path)}.${format}.wav` : av1Match ? `${outputFolder}/${baseName(f.path)}.${av1Match[1]}.${av1Match[2]}` : `${outputFolder}/${baseName(f.path)}.${format}`;
       jobs.push({ outputPath, f, format, codecArgs });
-    }
-  }
-
-  // DSD非対応の機器・DACでも聴けるよう、DSDと同時にPCM版(FLAC 24bit/352.8kHz)も作る。
-  // ファイル自体にDSD→PCMの自動フォールバック機構は無い(再生機器の機能)ため、両方を並べて出力し、
-  // 再生側が使える方を選べるようにする。
-  if (codecMap === AUDIO_CODEC_ARGS && formats.some((x) => /^dsd\d+$/.test(x)) && document.getElementById("dsd-companion-pcm").checked) {
-    for (const f of sourceFiles) {
-      if (f.path.toLowerCase().endsWith(".pdf")) continue;
-      jobs.push({ outputPath: `${outputFolder}/${baseName(f.path)}.dsd-companion.flac`, f, format: "dsd-companion", codecArgs: DSD_COMPANION_CODEC_ARGS });
     }
   }
 
@@ -638,7 +680,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           input_path: f.path,
           output_path: outputPath,
           codec_args: codecArgs,
-          bitrate: format === "wav" || format === "flac" || hiresMatch || format === "dsd-companion" || dsdMatch ? null : { [mode === "auto" || mode === "max_quality" ? "auto_max_for_capacity" : "fixed"]: effectiveBitrateKbps },
+          bitrate: format === "wav" || format === "flac" || hiresMatch || dsdMatch ? null : { [mode === "auto" || mode === "max_quality" ? "auto_max_for_capacity" : "fixed"]: effectiveBitrateKbps },
           trim: null,
           cut_ranges: f.cutRanges.length > 0 ? f.cutRanges.map((r) => ({ start_secs: r.startSecs, end_secs: r.endSecs })) : null,
           frame_accurate: f.frameAccurate,
@@ -1030,6 +1072,7 @@ document.getElementById("run-btn").addEventListener("click", async () => {
       }
     }
   }
+  renderFileList(); // 自動トリム/自動カットで設定した区間を8.の編集欄にも反映する
 
   // どの形式が選択されているかを実行前に必ず表示する(プリセットボタン等で意図せず選択されていた場合に気づけるように)。
   log(`選択中の出力形式 / Selected formats: 音声=${audioFormats.join(", ") || "なし"} / 動画=${videoFormats.join(", ") || "なし"}`);
@@ -1198,10 +1241,9 @@ checkForUpdatesOnStartup();
 document.getElementById("preset-hires-disc-btn").addEventListener("click", () => {
   for (const name of ["audio-format"]) {
     for (const el of document.querySelectorAll(`input[name="${name}"]`)) {
-      el.checked = el.value === "dsd256"; // DSD変換時はPCM(384kHz/32bit等)を同時に作らない(必要なら3.で個別にチェック)
+      el.checked = el.value === "dsd256"; // DSD変換時はPCMを同時に作らない仕様
     }
   }
   document.getElementById("output-iso").checked = true;
-  document.getElementById("dsd-companion-pcm").checked = false; // 多くの再生ソフトはDSDを自動でPCM変換して再生でき、容量も倍近く使うため既定では付けない
   log("プリセットを設定しました: DSD256 + ISO(PCMは付けません)。書き込むディスク種別(6)を選び、実行してください。 / Preset applied: DSD256 + ISO (no PCM). Pick the disc types (6) and run.");
 });
