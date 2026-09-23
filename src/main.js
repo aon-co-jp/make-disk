@@ -312,7 +312,17 @@ document.getElementById("add-files-btn").addEventListener("click", async () => {
     ],
   });
   if (!selected) return;
-  const paths = Array.isArray(selected) ? selected : [selected];
+  let paths = Array.isArray(selected) ? selected : [selected];
+  if (outputFolder) {
+    const clash = sourcesInFolder(outputFolder, paths);
+    if (clash.length > 0) {
+      warn(
+        `出力先フォルダと同じフォルダにあるファイルは追加できません(${clash.length}件)。ソース元と出力先は別のフォルダにしてください。`,
+        `Files in the same folder as the output folder cannot be added (${clash.length}). The source and output folders must be different.`
+      );
+      paths = paths.filter((x) => !clash.includes(x));
+    }
+  }
   for (const path of paths) {
     sourceFiles.push({ path, cutRanges: [], frameAccurate: false });
   }
@@ -348,10 +358,7 @@ document.getElementById("cdda-scan-btn").addEventListener("click", async () => {
 });
 
 document.getElementById("cdda-rip-btn").addEventListener("click", async () => {
-  if (!outputFolder) {
-    log("先に出力先フォルダを選んでください / Choose an output folder first");
-    return;
-  }
+  if (!requireValidOutputFolder()) return;
   const tracks = [...document.querySelectorAll("#cdda-tracks input[data-track]:checked")].map((c) => Number(c.dataset.track));
   if (!tracks.length) return;
   const btn = document.getElementById("cdda-rip-btn");
@@ -413,6 +420,10 @@ document.getElementById("pick-output-btn").addEventListener("click", async () =>
   try {
     const dir = await open({ directory: true });
     if (!dir) return;
+    if (sourcesInFolder(dir, sourceFiles.map((f) => f.path)).length > 0) {
+      warn(SAME_FOLDER_JA, SAME_FOLDER_EN);
+      return;
+    }
     outputFolder = dir;
     outputFolderEl.value = dir;
   } catch (e) {
@@ -447,6 +458,46 @@ document.getElementById("write-speed-mode").addEventListener("change", (e) => {
 
 function log(msg) {
   logEl.textContent += msg + "\n";
+}
+
+// ── 出力先フォルダの検証(2026-09-23) ──────────────────
+// ソース元と出力先は必ず違うフォルダにする(同じフォルダだと出力が元ファイルと混ざり、
+// 同名出力で元データを上書きする危険もあるため)。警告は日英併記でダイアログとログの両方に出す。
+function normDir(p) {
+  let d = String(p).replace(/\\/g, "/").replace(/\/+$/, "");
+  if (/^[a-z]:/i.test(d) || d.startsWith("//")) d = d.toLowerCase(); // Windowsは大文字小文字を区別しない
+  return d;
+}
+function dirOf(filePath) {
+  const p = String(filePath).replace(/\\/g, "/");
+  return p.slice(0, p.lastIndexOf("/"));
+}
+function warn(ja, en) {
+  log(`⚠ ${ja} / ${en}`);
+  try {
+    window.alert(`${ja}\n${en}`);
+  } catch (e) {
+    // ダイアログが使えない環境ではログのみ
+  }
+}
+const SAME_FOLDER_JA = "ソース元と出力先に同じフォルダは選べません。出力先には別のフォルダを選んでください。";
+const SAME_FOLDER_EN = "The source and output folders must be different. Please choose a different output folder.";
+/** pathsのうち、folderと同じフォルダにあるものを返す。 */
+function sourcesInFolder(folder, paths) {
+  const d = normDir(folder);
+  return paths.filter((x) => normDir(dirOf(x)) === d);
+}
+/** 実行系ボタン共通: 出力先が未選択、またはソースと同じフォルダなら警告してfalse。 */
+function requireValidOutputFolder() {
+  if (!outputFolder) {
+    warn("出力先フォルダが選ばれていません。「2. 出力先フォルダ」でフォルダを選んでから実行してください。", "No output folder is selected. Choose one in section 2 before running.");
+    return false;
+  }
+  if (sourcesInFolder(outputFolder, sourceFiles.map((f) => f.path)).length > 0) {
+    warn(SAME_FOLDER_JA, SAME_FOLDER_EN);
+    return false;
+  }
+  return true;
 }
 
 function checkedValues(name) {
@@ -854,10 +905,7 @@ document.getElementById("rebind-pdfs-btn").addEventListener("click", async () =>
     log("エラー: PDFファイルをソースに追加してください。 / Error: add at least one PDF to the source list.");
     return;
   }
-  if (!outputFolder) {
-    log("エラー: 出力先フォルダを選択してください。 / Error: choose an output folder.");
-    return;
-  }
+  if (!requireValidOutputFolder()) return;
   log(`${pdfFiles.length}件のPDFの綴じ方向を変換中... / Converting binding direction for ${pdfFiles.length} PDF(s)...`);
   const results = await invoke("rebind_pdfs", { pdfPaths: pdfFiles.map((f) => f.path), outputDir: outputFolder });
   results.forEach((result, i) => {
@@ -877,10 +925,7 @@ document.getElementById("concat-btn").addEventListener("click", async () => {
     log("エラー: 結合には2つ以上の音声/動画ファイルが必要です。 / Error: concatenation needs at least 2 audio/video files.");
     return;
   }
-  if (!outputFolder) {
-    log("エラー: 出力先フォルダを選択してください。 / Error: choose an output folder.");
-    return;
-  }
+  if (!requireValidOutputFolder()) return;
   const videoExts = Object.keys(VIDEO_CODEC_ARGS);
   const hasVideo = targets.some((f) => videoExts.some((ext) => f.path.toLowerCase().endsWith(`.${ext}`)));
   const outputPath = `${outputFolder}/composite-output.${hasVideo ? "mp4" : "mp3"}`;
@@ -917,10 +962,7 @@ document.getElementById("split-btn").addEventListener("click", async () => {
     log("エラー: 分割対象の音声/動画ファイルが見つかりません。 / Error: no audio/video file found to split.");
     return;
   }
-  if (!outputFolder) {
-    log("エラー: 出力先フォルダを選択してください。 / Error: choose an output folder.");
-    return;
-  }
+  if (!requireValidOutputFolder()) return;
 
   const totalSecs = await effectiveDurationSecs(target);
   if (totalSecs <= 0) {
@@ -1004,10 +1046,7 @@ document.getElementById("run-btn").addEventListener("click", async () => {
     log("エラー: ソースファイルを追加してください。");
     return;
   }
-  if (!outputFolder) {
-    log("エラー: 出力先フォルダを選択してください。");
-    return;
-  }
+  if (!requireValidOutputFolder()) return;
 
   // PDF見開き変換(2026-09-16新設)。音声/動画とは独立して、ソースに
   // 含まれるPDFがあれば見開き画像として先に書き出す。

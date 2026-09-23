@@ -1230,3 +1230,5 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
   (5) DVDでのフルHDは、DVD-Video規格(最大720×480/576)外で家庭用DVDプレイヤーは自動で解像度を落として再生しないため、現状の注意書きを維持(DVD-Video+フルHDファイル同時収録はユーザー判断で不採用)。
   (6) README/CLAUDE/PORTINGを多言語化(`README/`・`CLAUDE/`・`PORTING/`フォルダに英・簡体中文・繁體中文・韓・独・仏・露・ウクライナ語・ペルシャ語(イラン、ファイル名は`.iran(Perusha).md`)・アラビア語。CLAUDE/PORTINGは要約版、日本語が正本)。
   検証: スタブUIのブラウザ操作(8.のカット追加・YES/NO排他・規格一覧表示)、`cargo test --lib probe`成功。**実ファイルでの変換E2E(カット位置・-ar・ビットレート上限)は未実施**。 / Fixed the inoperable cut editor, dropped PCM alongside DSD, redesigned cut-by-size/time + fill-disc + playback-spec limits, added multilingual docs.
+
+- **2026-09-23続き22 / Continued 22 — 出力先フォルダの検証**: ソース元と出力先は必ず別フォルダ(Windowsは大文字小文字・区切り文字の違いを無視して比較)。出力先選択時に同じフォルダなら選ばせない、出力先と同じフォルダのファイルはソースに追加しない、実行系ボタン(実行・結合・分割・PDF綴じ変換・CD取り込み)は出力先未選択/同一フォルダなら実行しない。警告は日英併記でダイアログ(`window.alert`)とログの両方に出す(`requireValidOutputFolder`)。スタブUIのブラウザ操作で4ケース確認。 / Source and output folders must differ; missing output folder blocks running; bilingual alerts.
