@@ -1,6 +1,6 @@
 # 세션 인수인계 메모(make-disk) — 요약
 
-**언어**: [日本語(전문·정본)](../PORTING.md) | [English](PORTING.en.md) | [简体中文](PORTING.zh-CN.md) | [繁體中文(台灣)](PORTING.zh-TW.md) | 한국어 | [Deutsch](PORTING.de.md)
+**언어**: [日本語(전문·정본)](../PORTING.md) | [English](PORTING.en.md) | [简体中文](PORTING.zh-CN.md) | [繁體中文(台灣)](PORTING.zh-TW.md) | 한국어 | [Deutsch](PORTING.de.md) | [Français](PORTING.fr.md) | [Русский](PORTING.ru.md) | [Українська](PORTING.uk.md) | [فارسی](PORTING.iran%28Perusha%29.md) | [العربية](PORTING.ar.md)
 
 > 현재 진행 상황과 다음 할 일을 요약한 문서입니다. 재개 메모의 전체 이력은 일본어판 [`PORTING.md`](../PORTING.md)가 정본이며, 기술적 결정은 [`CLAUDE.md`](../CLAUDE.md)에 있습니다.
 

@@ -1,6 +1,6 @@
 # Development policy & environment rules (make-disk) — summary
 
-**Languages**: [日本語 (full, authoritative)](../CLAUDE.md) | English | [简体中文](CLAUDE.zh-CN.md) | [繁體中文(台灣)](CLAUDE.zh-TW.md) | [한국어](CLAUDE.ko.md) | [Deutsch](CLAUDE.de.md)
+**Languages**: [日本語 (full, authoritative)](../CLAUDE.md) | English | [简体中文](CLAUDE.zh-CN.md) | [繁體中文(台灣)](CLAUDE.zh-TW.md) | [한국어](CLAUDE.ko.md) | [Deutsch](CLAUDE.de.md) | [Français](CLAUDE.fr.md) | [Русский](CLAUDE.ru.md) | [Українська](CLAUDE.uk.md) | [فارسی](CLAUDE.iran%28Perusha%29.md) | [العربية](CLAUDE.ar.md)
 
 > This is a summary. The full text, including the complete development history (HANDOFF entries), is the Japanese [`CLAUDE.md`](../CLAUDE.md).
 > Rules shared by all repositories (autonomous continuation, thorough verification, etc.) follow `CLAUDE.md` in [`open-raid-z`](https://github.com/aon-co-jp/open-raid-z).
@@ -34,7 +34,7 @@ Platform differences are confined to the installers (bundles); the app itself (`
 - DSD modulation stays **sequential per channel (bit-exact)**; segment-parallel modulation was measured to destroy SNR and was rejected.
 - "AI" features are disclosed honestly: silence-based auto-cut and "AI-optimized" resolution/FPS are heuristics; audio bandwidth extension is synthesis.
 - Full HD on DVD is outside DVD-Video; set-top players do not downscale automatically. The UI keeps this warning (a DVD-Video + Full HD file combo was declined by the user).
-- Documentation languages: Japanese is authoritative; `README/`, `CLAUDE/`, `PORTING/` hold English, Simplified Chinese, Traditional Chinese (Taiwan), Korean and German (CLAUDE/PORTING as summaries).
+- Documentation languages: Japanese is authoritative; `README/`, `CLAUDE/`, `PORTING/` hold English, Simplified Chinese, Traditional Chinese (Taiwan), Korean, German, French, Russian, Ukrainian, Persian (Iran, file suffix `.iran(Perusha)`) and Arabic (CLAUDE/PORTING as summaries).
 
 ## Verification rules
 

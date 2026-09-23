@@ -1,6 +1,6 @@
 # 開発方針＆開発環境ルール(make-disk)
 
-**言語 / Languages**: 日本語(このページ・正本) | [English](CLAUDE/CLAUDE.en.md) | [简体中文](CLAUDE/CLAUDE.zh-CN.md) | [繁體中文(台灣)](CLAUDE/CLAUDE.zh-TW.md) | [한국어](CLAUDE/CLAUDE.ko.md) | [Deutsch](CLAUDE/CLAUDE.de.md)
+**言語 / Languages**: 日本語(このページ・正本) | [English](CLAUDE/CLAUDE.en.md) | [简体中文](CLAUDE/CLAUDE.zh-CN.md) | [繁體中文(台灣)](CLAUDE/CLAUDE.zh-TW.md) | [한국어](CLAUDE/CLAUDE.ko.md) | [Deutsch](CLAUDE/CLAUDE.de.md) | [Français](CLAUDE/CLAUDE.fr.md) | [Русский](CLAUDE/CLAUDE.ru.md) | [Українська](CLAUDE/CLAUDE.uk.md) | [فارسی](CLAUDE/CLAUDE.iran%28Perusha%29.md) | [العربية](CLAUDE/CLAUDE.ar.md)
 (多言語版は要約です。全文・履歴は日本語版が正本 / The translations are summaries; this Japanese file is the full, authoritative version.)
 
 全リポジトリ共通の開発ルール(自動継続・検証徹底等)は
@@ -1228,5 +1228,5 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
   (3) 7.5を再設計: 「サイズでカットする？」「時間でカットする？」をYES/NOの排他(必ず一方がYES、既定はサイズ、元データのサイズ基準で先頭から残す)。後処理として「ディスクいっぱいに収める」「AI無音カット」をチェックボックス化。旧「サイズ指定でビットレートを下げる」方式は削除。
   (4) 7.6「再生規格の上限」を新設(CD 44.1kHz/16bit・DVD-Video 96kHz/24bit 映像9.8Mbps・DVD-Audio 192kHz/24bit・Blu-ray 192kHz/24bit 映像40Mbps・UHD BD 映像100Mbps・PC専用 768kHz/32bit上限なし)。元が上限以下ならアップサンプリングしない判定のため`MediaInfo.audio_sample_rate`を追加。
   (5) DVDでのフルHDは、DVD-Video規格(最大720×480/576)外で家庭用DVDプレイヤーは自動で解像度を落として再生しないため、現状の注意書きを維持(DVD-Video+フルHDファイル同時収録はユーザー判断で不採用)。
-  (6) README/CLAUDE/PORTINGを多言語化(`README/`・`CLAUDE/`・`PORTING/`フォルダに英・簡体中文・繁體中文・韓・独。CLAUDE/PORTINGは要約版、日本語が正本)。
+  (6) README/CLAUDE/PORTINGを多言語化(`README/`・`CLAUDE/`・`PORTING/`フォルダに英・簡体中文・繁體中文・韓・独・仏・露・ウクライナ語・ペルシャ語(イラン、ファイル名は`.iran(Perusha).md`)・アラビア語。CLAUDE/PORTINGは要約版、日本語が正本)。
   検証: スタブUIのブラウザ操作(8.のカット追加・YES/NO排他・規格一覧表示)、`cargo test --lib probe`成功。**実ファイルでの変換E2E(カット位置・-ar・ビットレート上限)は未実施**。 / Fixed the inoperable cut editor, dropped PCM alongside DSD, redesigned cut-by-size/time + fill-disc + playback-spec limits, added multilingual docs.

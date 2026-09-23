@@ -1,6 +1,6 @@
 # 개발 방침 및 개발 환경 규칙(make-disk) — 요약
 
-**언어**: [日本語(전문·정본)](../CLAUDE.md) | [English](CLAUDE.en.md) | [简体中文](CLAUDE.zh-CN.md) | [繁體中文(台灣)](CLAUDE.zh-TW.md) | 한국어 | [Deutsch](CLAUDE.de.md)
+**언어**: [日本語(전문·정본)](../CLAUDE.md) | [English](CLAUDE.en.md) | [简体中文](CLAUDE.zh-CN.md) | [繁體中文(台灣)](CLAUDE.zh-TW.md) | 한국어 | [Deutsch](CLAUDE.de.md) | [Français](CLAUDE.fr.md) | [Русский](CLAUDE.ru.md) | [Українська](CLAUDE.uk.md) | [فارسی](CLAUDE.iran%28Perusha%29.md) | [العربية](CLAUDE.ar.md)
 
 > 이 문서는 요약입니다. 전체 개발 이력(HANDOFF 기록)을 포함한 전문은 일본어판 [`CLAUDE.md`](../CLAUDE.md)가 정본입니다.
 > 모든 저장소 공통 개발 규칙(자동 계속, 철저한 검증 등)은 [`open-raid-z`](https://github.com/aon-co-jp/open-raid-z)의 `CLAUDE.md`를 따릅니다.
@@ -34,7 +34,7 @@ Windows/macOS/Linux(및 Android) 공통 코드로 만든 GUI 앱(Rust + Tauri)�
 - DSD 변조는 **채널별 순차 처리(비트 단위 일치)**를 유지합니다. 구간 병렬화는 실측에서 SNR을 크게 떨어뜨려 채택하지 않았습니다.
 - "AI" 기능은 솔직하게 공개합니다: 무음 자동 자르기와 "AI 최적화" 해상도/FPS는 휴리스틱이며, 오디오 대역 확장은 합성입니다.
 - DVD의 풀HD는 DVD-Video 규격 밖이며 가정용 플레이어는 자동으로 해상도를 낮추지 않습니다. UI에 이 주의 문구를 유지합니다(DVD-Video + 풀HD 파일 동시 수록은 사용자가 채택하지 않음).
-- 문서 언어: 일본어가 정본이며, `README/`·`CLAUDE/`·`PORTING/`에 영어·중국어 간체·중국어 번체(대만)·한국어·독일어를 둡니다(CLAUDE/PORTING은 요약).
+- 문서 언어: 일본어가 정본이며, `README/`·`CLAUDE/`·`PORTING/`에 영어·중국어 간체·중국어 번체(대만)·한국어·독일어·프랑스어·러시아어·우크라이나어·페르시아어(이란, 파일 접미사 `.iran(Perusha)`)·아랍어를 둡니다(CLAUDE/PORTING은 요약).
 
 ## 검증 규칙
 

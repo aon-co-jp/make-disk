@@ -1,6 +1,6 @@
 # make-disk
 
-**語言**: [日本語](../README.md) | [English](README.en.md) | [简体中文](README.zh-CN.md) | 繁體中文(台灣) | [한국어](README.ko.md) | [Deutsch](README.de.md)
+**語言**: [日本語](../README.md) | [English](README.en.md) | [简体中文](README.zh-CN.md) | 繁體中文(台灣) | [한국어](README.ko.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | [Русский](README.ru.md) | [Українська](README.uk.md) | [فارسی](README.iran%28Perusha%29.md) | [العربية](README.ar.md)
 
 以跨平台共用程式碼(Rust + Tauri)打造的 CD/DVD/Blu-ray 燒錄與音訊/影片格式轉換 GUI 應用程式。
 應用程式本體為單一程式碼庫,僅安裝程式依作業系統區分。

@@ -1,6 +1,6 @@
 # セッション引き継ぎメモ
 
-**言語 / Languages**: 日本語(このページ・正本) | [English](PORTING/PORTING.en.md) | [简体中文](PORTING/PORTING.zh-CN.md) | [繁體中文(台灣)](PORTING/PORTING.zh-TW.md) | [한국어](PORTING/PORTING.ko.md) | [Deutsch](PORTING/PORTING.de.md)
+**言語 / Languages**: 日本語(このページ・正本) | [English](PORTING/PORTING.en.md) | [简体中文](PORTING/PORTING.zh-CN.md) | [繁體中文(台灣)](PORTING/PORTING.zh-TW.md) | [한국어](PORTING/PORTING.ko.md) | [Deutsch](PORTING/PORTING.de.md) | [Français](PORTING/PORTING.fr.md) | [Русский](PORTING/PORTING.ru.md) | [Українська](PORTING/PORTING.uk.md) | [فارسی](PORTING/PORTING.iran%28Perusha%29.md) | [العربية](PORTING/PORTING.ar.md)
 (多言語版は要約です。全文・履歴は日本語版が正本 / The translations are summaries; this Japanese file is the full, authoritative version.)
 
 このファイルは、複数セッションにまたがる作業の到達点・次回再開ポイントを

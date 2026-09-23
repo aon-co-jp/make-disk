@@ -1,6 +1,6 @@
 # Session handoff notes (make-disk) — summary
 
-**Languages**: [日本語 (full, authoritative)](../PORTING.md) | English | [简体中文](PORTING.zh-CN.md) | [繁體中文(台灣)](PORTING.zh-TW.md) | [한국어](PORTING.ko.md) | [Deutsch](PORTING.de.md)
+**Languages**: [日本語 (full, authoritative)](../PORTING.md) | English | [简体中文](PORTING.zh-CN.md) | [繁體中文(台灣)](PORTING.zh-TW.md) | [한국어](PORTING.ko.md) | [Deutsch](PORTING.de.md) | [Français](PORTING.fr.md) | [Русский](PORTING.ru.md) | [Українська](PORTING.uk.md) | [فارسی](PORTING.iran%28Perusha%29.md) | [العربية](PORTING.ar.md)
 
 > This is a summary of where the work stands and what comes next. The full history of resume notes is the Japanese [`PORTING.md`](../PORTING.md); technical decisions are in [`CLAUDE.md`](../CLAUDE.md).
 

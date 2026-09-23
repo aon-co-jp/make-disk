@@ -1,6 +1,6 @@
 # 会话交接备忘(make-disk)— 摘要
 
-**语言**: [日本語(全文・正本)](../PORTING.md) | [English](PORTING.en.md) | 简体中文 | [繁體中文(台灣)](PORTING.zh-TW.md) | [한국어](PORTING.ko.md) | [Deutsch](PORTING.de.md)
+**语言**: [日本語(全文・正本)](../PORTING.md) | [English](PORTING.en.md) | 简体中文 | [繁體中文(台灣)](PORTING.zh-TW.md) | [한국어](PORTING.ko.md) | [Deutsch](PORTING.de.md) | [Français](PORTING.fr.md) | [Русский](PORTING.ru.md) | [Українська](PORTING.uk.md) | [فارسی](PORTING.iran%28Perusha%29.md) | [العربية](PORTING.ar.md)
 
 > 本文概述当前进度与下一步。历次恢复备忘的全文以日文版 [`PORTING.md`](../PORTING.md) 为准;技术决策见 [`CLAUDE.md`](../CLAUDE.md)。
 

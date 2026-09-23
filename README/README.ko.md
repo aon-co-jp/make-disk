@@ -1,6 +1,6 @@
 # make-disk
 
-**언어**: [日本語](../README.md) | [English](README.en.md) | [简体中文](README.zh-CN.md) | [繁體中文(台灣)](README.zh-TW.md) | 한국어 | [Deutsch](README.de.md)
+**언어**: [日本語](../README.md) | [English](README.en.md) | [简体中文](README.zh-CN.md) | [繁體中文(台灣)](README.zh-TW.md) | 한국어 | [Deutsch](README.de.md) | [Français](README.fr.md) | [Русский](README.ru.md) | [Українська](README.uk.md) | [فارسی](README.iran%28Perusha%29.md) | [العربية](README.ar.md)
 
 플랫폼 공통 코드(Rust + Tauri)로 만든 CD/DVD/Blu-ray 굽기 및 오디오/비디오 포맷 변환 GUI 앱입니다.
 앱 본체는 단일 코드베이스이며, 설치 프로그램만 OS별로 나뉩니다.
