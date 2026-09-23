@@ -1,6 +1,6 @@
 # make-disk
 
-**言語 / Languages**: 日本語(このページ) | [English](README/README.en.md) | [简体中文](README/README.zh-CN.md) | [繁體中文(台灣)](README/README.zh-TW.md) | [한국어](README/README.ko.md) | [Deutsch](README/README.de.md)
+**言語 / Languages**: 日本語(このページ) | [English](README/README.en.md) | [简体中文](README/README.zh-CN.md) | [繁體中文(台灣)](README/README.zh-TW.md) | [한국어](README/README.ko.md) | [Deutsch](README/README.de.md) | [Français](README/README.fr.md) | [Русский](README/README.ru.md) | [Українська](README/README.uk.md) | [فارسی](README/README.iran%28Perusha%29.md) | [العربية](README/README.ar.md)
 
 プラットフォーム共通コード(Rust + Tauri)によるCD/DVD/Blu-ray書き込み・
 音声/動画フォーマット変換GUIアプリ。インストーラーのみをOSごとに分ける

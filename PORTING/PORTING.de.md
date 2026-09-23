@@ -1,6 +1,6 @@
 # Übergabenotizen zwischen Sitzungen (make-disk) — Zusammenfassung
 
-**Sprachen**: [日本語 (vollständig, maßgeblich)](../PORTING.md) | [English](PORTING.en.md) | [简体中文](PORTING.zh-CN.md) | [繁體中文(台灣)](PORTING.zh-TW.md) | [한국어](PORTING.ko.md) | Deutsch
+**Sprachen**: [日本語 (vollständig, maßgeblich)](../PORTING.md) | [English](PORTING.en.md) | [简体中文](PORTING.zh-CN.md) | [繁體中文(台灣)](PORTING.zh-TW.md) | [한국어](PORTING.ko.md) | Deutsch | [Français](PORTING.fr.md) | [Русский](PORTING.ru.md) | [Українська](PORTING.uk.md) | [فارسی](PORTING.iran%28Perusha%29.md) | [العربية](PORTING.ar.md)
 
 > Zusammenfassung des aktuellen Stands und der nächsten Schritte. Maßgeblich für die vollständige Historie der Wiederaufnahme-Notizen ist die japanische [`PORTING.md`](../PORTING.md); technische Entscheidungen stehen in [`CLAUDE.md`](../CLAUDE.md).
 

@@ -1,6 +1,6 @@
 # 工作階段交接備忘(make-disk)— 摘要
 
-**語言**: [日本語(全文・正本)](../PORTING.md) | [English](PORTING.en.md) | [简体中文](PORTING.zh-CN.md) | 繁體中文(台灣) | [한국어](PORTING.ko.md) | [Deutsch](PORTING.de.md)
+**語言**: [日本語(全文・正本)](../PORTING.md) | [English](PORTING.en.md) | [简体中文](PORTING.zh-CN.md) | 繁體中文(台灣) | [한국어](PORTING.ko.md) | [Deutsch](PORTING.de.md) | [Français](PORTING.fr.md) | [Русский](PORTING.ru.md) | [Українська](PORTING.uk.md) | [فارسی](PORTING.iran%28Perusha%29.md) | [العربية](PORTING.ar.md)
 
 > 本文概述目前進度與下一步。歷次恢復備忘的全文以日文版 [`PORTING.md`](../PORTING.md) 為準;技術決策請見 [`CLAUDE.md`](../CLAUDE.md)。
 

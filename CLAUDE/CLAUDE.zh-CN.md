@@ -1,6 +1,6 @@
 # 开发方针与开发环境规则(make-disk)— 摘要
 
-**语言**: [日本語(全文・正本)](../CLAUDE.md) | [English](CLAUDE.en.md) | 简体中文 | [繁體中文(台灣)](CLAUDE.zh-TW.md) | [한국어](CLAUDE.ko.md) | [Deutsch](CLAUDE.de.md)
+**语言**: [日本語(全文・正本)](../CLAUDE.md) | [English](CLAUDE.en.md) | 简体中文 | [繁體中文(台灣)](CLAUDE.zh-TW.md) | [한국어](CLAUDE.ko.md) | [Deutsch](CLAUDE.de.md) | [Français](CLAUDE.fr.md) | [Русский](CLAUDE.ru.md) | [Українська](CLAUDE.uk.md) | [فارسی](CLAUDE.iran%28Perusha%29.md) | [العربية](CLAUDE.ar.md)
 
 > 本文为摘要。包括完整开发历史(HANDOFF 记录)在内的全文以日文版 [`CLAUDE.md`](../CLAUDE.md) 为准。
 > 所有仓库通用的开发规则(自动继续、彻底验证等)以 [`open-raid-z`](https://github.com/aon-co-jp/open-raid-z) 的 `CLAUDE.md` 为准。
@@ -34,7 +34,7 @@
 - DSD 调制保持**按声道顺序处理(逐位一致)**;分段并行实测会严重降低 SNR,已放弃。
 - 如实说明"AI"功能: 静音自动剪切和"AI 优化"的分辨率/帧率属于启发式处理;音频频带扩展属于合成。
 - DVD 上的全高清不在 DVD-Video 规格内,家用播放机不会自动降低分辨率。界面保留此提示(用户决定不采用 DVD-Video + 全高清文件同时收录)。
-- 文档语言: 以日文为正本;`README/`、`CLAUDE/`、`PORTING/` 存放英文、简体中文、繁体中文(台湾)、韩文、德文(CLAUDE/PORTING 为摘要)。
+- 文档语言: 以日文为正本;`README/`、`CLAUDE/`、`PORTING/` 存放英文、简体中文、繁体中文(台湾)、韩文、德文、法文、俄文、乌克兰文、波斯文(伊朗,文件后缀 `.iran(Perusha)`)、阿拉伯文(CLAUDE/PORTING 为摘要)。
 
 ## 验证规则
 

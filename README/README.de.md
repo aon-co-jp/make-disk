@@ -1,6 +1,6 @@
 # make-disk
 
-**Sprachen**: [日本語](../README.md) | [English](README.en.md) | [简体中文](README.zh-CN.md) | [繁體中文(台灣)](README.zh-TW.md) | [한국어](README.ko.md) | Deutsch
+**Sprachen**: [日本語](../README.md) | [English](README.en.md) | [简体中文](README.zh-CN.md) | [繁體中文(台灣)](README.zh-TW.md) | [한국어](README.ko.md) | Deutsch | [Français](README.fr.md) | [Русский](README.ru.md) | [Українська](README.uk.md) | [فارسی](README.iran%28Perusha%29.md) | [العربية](README.ar.md)
 
 Plattformübergreifende GUI-Anwendung (Rust + Tauri) zum Brennen von CD/DVD/Blu-ray und zum Konvertieren von Audio/Video.
 Eine einzige Codebasis; nur die Installer unterscheiden sich je nach Betriebssystem.
