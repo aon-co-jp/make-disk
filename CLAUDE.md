@@ -1,5 +1,8 @@
 # 開発方針＆開発環境ルール(make-disk)
 
+**言語 / Languages**: 日本語(このページ・正本) | [English](CLAUDE/CLAUDE.en.md) | [简体中文](CLAUDE/CLAUDE.zh-CN.md) | [繁體中文(台灣)](CLAUDE/CLAUDE.zh-TW.md) | [한국어](CLAUDE/CLAUDE.ko.md) | [Deutsch](CLAUDE/CLAUDE.de.md)
+(多言語版は要約です。全文・履歴は日本語版が正本 / The translations are summaries; this Japanese file is the full, authoritative version.)
+
 全リポジトリ共通の開発ルール(自動継続・検証徹底等)は
 [`open-raid-z`](https://github.com/aon-co-jp/open-raid-z)の`CLAUDE.md`を
 正本として参照すること。この節では本リポジトリ固有の事項のみ記す。
@@ -1218,3 +1221,12 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
 - **2026-09-19続き19 / Continued 19 — MKVの複数音声・字幕トラック対応**: `engine/mkv_tracks.rs`新設。(1) 出力が`.mkv`のとき既定で元ファイルの全映像/音声/字幕/添付を保持(`-map 0:v? 0:a? 0:s? 0:t?` + `-c:s copy`。ffmpegは`-map`省略だと各1本しか選ばないため二重音声・複数字幕が失われていた)。(2) 別ファイルの音声(wav/flac/mka/ac3等)・字幕(srt/ass/vtt/sup等)を、言語コード(jpn/eng…)・タイトル付きの追加トラックとして多重化(`ConvertJob.extra_tracks`、追加入力の`-i`は出力側`-t`より前に置く、トリミング時は各入力に同じ`-ss`)。UI: 「4.4. MKVの複数音声・字幕トラック」(全保持チェック+音声/字幕追加+言語・タイトル入力)。追加トラックはソース先頭ファイルのMKV出力のみに付く。実ffmpegのテスト2本(既定で音声2+字幕1が残る/オフで既定に戻る、追加音声(fra,Commentary)+字幕(eng)で音声3+字幕2・言語タグ確認)+単体5本が通過。スタブUIの操作でMKVジョブにだけ追加トラックが付きMP4には付かないことも確認。限界: AI超解像の中間ファイル経由やカット区間の結合経路では字幕・追加トラックは引き継がれない。 / MKV: keep all source audio/subtitle/attachment tracks by default; mux extra audio/subtitle files with language/title.
 
 - **2026-09-20続き20 / Continued 20 — open-bar / open-mqa-dsd 新設と連携方針**: ユーザー依頼で`aon-co-jp/open-bar`(foobar2000をリスペクトした高音質・高画質プレーヤー、公開)と`aon-co-jp/open-mqa-dsd`(DSF/DSDIFF読み込み・DSD→PCM・DoP、公開)を新設(ローカル`F:\open-bar`・`F:\open-mqa-dsd`)。「MP4動画+DSD音声」などの自由な組み合わせは、MP4/MKVにDSDの入れ場所が無いため**別ファイルのまま組み合わせ、音声を時間の基準に**する(`open-bar`の`Combo`=`.obar.json`)。make-disk側の残作業: 「動画+DSD音声」を書き出す際に映像(MP4等)+`.dsf`+`.obar.json`をセットで出力する機能、ΔΣ変調器(`engine/dsd.rs`)を`open-mqa-dsd`へ切り出し。 / Created open-bar (player) and open-mqa-dsd; video+DSD combos are kept as separate files linked by .obar.json; make-disk should export such sets next.
+
+- **2026-09-23続き21 / Continued 21 — 区間カットの操作不能バグ修正・DSD時PCM廃止・カット/規格上限の再設計**:
+  (1) 「8. 時間指定・トリミング」節に説明文しか無く、編集UIは「1.」のファイル一覧内にしか開かなかったため8.から操作できなかった実バグを修正(8.に対象ファイル選択+編集欄を常設、音声も`<audio>`でプレビュー・「現在位置」取り込み可)。
+  (2) DSD作成時はPCMを一切同時に作らない仕様に変更(PCM companionのチェックと処理を削除、DSDと同時に選ばれたWAV/FLAC/高解像度PCMは自動除外。DoP WAVはDSDデータなので対象外)。
+  (3) 7.5を再設計: 「サイズでカットする？」「時間でカットする？」をYES/NOの排他(必ず一方がYES、既定はサイズ、元データのサイズ基準で先頭から残す)。後処理として「ディスクいっぱいに収める」「AI無音カット」をチェックボックス化。旧「サイズ指定でビットレートを下げる」方式は削除。
+  (4) 7.6「再生規格の上限」を新設(CD 44.1kHz/16bit・DVD-Video 96kHz/24bit 映像9.8Mbps・DVD-Audio 192kHz/24bit・Blu-ray 192kHz/24bit 映像40Mbps・UHD BD 映像100Mbps・PC専用 768kHz/32bit上限なし)。元が上限以下ならアップサンプリングしない判定のため`MediaInfo.audio_sample_rate`を追加。
+  (5) DVDでのフルHDは、DVD-Video規格(最大720×480/576)外で家庭用DVDプレイヤーは自動で解像度を落として再生しないため、現状の注意書きを維持(DVD-Video+フルHDファイル同時収録はユーザー判断で不採用)。
+  (6) README/CLAUDE/PORTINGを多言語化(`README/`・`CLAUDE/`・`PORTING/`フォルダに英・簡体中文・繁體中文・韓・独。CLAUDE/PORTINGは要約版、日本語が正本)。
+  検証: スタブUIのブラウザ操作(8.のカット追加・YES/NO排他・規格一覧表示)、`cargo test --lib probe`成功。**実ファイルでの変換E2E(カット位置・-ar・ビットレート上限)は未実施**。 / Fixed the inoperable cut editor, dropped PCM alongside DSD, redesigned cut-by-size/time + fill-disc + playback-spec limits, added multilingual docs.

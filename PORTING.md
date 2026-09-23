@@ -1,9 +1,26 @@
 # セッション引き継ぎメモ
 
+**言語 / Languages**: 日本語(このページ・正本) | [English](PORTING/PORTING.en.md) | [简体中文](PORTING/PORTING.zh-CN.md) | [繁體中文(台灣)](PORTING/PORTING.zh-TW.md) | [한국어](PORTING/PORTING.ko.md) | [Deutsch](PORTING/PORTING.de.md)
+(多言語版は要約です。全文・履歴は日本語版が正本 / The translations are summaries; this Japanese file is the full, authoritative version.)
+
 このファイルは、複数セッションにまたがる作業の到達点・次回再開ポイントを
 記録する(`open-raid-z`等の他リポジトリのPORTING.md運用に準じる)。
 詳細な技術的発見・方針決定は[`CLAUDE.md`](CLAUDE.md)にあるので、
 ここでは「今どこまで進んでいて、次に何をするか」だけを簡潔に記す。
+
+## 🔁 再開用メッセージ / Resume note (2026-09-23、最新 / latest)
+
+**日本語**: 区間カットが「8.」から操作できなかった実バグを修正、DSD作成時はPCMを作らない仕様へ変更、
+「サイズ/時間でカット(YES/NO排他)」「ディスクいっぱいに収める」「再生規格(CD/DVD/BD/PC)の上限kHz・ビットレート」を実装し、
+README/CLAUDE/PORTINGを多言語化した(詳細は`CLAUDE.md`の「続き21」)。
+
+**次にやること**:
+1. 実ファイルでのE2E: サイズ/時間カットの位置、再生規格選択時の`-ar`・ビット深度・ビットレート上限、ディスクいっぱいの算出。
+2. 下の2026-09-19版「次にやること」(音楽CD書き込み、`rs-*`のオンデマンド取得、動画+DSDのセット書き出し等)は継続。
+
+**English**: Fixed the cut editor that could not be operated from section 8, stopped creating PCM alongside DSD, implemented
+exclusive YES/NO cut-by-size/time, fill-the-disc post-processing and playback-standard (CD/DVD/BD/PC) kHz/bitrate limits, and added multilingual docs.
+**Next**: real-file E2E of those features; the 2026-09-19 list below still applies.
 
 ## 🔁 再開用メッセージ / Resume note (2026-09-19、最新 / latest、v0.1.20+)
 
