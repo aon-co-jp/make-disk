@@ -98,8 +98,8 @@ One codebase; only the installers differ per OS.
   choices narrow by disc direction (BD→DVD: standard DVD resolution or Full HD; DVD→BD: Full HD or 4K).
 - **High-resolution PCM (for R-2R / multi-bit DACs)**: 352.8 kHz / 384 kHz (24- and 32-bit) and 705.6 kHz / 768 kHz (32-bit) WAV, using the best
   available resampler (soxr, else a high-precision swresample setup) with TPDF dither. Measured SNR against an exact reference sine:
-  352.8 kHz/24-bit = 141.2 dB, 384 kHz/32-bit = 150.2 dB. Since DSD is 1-bit by definition, a PCM companion (FLAC 24-bit/352.8 kHz) can be
-  written next to it for devices without DSD (chosen at playback, not an in-file fallback). Measured DSD round-trip SNR: DSD64 = 99.6 dB, DSD128 = 132.4 dB.
+  352.8 kHz/24-bit = 141.2 dB, 384 kHz/32-bit = 150.2 dB. When DSD is created, no PCM is
+  written alongside it (players convert DSD to PCM automatically on hardware without DSD, so PCM would only waste space). Measured DSD round-trip SNR: DSD64 = 99.6 dB, DSD128 = 132.4 dB.
 - **AI super-resolution (video)**: Real-ESRGAN (MIT) as an on-demand plugin (e.g. DVD→4K). Uses the GPU (NCNN-Vulkan) when a Vulkan device works, otherwise our own **Rust CPU implementation** (AVX2+FMA used automatically; output PSNR 42.0 dB against the official GPU implementation) with automatic switching.
 - **AI bandwidth extension (experimental)**: fills in the missing highs of band-limited audio with a trained model (LavaSR, Apache-2.0, run by pure-Rust tract, ~56 MB fetched on first use).
   **The existing band is never modified** and the generated highs are capped by an extrapolation of the input envelope (the raw model output worsened music, hence this design). Measured (music band-limited at 8/12 kHz):
