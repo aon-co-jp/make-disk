@@ -20,6 +20,13 @@ README/CLAUDE/PORTINGを多言語化した(詳細は`CLAUDE.md`の「続き21」
 1. 実ファイルでのE2E(カット変換は実ファイルで確認済み): 再生規格選択時の`-ar`・ビット深度・ビットレート上限、ディスクいっぱいの算出、ブルーレイ再生と同時変換時の体感。
 2. 下の2026-09-19版「次にやること」(音楽CD書き込み、`rs-*`のオンデマンド取得、動画+DSDのセット書き出し等)は継続。
 
+**v0.1.26リリース後の未着手タスク(2026-09-23夜、ユーザー依頼・次回ここから)**:
+1. インストール構成: `%LOCALAPPDATA%\open-easy-web\`を一番上にし、その下に`make-disk`・`aruaru-llm`・`open-web-server`を置く(open-cpu/open-directx/open-cudaはライブラリなのでaruaru-llm・make-diskに組み込みの形。フォルダ単独配置は不要と説明済み、ユーザーの最終判断待ち)。make-disk本体のNSISインストール先変更も含む。
+2. make-diskに「AIエンジン(LLM)」設定画面: aruaru-llm(GitHub Releases v0.2.4のwindows zip)とopen-web-server(v0.1.0 zip)を取得・起動/停止、CPU(open-cpu)・メモリ・GPU/VRAM(aruaru-llmの`/v1/recommend`=open-cuda/open-directx)を表示、「推奨/一つ大きい/一つ小さい」LLMのインストール(`/v1/recommend-and-download`・`/v1/models/*`)。**NPUは後回し**(ユーザー指示)。
+3. ローカルのopen-web-serverはaruaru-llmへの窓口(ユーザー決定)。「AIで探す」の接続先もそこへ。
+4. easy-web.tokyoに紹介+リンク。easy-web.tokyo/make-diskのブラウザからも操作可能に。**ローカルにインストール済みならアイコンからもブラウザからもローカル版を優先起動**(`make-disk://`のURLプロトコルをインストーラーで登録)。ブラウザ操作は許可元をeasy-web.tokyoに限定+初回ペアリングコード。
+5. v0.1.26のインストール版で「必要な部分だけ切り出す」をアプリ画面で実機確認(このセッションはデスクトップ操作不可のため、ユーザーに手順を依頼済み。Rust側は同じコードで実ファイル確認済み)。
+
 **English**: Fixed the cut editor that could not be operated from section 8, stopped creating PCM alongside DSD, implemented
 exclusive YES/NO cut-by-size/time, fill-the-disc post-processing and playback-standard (CD/DVD/BD/PC) kHz/bitrate limits, and added multilingual docs.
 **Next**: real-file E2E of those features; the 2026-09-19 list below still applies.
