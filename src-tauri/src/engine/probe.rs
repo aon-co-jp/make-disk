@@ -33,6 +33,10 @@ pub struct MediaInfo {
     pub audio_profile: Option<String>,
     /// 映像にDolby Vision設定(DOVI configuration record)があるか。
     pub dolby_vision: bool,
+    /// 音声ストリームのサンプリング周波数(Hz、2026-09-23新設)。再生規格の上限kHzへ
+    /// 収める際に、元が上限以下ならアップサンプリングしないための判定に使う。
+    #[serde(default)]
+    pub audio_sample_rate: Option<u32>,
 }
 
 pub fn probe(path: &str) -> Result<MediaInfo, String> {
@@ -68,11 +72,12 @@ fn parse_ffprobe_json(stdout: &[u8]) -> Result<MediaInfo, String> {
     let audio_codec = audio.and_then(|a| a["codec_name"].as_str()).map(String::from);
     let audio_channels = audio.and_then(|a| a["channels"].as_u64()).map(|c| c as u32);
     let audio_profile = audio.and_then(|a| a["profile"].as_str()).map(String::from);
+    let audio_sample_rate = audio.and_then(|a| a["sample_rate"].as_str()).and_then(|s| s.parse().ok());
     let width = stream.and_then(|s| s["width"].as_u64()).map(|v| v as u32);
     let height = stream.and_then(|s| s["height"].as_u64()).map(|v| v as u32);
     let fps = stream.and_then(|s| s["r_frame_rate"].as_str()).and_then(parse_frame_rate_fraction);
 
-    Ok(MediaInfo { duration_secs, format_name, bit_rate, width, height, fps, audio_codec, audio_channels, audio_profile, dolby_vision })
+    Ok(MediaInfo { duration_secs, format_name, bit_rate, width, height, fps, audio_codec, audio_channels, audio_profile, dolby_vision, audio_sample_rate })
 }
 
 /// ffprobeの`r_frame_rate`(例: `"30000/1001"`や`"25/1"`)を`f64`に変換する。
@@ -117,6 +122,7 @@ fn probe_with_rs_ffmpeg(path: &str) -> Result<MediaInfo, String> {
         audio_channels: Some(channels as u32),
         audio_profile: None,
         dolby_vision: false,
+        audio_sample_rate: Some(sample_rate as u32),
     })
 }
 

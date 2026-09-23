@@ -301,28 +301,41 @@
       </section>
 
       <section>
-        <h2>7.5. 収まらない分の自動調整方法 / How to fit content that's too long</h2>
+        <h2>7.5. 元データのカット(サイズ/時間) / Cutting the source (size or time)</h2>
         <p class="hint">
-          ディスク容量や目標サイズに収まらない場合、どのように調整するかを選べます。<br />
-          Choose how to handle content that doesn't fit the disc capacity or target size.
+          元データをサイズでカットするか、時間でカットするかを、それぞれYES/NOで選びます。<br />
+          Answer YES/NO for cutting the source by size and by time.
         </p>
-        <label><input type="radio" name="fit-strategy" value="disk_full" checked /> ディスクいっぱいにビットレートを自動調整(既定) / Auto-adjust bitrate to fill the disc (default)</label>
+        <div>元データをサイズでカットする？ / Cut the source by size?
+          <label><input type="radio" name="cut-by-size" value="yes" checked /> YES</label>
+          <label><input type="radio" name="cut-by-size" value="no" /> NO</label>
+          — 1ファイルあたり / per file: <input id="cut-size-mb" type="number" min="1" placeholder="例: 700" style="width:8em" /> MB(先頭から / from the start)
+        </div>
+        <div>元データを時間でカットする？ / Cut the source by time?
+          <label><input type="radio" name="cut-by-time" value="yes" /> YES</label>
+          <label><input type="radio" name="cut-by-time" value="no" checked /> NO</label>
+          — <input id="cut-time-h" type="number" min="0" value="0" style="width:3.5em" />時
+          <input id="cut-time-m" type="number" min="0" value="0" style="width:3.5em" />分
+          <input id="cut-time-s" type="number" min="0" value="0" style="width:3.5em" />秒(先頭から / from the start)
+        </div>
+        <p class="hint">サイズと時間は必ずどちらか一方だけがYESです(片方をYESにするともう片方はNO、NOにするともう片方がYESになります。既定はサイズ)。数値が空欄なら、そのファイルはカットしません。 / Exactly one of size/time is YES (switching one flips the other; size is the default). If the value is left blank, nothing is cut.</p>
+        <p class="hint">サイズでカットする場合は、元データのサイズを基準に、指定サイズに収まる長さだけを先頭から残します。8.で手動のカット区間を指定したファイルは変更しません。 / Cutting by size keeps only as much from the start as fits the given size of the source data. Files with manual cut ranges (section 8) are left untouched.</p>
+
+        <h3>後処理 / Post-processing</h3>
+        <label><input type="checkbox" id="fill-disc" /> ディスクいっぱいに収める(6.で選んだCD / DVD 1〜2層 / Blu-ray 1〜4層の容量に合わせてビットレートを自動調整) / Fill the disc (auto-adjust bitrate to the CD / DVD 1–2 layer / Blu-ray 1–4 layer chosen in section 6)</label>
         <br />
-        <label><input type="radio" name="fit-strategy" value="target_size" /> サイズを指定 / Specify a target size</label>
-        <input id="fit-target-size-mb" type="number" min="1" placeholder="例: 700 (MB) / e.g. 700 (MB)" />
-        <br />
-        <label><input type="radio" name="fit-strategy" value="target_duration" /> 時間を指定(先頭から) / Specify a target duration (from the start)</label>
-        <span>
-          <input id="fit-duration-h" type="number" min="0" value="0" style="width:3.5em" />時
-          <input id="fit-duration-m" type="number" min="0" value="0" style="width:3.5em" />分
-          <input id="fit-duration-s" type="number" min="0" value="0" style="width:3.5em" />秒
-        </span>
-        <br />
-        <label><input type="radio" name="fit-strategy" value="ai_auto_cut" /> AI判断で自動カット(画質・音質への影響が少ない範囲で無音部分等を自動検出して削る) / AI-judged auto-cut (detects low-impact segments like silence and trims them)</label>
+        <label><input type="checkbox" id="ai-auto-cut" /> AI判断で無音部分を自動カット / AI-judged auto-cut of silent parts</label>
         <p class="hint">
           ※「AI判断」はffmpegの無音検出(音量ベース)による近似です。実際の意味的なシーン解析は行いません。<br />
           Note: "AI-judged" is an approximation using ffmpeg's volume-based silence detection — it does not perform true semantic scene analysis.
         </p>
+      </section>
+
+      <section>
+        <h2>7.6. 再生規格の上限(kHz・ビットレート)に収める / Fit within a playback standard's maximum (kHz &amp; bitrate)</h2>
+        <select id="playback-spec"></select>
+        <p id="playback-spec-detail" class="hint"></p>
+        <p class="hint">選んだ規格の最大サンプリング周波数・ビット深度・ビットレートを超えないように変換します(元がそれ以下ならそのまま。アップサンプリングはしません)。上限を超える高解像度PCM/DSDの形式は、家庭用プレーヤーの規格外である旨を表示します。 / Converts so the chosen standard's maximum sample rate, bit depth and bitrate are not exceeded (sources already below are left as is; no upsampling). High-res PCM/DSD formats above the limit are reported as outside the player standard.</p>
       </section>
 
       <section>
