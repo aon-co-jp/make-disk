@@ -60,9 +60,14 @@ pub struct LosslessFitEstimate {
 }
 
 /// [`LosslessFitEstimate`]を計算する。
-pub fn estimate_lossless_audio_fit(disc: DiscType, total_duration_secs: f64, reserved_bytes: u64) -> LosslessFitEstimate {
+pub fn estimate_lossless_audio_fit(
+    disc: DiscType,
+    total_duration_secs: f64,
+    reserved_bytes: u64,
+) -> LosslessFitEstimate {
     let usable_bytes = disc.usable_bytes().saturating_sub(reserved_bytes);
-    let required_bytes = ((total_duration_secs.max(0.0) * LOSSLESS_CD_QUALITY_WAV_BPS as f64) / 8.0) as u64;
+    let required_bytes =
+        ((total_duration_secs.max(0.0) * LOSSLESS_CD_QUALITY_WAV_BPS as f64) / 8.0) as u64;
     LosslessFitEstimate {
         fits: required_bytes <= usable_bytes,
         required_bytes,
@@ -79,7 +84,11 @@ pub fn estimate_lossless_audio_fit(disc: DiscType, total_duration_secs: f64, res
 /// (例: 10時間分を1枚のCD/DVDに収める等)でも、常に「収まる値」まで
 /// ビットレートを下げて返す。品質面の目安は[`quality_warning`]で別途
 /// 判定する。
-pub fn max_bitrate_for_capacity(disc: DiscType, total_duration_secs: f64, reserved_bytes: u64) -> u64 {
+pub fn max_bitrate_for_capacity(
+    disc: DiscType,
+    total_duration_secs: f64,
+    reserved_bytes: u64,
+) -> u64 {
     if total_duration_secs <= 0.0 {
         return 0;
     }
@@ -124,15 +133,31 @@ pub fn quality_warning(bitrate_bps: u64, kind: MediaKind) -> Option<QualityWarni
     let (level, ja, en): (u8, &str, &str) = if ratio >= 0.85 {
         return None;
     } else if ratio >= 0.7 {
-        (1, "ビットレートが下がります。", "The bitrate will be reduced.")
+        (
+            1,
+            "ビットレートが下がります。",
+            "The bitrate will be reduced.",
+        )
     } else if ratio >= 0.4 {
-        (2, "ビットレートが少し下がります。", "The bitrate will be reduced a bit further.")
+        (
+            2,
+            "ビットレートが少し下がります。",
+            "The bitrate will be reduced a bit further.",
+        )
     } else if ratio >= 0.15 {
-        (3, "ビットレートがかなり下がります。", "The bitrate will be reduced considerably.")
+        (
+            3,
+            "ビットレートがかなり下がります。",
+            "The bitrate will be reduced considerably.",
+        )
     } else {
         match kind {
             MediaKind::Audio => (4, "音質が落ちます。", "Audio quality will noticeably drop."),
-            MediaKind::Video => (4, "画質が落ちます。", "Picture quality will noticeably drop."),
+            MediaKind::Video => (
+                4,
+                "画質が落ちます。",
+                "Picture quality will noticeably drop.",
+            ),
         }
     };
 
@@ -175,7 +200,8 @@ mod tests {
         assert!(estimate.max_fitting_duration_secs > 0.0);
 
         // 逆算した秒数ちょうどなら収まるはず(整合性チェック)。
-        let recheck = estimate_lossless_audio_fit(DiscType::Cd700, estimate.max_fitting_duration_secs, 0);
+        let recheck =
+            estimate_lossless_audio_fit(DiscType::Cd700, estimate.max_fitting_duration_secs, 0);
         assert!(recheck.fits);
     }
 

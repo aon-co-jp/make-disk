@@ -27,19 +27,41 @@ pub struct ExtraTrack {
 }
 
 pub fn is_mkv_output(output_path: &str) -> bool {
-    std::path::Path::new(output_path).extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("mkv"))
+    std::path::Path::new(output_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("mkv"))
 }
 
 /// 言語コード・タイトルに使える文字か(ffmpegの`-metadata`値としてそのまま渡すので、制御文字だけ弾く)。
 fn clean(s: &str) -> String {
-    s.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string()
+    s.chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .to_string()
 }
 
 /// 指定ファイルの音声(`a`)または字幕(`s`)ストリーム数を実ffprobeで数える。
 pub fn count_streams(path: &str, kind: char) -> usize {
-    let out = resolve_tool("ffprobe").args(["-v", "error", "-select_streams", &kind.to_string(), "-show_entries", "stream=index", "-of", "csv=p=0", path]).output();
+    let out = resolve_tool("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            &kind.to_string(),
+            "-show_entries",
+            "stream=index",
+            "-of",
+            "csv=p=0",
+            path,
+        ])
+        .output();
     match out {
-        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).lines().filter(|l| !l.trim().is_empty()).count(),
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count(),
         _ => 0,
     }
 }
@@ -61,7 +83,12 @@ pub fn extra_input_args(extras: &[ExtraTrack], trim_start: Option<f64>) -> Vec<S
 /// `-map`・`-c:s`・トラックのメタデータ引数を作る。
 /// - `keep_source_all`: 主入力(入力0)の映像/音声/字幕/添付をすべてマップする(`-map`を既に含む場合は不要)。
 /// - `existing_audio` / `existing_subs`: 主入力に元々ある音声・字幕の本数(追加トラックのメタデータ添字の計算に使う)。
-pub fn map_args(extras: &[ExtraTrack], keep_source_all: bool, existing_audio: usize, existing_subs: usize) -> Vec<String> {
+pub fn map_args(
+    extras: &[ExtraTrack],
+    keep_source_all: bool,
+    existing_audio: usize,
+    existing_subs: usize,
+) -> Vec<String> {
     let mut a: Vec<String> = Vec::new();
     if keep_source_all {
         for m in ["0:v?", "0:a?", "0:s?", "0:t?"] {
@@ -108,7 +135,12 @@ mod tests {
     use super::*;
 
     fn extra(kind: &str, lang: Option<&str>, title: Option<&str>) -> ExtraTrack {
-        ExtraTrack { path: "x".into(), kind: kind.into(), language: lang.map(String::from), title: title.map(String::from) }
+        ExtraTrack {
+            path: "x".into(),
+            kind: kind.into(),
+            language: lang.map(String::from),
+            title: title.map(String::from),
+        }
     }
 
     #[test]
@@ -119,11 +151,30 @@ mod tests {
 
     #[test]
     fn map_args_keep_all_sources_and_number_extra_tracks_after_the_existing_ones() {
-        let a = map_args(&[extra("audio", Some("eng"), Some("Commentary")), extra("subtitle", Some("jpn"), None)], true, 2, 1);
+        let a = map_args(
+            &[
+                extra("audio", Some("eng"), Some("Commentary")),
+                extra("subtitle", Some("jpn"), None),
+            ],
+            true,
+            2,
+            1,
+        );
         let joined = a.join(" ");
-        assert!(joined.starts_with("-map 0:v? -map 0:a? -map 0:s? -map 0:t? -c:s copy"), "{joined}");
-        assert!(joined.contains("-map 1:a:0 -metadata:s:a:2 language=eng -metadata:s:a:2 title=Commentary"), "既存音声2本の次(添字2): {joined}");
-        assert!(joined.contains("-map 2:s:0 -metadata:s:s:1 language=jpn"), "既存字幕1本の次(添字1): {joined}");
+        assert!(
+            joined.starts_with("-map 0:v? -map 0:a? -map 0:s? -map 0:t? -c:s copy"),
+            "{joined}"
+        );
+        assert!(
+            joined.contains(
+                "-map 1:a:0 -metadata:s:a:2 language=eng -metadata:s:a:2 title=Commentary"
+            ),
+            "既存音声2本の次(添字2): {joined}"
+        );
+        assert!(
+            joined.contains("-map 2:s:0 -metadata:s:s:1 language=jpn"),
+            "既存字幕1本の次(添字1): {joined}"
+        );
     }
 
     #[test]
@@ -134,8 +185,16 @@ mod tests {
 
     #[test]
     fn control_characters_are_stripped_from_metadata() {
-        let a = map_args(&[extra("audio", Some("jp\nn"), Some("a\u{0}b"))], false, 0, 0);
-        assert!(a.contains(&"language=jpn".to_string()) && a.contains(&"title=ab".to_string()), "{a:?}");
+        let a = map_args(
+            &[extra("audio", Some("jp\nn"), Some("a\u{0}b"))],
+            false,
+            0,
+            0,
+        );
+        assert!(
+            a.contains(&"language=jpn".to_string()) && a.contains(&"title=ab".to_string()),
+            "{a:?}"
+        );
     }
 
     #[test]

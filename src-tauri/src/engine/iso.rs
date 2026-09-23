@@ -29,10 +29,22 @@ pub fn create_iso(source_dir: &str, output_iso: &str, volume_label: &str) -> Res
         return Ok(());
     }
     let build_args = || -> Vec<String> {
-        ["-as", "mkisofs", "-iso-level", "3", "-J", "-R", "-V", volume_label, "-o", output_iso, source_dir]
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
+        [
+            "-as",
+            "mkisofs",
+            "-iso-level",
+            "3",
+            "-J",
+            "-R",
+            "-V",
+            volume_label,
+            "-o",
+            output_iso,
+            source_dir,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
     };
 
     match resolve_tool("xorriso").args(build_args()).output() {
@@ -79,7 +91,10 @@ mod tests {
             // どちらの経路になるかは環境依存)。
             return;
         }
-        assert!(result.unwrap_err().contains("xorriso"), "エラーメッセージにxorriso関連の説明が含まれるはず");
+        assert!(
+            result.unwrap_err().contains("xorriso"),
+            "エラーメッセージにxorriso関連の説明が含まれるはず"
+        );
     }
 
     /// 実際にビルドした`rs-xorriso`バイナリを実行ファイルの隣へ配置し、
@@ -90,7 +105,8 @@ mod tests {
     /// スキップする。
     #[test]
     fn create_iso_actually_succeeds_via_a_real_bundled_rs_xorriso_binary() {
-        let rs_xorriso_release = std::path::PathBuf::from("F:\\rs-xorriso\\target\\release\\rs-xorriso.exe");
+        let rs_xorriso_release =
+            std::path::PathBuf::from("F:\\rs-xorriso\\target\\release\\rs-xorriso.exe");
         if !rs_xorriso_release.is_file() {
             eprintln!("F:\\rs-xorriso のリリースビルドが無いためスキップ / skipping: build rs-xorriso first");
             return;
@@ -99,9 +115,11 @@ mod tests {
         let exe = std::env::current_exe().unwrap();
         let dir = exe.parent().unwrap().to_path_buf();
         let sidecar_path = dir.join(format!("rs-xorriso{}", std::env::consts::EXE_SUFFIX));
-        std::fs::copy(&rs_xorriso_release, &sidecar_path).expect("failed to place rs-xorriso sidecar next to the test binary");
+        std::fs::copy(&rs_xorriso_release, &sidecar_path)
+            .expect("failed to place rs-xorriso sidecar next to the test binary");
 
-        let tmp = std::env::temp_dir().join(format!("make-disk-test-iso-real-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("make-disk-test-iso-real-{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         std::fs::write(tmp.join("dummy.txt"), b"hello").unwrap();
         let output_iso = tmp.join("output.iso");
@@ -113,7 +131,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
 
         result.expect("create_iso should succeed via the bundled rs-xorriso fallback when real xorriso is absent");
-        assert!(iso_exists, "rs-xorrisoが実際にISOファイルを書き出しているはず");
+        assert!(
+            iso_exists,
+            "rs-xorrisoが実際にISOファイルを書き出しているはず"
+        );
     }
 
     /// 実フォルダ(`MAKE_DISK_ISO_SRC`)から実ISO(`MAKE_DISK_ISO_OUT`)を作り、サイズを表示する手動確認用。
@@ -123,6 +144,9 @@ mod tests {
         let src = std::env::var("MAKE_DISK_ISO_SRC").expect("set MAKE_DISK_ISO_SRC");
         let out = std::env::var("MAKE_DISK_ISO_OUT").expect("set MAKE_DISK_ISO_OUT");
         create_iso(&src, &out, "DSD256").unwrap();
-        eprintln!("ISOサイズ: {} バイト", std::fs::metadata(&out).unwrap().len());
+        eprintln!(
+            "ISOサイズ: {} バイト",
+            std::fs::metadata(&out).unwrap().len()
+        );
     }
 }

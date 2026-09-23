@@ -65,7 +65,9 @@ pub fn plugin_dir() -> Option<PathBuf> {
     } else if cfg!(target_os = "macos") {
         std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support"))
     } else {
-        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
     }?;
     Some(base.join("make-disk").join("plugins"))
 }
@@ -80,23 +82,51 @@ pub fn sync_plugins(bundled_dir: &Path, plugin_dir: &Path) -> Vec<PluginStatus> 
             let version_file = plugin_dir.join(format!("{name}.version"));
 
             let Ok(bytes) = std::fs::read(&bundled) else {
-                let version = std::fs::read_to_string(&version_file).ok().map(|s| s.trim().to_string());
-                return PluginStatus { name: name.to_string(), version, action: PluginAction::NotBundled, path: installed.is_file().then(|| installed.to_string_lossy().to_string()) };
+                let version = std::fs::read_to_string(&version_file)
+                    .ok()
+                    .map(|s| s.trim().to_string());
+                return PluginStatus {
+                    name: name.to_string(),
+                    version,
+                    action: PluginAction::NotBundled,
+                    path: installed
+                        .is_file()
+                        .then(|| installed.to_string_lossy().to_string()),
+                };
             };
             let version = version_of(&bytes);
-            let existing_version = std::fs::read_to_string(&version_file).ok().map(|s| s.trim().to_string());
+            let existing_version = std::fs::read_to_string(&version_file)
+                .ok()
+                .map(|s| s.trim().to_string());
 
-            let action = if installed.is_file() && existing_version.as_deref() == Some(version.as_str()) {
-                PluginAction::UpToDate
-            } else {
-                let existed = installed.is_file();
-                let result = std::fs::create_dir_all(plugin_dir).and_then(|_| std::fs::write(&installed, &bytes)).and_then(|_| std::fs::write(&version_file, &version));
-                if result.is_err() {
-                    return PluginStatus { name: name.to_string(), version: existing_version, action: PluginAction::NotBundled, path: None };
-                }
-                if existed { PluginAction::Updated } else { PluginAction::Installed }
-            };
-            PluginStatus { name: name.to_string(), version: Some(version), action, path: Some(installed.to_string_lossy().to_string()) }
+            let action =
+                if installed.is_file() && existing_version.as_deref() == Some(version.as_str()) {
+                    PluginAction::UpToDate
+                } else {
+                    let existed = installed.is_file();
+                    let result = std::fs::create_dir_all(plugin_dir)
+                        .and_then(|_| std::fs::write(&installed, &bytes))
+                        .and_then(|_| std::fs::write(&version_file, &version));
+                    if result.is_err() {
+                        return PluginStatus {
+                            name: name.to_string(),
+                            version: existing_version,
+                            action: PluginAction::NotBundled,
+                            path: None,
+                        };
+                    }
+                    if existed {
+                        PluginAction::Updated
+                    } else {
+                        PluginAction::Installed
+                    }
+                };
+            PluginStatus {
+                name: name.to_string(),
+                version: Some(version),
+                action,
+                path: Some(installed.to_string_lossy().to_string()),
+            }
         })
         .collect()
 }
@@ -126,7 +156,8 @@ mod tests {
     use super::*;
 
     fn tmp(label: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("make-disk-plugins-{label}-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("make-disk-plugins-{label}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -156,7 +187,11 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(50));
         let second = sync_plugins(&bundled, &plugins);
         assert_eq!(second[0].action, PluginAction::UpToDate);
-        assert_eq!(before, std::fs::metadata(&installed).unwrap().modified().unwrap(), "同じ版のプラグインは再コピーされないはず");
+        assert_eq!(
+            before,
+            std::fs::metadata(&installed).unwrap().modified().unwrap(),
+            "同じ版のプラグインは再コピーされないはず"
+        );
 
         // 3回目: 同梱側が新しい版になったら上書き。
         std::fs::write(bundled.join(exe_name("rs-ffmpeg")), b"v2-binary-newer").unwrap();
