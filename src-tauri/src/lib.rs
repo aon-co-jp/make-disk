@@ -23,11 +23,7 @@ fn convert_media(job: ConvertJob) -> Result<(), String> {
 /// 画像認識等の意味的なAI判断ではない(`convert::detect_silence_ranges`
 /// のdocコメント参照)。
 #[tauri::command]
-fn detect_silence_ranges(
-    path: String,
-    silence_threshold_db: f64,
-    min_silence_secs: f64,
-) -> Result<Vec<convert::SilenceRange>, String> {
+fn detect_silence_ranges(path: String, silence_threshold_db: f64, min_silence_secs: f64) -> Result<Vec<convert::SilenceRange>, String> {
     convert::detect_silence_ranges(&path, silence_threshold_db, min_silence_secs)
 }
 
@@ -52,11 +48,7 @@ fn check_bitrate_quality(bitrate_kbps: u64, kind: MediaKind) -> Option<QualityWa
 /// 指定ディスクに収まるかどうか、収まらない場合は代わりに何秒までなら
 /// 収まるかを算出する。
 #[tauri::command]
-fn estimate_lossless_audio_fit(
-    disc: DiscType,
-    total_duration_secs: f64,
-    reserved_bytes: u64,
-) -> capacity::LosslessFitEstimate {
+fn estimate_lossless_audio_fit(disc: DiscType, total_duration_secs: f64, reserved_bytes: u64) -> capacity::LosslessFitEstimate {
     capacity::estimate_lossless_audio_fit(disc, total_duration_secs, reserved_bytes)
 }
 
@@ -65,12 +57,7 @@ fn estimate_lossless_audio_fit(
 /// 記載の通り、現時点ではpoppler-utils(`pdftoppm`/`pdfinfo`)が
 /// 実行環境のPATHに存在する必要がある(まだsidecar同梱は未対応)。
 #[tauri::command]
-fn convert_pdf_to_spreads(
-    pdf_path: String,
-    output_dir: String,
-    binding: BindingDirection,
-    max_dimension: u32,
-) -> Result<Vec<String>, String> {
+fn convert_pdf_to_spreads(pdf_path: String, output_dir: String, binding: BindingDirection, max_dimension: u32) -> Result<Vec<String>, String> {
     // ユーザー指示「最大4Kの見開きPDF対応」通り、4Kを超える指定は常に4Kへ丸める。
     let clamped = max_dimension.min(pdf::MAX_4K_DIMENSION);
     pdf::render_pdf_as_spreads(&pdf_path, &output_dir, binding, clamped)
@@ -90,22 +77,8 @@ fn ai_upscale_cpu_kernel() -> String {
 
 /// 画像1枚をAI超解像する(GPUがあればGPU、無ければCPU版)。初回のみプラグイン(約45MB)をダウンロードする。
 #[tauri::command]
-fn ai_upscale_image(
-    input: String,
-    output: String,
-    model: String,
-    scale: u32,
-    backend: Option<String>,
-) -> Result<(), String> {
-    engine::ai_upscale::upscale_image(
-        &input,
-        &output,
-        &engine::ai_upscale::AiUpscale {
-            model,
-            scale,
-            backend: backend.unwrap_or_else(|| "auto".to_string()),
-        },
-    )
+fn ai_upscale_image(input: String, output: String, model: String, scale: u32, backend: Option<String>) -> Result<(), String> {
+    engine::ai_upscale::upscale_image(&input, &output, &engine::ai_upscale::AiUpscale { model, scale, backend: backend.unwrap_or_else(|| "auto".to_string()) })
 }
 
 /// フォルダ内の全ファイルの合計サイズ(バイト)。ISO化・書き込みの前にディスク容量へ収まるか確かめるために使う。
@@ -116,11 +89,7 @@ fn folder_size_bytes(path: String) -> Result<u64, String> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let meta = entry.metadata()?;
-            total += if meta.is_dir() {
-                walk(&entry.path())?
-            } else {
-                meta.len()
-            };
+            total += if meta.is_dir() { walk(&entry.path())? } else { meta.len() };
         }
         Ok(total)
     }
@@ -135,11 +104,7 @@ fn disc_usable_bytes(disc: DiscType) -> u64 {
 
 /// 複数の音声/動画ファイルを結合(合成)する(2026-09-16新設)。
 #[tauri::command]
-fn concat_media_files(
-    input_paths: Vec<String>,
-    output_path: String,
-    has_video: bool,
-) -> Result<(), String> {
+fn concat_media_files(input_paths: Vec<String>, output_path: String, has_video: bool) -> Result<(), String> {
     convert::concat_media(&input_paths, &output_path, has_video)
 }
 
@@ -167,11 +132,7 @@ fn rebind_pdfs(pdf_paths: Vec<String>, output_dir: String) -> Vec<Result<String,
     pdf_paths
         .into_iter()
         .map(|input_path| {
-            let stem = std::path::Path::new(&input_path)
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("output")
-                .to_string();
+            let stem = std::path::Path::new(&input_path).file_stem().and_then(|s| s.to_str()).unwrap_or("output").to_string();
             let output_path = format!("{output_dir}/{stem}-rebind.pdf");
             pdf::reverse_pdf_page_order(&input_path, &output_path).map(|_| output_path)
         })
@@ -184,12 +145,7 @@ fn create_iso(source_dir: String, output_iso: String, volume_label: String) -> R
 }
 
 #[tauri::command]
-fn burn_image(
-    image_path: String,
-    device: String,
-    disc: DiscType,
-    speed: WriteSpeed,
-) -> Result<(), String> {
+fn burn_image(image_path: String, device: String, disc: DiscType, speed: WriteSpeed) -> Result<(), String> {
     burn::burn_image(&image_path, &device, disc, speed)
 }
 
@@ -212,12 +168,7 @@ fn list_cd_tracks(drive: String) -> Result<Vec<engine::cdda::TrackInfo>, String>
 
 /// 音楽CDのトラックをWAV(16bit/44.1kHz)として取り込む。`secure`なら各区間を2回読んで一致確認する。
 #[tauri::command]
-fn rip_cd_tracks(
-    drive: String,
-    tracks: Vec<u8>,
-    output_dir: String,
-    secure: bool,
-) -> Result<Vec<String>, String> {
+fn rip_cd_tracks(drive: String, tracks: Vec<u8>, output_dir: String, secure: bool) -> Result<Vec<String>, String> {
     engine::cdda::rip_tracks(&drive, &tracks, std::path::Path::new(&output_dir), secure)
 }
 
@@ -230,9 +181,7 @@ fn estimate_cpu_encode_speed() -> CpuEncodeEstimate {
 #[tauri::command]
 async fn pick_output_tree(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_android_folder::AndroidFolderExt;
-    app.android_folder()
-        .pick_output_tree()
-        .map_err(|e| e.to_string())
+    app.android_folder().pick_output_tree().map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -250,9 +199,7 @@ pub fn run() {
     // `tauri-plugin-updater`はモバイル未対応、Android/iOSはストア/APK
     // サイドロードでの更新が前提のため元々対象外)。
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let builder = builder
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init());
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init());
 
     #[cfg(target_os = "android")]
     let builder = builder
@@ -313,7 +260,5 @@ pub fn run() {
         rip_cd_tracks,
     ]);
 
-    builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    builder.run(tauri::generate_context!()).expect("error while running tauri application");
 }
