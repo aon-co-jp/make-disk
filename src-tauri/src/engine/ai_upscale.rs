@@ -59,23 +59,7 @@ pub(crate) fn gpu_usable(exe: &Path) -> bool {
         let (input, output) = (dir.join("in.png"), dir.join("out.png"));
         let ok = image::RgbImage::new(16, 16).save(&input).is_ok()
             && crate::engine::sidecar::background_command(exe)
-                .args([
-                    "-i",
-                    &input.to_string_lossy(),
-                    "-o",
-                    &output.to_string_lossy(),
-                    "-m",
-                    &exe.parent()
-                        .map(|p| p.join("models"))
-                        .unwrap_or_default()
-                        .to_string_lossy(),
-                    "-n",
-                    "realesr-animevideov3",
-                    "-s",
-                    "2",
-                    "-f",
-                    "png",
-                ])
+                .args(["-i", &input.to_string_lossy(), "-o", &output.to_string_lossy(), "-m", &exe.parent().map(|p| p.join("models")).unwrap_or_default().to_string_lossy(), "-n", "realesr-animevideov3", "-s", "2", "-f", "png"])
                 .output()
                 .map(|o| o.status.success())
                 .unwrap_or(false)
@@ -87,10 +71,7 @@ pub(crate) fn gpu_usable(exe: &Path) -> bool {
 
 /// 設定と実機の状況から実行環境を決める。CPUのみのPC(GPU非搭載/Vulkan非対応)ではCPU版へ自動で切り替える。
 fn choose_backend(exe: &Path, up: &AiUpscale) -> Result<Backend, String> {
-    let models = exe
-        .parent()
-        .ok_or("プラグインの場所が不正です")?
-        .join("models");
+    let models = exe.parent().ok_or("プラグインの場所が不正です")?.join("models");
     let cpu_capable = up.model == "realesr-animevideov3";
     match up.backend.as_str() {
         "gpu" => Ok(Backend::Gpu(exe.to_path_buf())),
@@ -109,22 +90,13 @@ fn choose_backend(exe: &Path, up: &AiUpscale) -> Result<Backend, String> {
 }
 
 /// 画像ファイルまたはフォルダ`input`を`output`へ超解像する(選ばれた実行環境で)。
-fn run_backend(
-    backend: &Backend,
-    input: &Path,
-    output: &Path,
-    up: &AiUpscale,
-) -> Result<(), String> {
+fn run_backend(backend: &Backend, input: &Path, output: &Path, up: &AiUpscale) -> Result<(), String> {
     match backend {
         Backend::Gpu(exe) => run_realesrgan(exe, input, output, up),
         Backend::Cpu(model) => {
             if input.is_dir() {
                 std::fs::create_dir_all(output).map_err(|e| e.to_string())?;
-                let mut files: Vec<_> = std::fs::read_dir(input)
-                    .map_err(|e| e.to_string())?
-                    .filter_map(|e| e.ok())
-                    .map(|e| e.path())
-                    .collect();
+                let mut files: Vec<_> = std::fs::read_dir(input).map_err(|e| e.to_string())?.filter_map(|e| e.ok()).map(|e| e.path()).collect();
                 files.sort();
                 for f in files {
                     let name = f.file_name().ok_or("ファイル名が不正です")?;
@@ -156,10 +128,7 @@ fn exe_file_name() -> String {
 
 /// プラグインの展開先(版ごと)。
 fn plugin_root() -> Result<PathBuf, String> {
-    Ok(plugins::plugin_dir()
-        .ok_or("プラグインフォルダを特定できません")?
-        .join("realesrgan")
-        .join(REALESRGAN_VERSION))
+    Ok(plugins::plugin_dir().ok_or("プラグインフォルダを特定できません")?.join("realesrgan").join(REALESRGAN_VERSION))
 }
 
 /// 実行ファイルがあれば(=導入済みなら)そのパスを返す。ネットワークは使わない。
@@ -174,29 +143,18 @@ pub fn ensure_plugin() -> Result<PathBuf, String> {
         return Ok(exe);
     }
     let asset = asset_name()?;
-    let url = format!(
-        "https://github.com/xinntao/Real-ESRGAN/releases/download/{REALESRGAN_VERSION}/{asset}"
-    );
+    let url = format!("https://github.com/xinntao/Real-ESRGAN/releases/download/{REALESRGAN_VERSION}/{asset}");
     let root = plugin_root()?;
-    std::fs::create_dir_all(&root)
-        .map_err(|e| format!("プラグインフォルダを作成できません: {e}"))?;
+    std::fs::create_dir_all(&root).map_err(|e| format!("プラグインフォルダを作成できません: {e}"))?;
 
     let mut bytes: Vec<u8> = Vec::new();
-    let resp = ureq::get(&url)
-        .call()
-        .map_err(|e| format!("Real-ESRGANのダウンロードに失敗しました({url}): {e}"))?;
-    std::io::copy(&mut resp.into_reader(), &mut bytes)
-        .map_err(|e| format!("ダウンロードの読み取りに失敗しました: {e}"))?;
+    let resp = ureq::get(&url).call().map_err(|e| format!("Real-ESRGANのダウンロードに失敗しました({url}): {e}"))?;
+    std::io::copy(&mut resp.into_reader(), &mut bytes).map_err(|e| format!("ダウンロードの読み取りに失敗しました: {e}"))?;
 
-    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes))
-        .map_err(|e| format!("ZIPを開けません: {e}"))?;
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e| format!("ZIPを開けません: {e}"))?;
     for i in 0..zip.len() {
-        let mut entry = zip
-            .by_index(i)
-            .map_err(|e| format!("ZIPの読み取りに失敗しました: {e}"))?;
-        let Some(rel) = entry.enclosed_name() else {
-            continue;
-        };
+        let mut entry = zip.by_index(i).map_err(|e| format!("ZIPの読み取りに失敗しました: {e}"))?;
+        let Some(rel) = entry.enclosed_name() else { continue };
         let dest = root.join(rel);
         if entry.is_dir() {
             std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
@@ -204,8 +162,7 @@ pub fn ensure_plugin() -> Result<PathBuf, String> {
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            let mut out = std::fs::File::create(&dest)
-                .map_err(|e| format!("{}を作成できません: {e}", dest.display()))?;
+            let mut out = std::fs::File::create(&dest).map_err(|e| format!("{}を作成できません: {e}", dest.display()))?;
             std::io::copy(&mut entry, &mut out).map_err(|e| e.to_string())?;
         }
     }
@@ -234,35 +191,15 @@ fn validate(up: &AiUpscale) -> Result<(), String> {
 
 /// `input`(画像ファイルまたはフォルダ)を`output`へAI超解像する。
 fn run_realesrgan(exe: &Path, input: &Path, output: &Path, up: &AiUpscale) -> Result<(), String> {
-    let models = exe
-        .parent()
-        .ok_or("プラグインの場所が不正です")?
-        .join("models");
+    let models = exe.parent().ok_or("プラグインの場所が不正です")?.join("models");
     let out = crate::engine::sidecar::background_command(exe)
-        .args([
-            "-i",
-            &input.to_string_lossy(),
-            "-o",
-            &output.to_string_lossy(),
-            "-m",
-            &models.to_string_lossy(),
-            "-n",
-            &up.model,
-            "-s",
-            &up.scale.to_string(),
-            "-f",
-            "png",
-        ])
+        .args(["-i", &input.to_string_lossy(), "-o", &output.to_string_lossy(), "-m", &models.to_string_lossy(), "-n", &up.model, "-s", &up.scale.to_string(), "-f", "png"])
         .output()
         .map_err(|e| format!("realesrgan-ncnn-vulkanの起動に失敗しました: {e}"))?;
     if !out.status.success() {
         return Err(format!(
             "AI超解像に失敗しました(Vulkan対応GPUが必要です): {}",
-            String::from_utf8_lossy(&out.stderr)
-                .lines()
-                .filter(|l| !l.contains('%'))
-                .collect::<Vec<_>>()
-                .join(" / ")
+            String::from_utf8_lossy(&out.stderr).lines().filter(|l| !l.contains('%')).collect::<Vec<_>>().join(" / ")
         ));
     }
     Ok(())
@@ -278,18 +215,10 @@ pub fn upscale_image(input: &str, output: &str, up: &AiUpscale) -> Result<(), St
 
 /// 動画を、AI超解像済みの映像に元の音声を付けた中間ファイル(`mezzanine`)へ変換する。
 /// `trim`は(開始秒, 長さ秒)。フレームを100枚ずつ処理して都度一時ファイルを削除する。
-pub fn make_upscaled_mezzanine(
-    input: &str,
-    trim: Option<(Option<f64>, Option<f64>)>,
-    up: &AiUpscale,
-    mezzanine: &Path,
-) -> Result<(), String> {
+pub fn make_upscaled_mezzanine(input: &str, trim: Option<(Option<f64>, Option<f64>)>, up: &AiUpscale, mezzanine: &Path) -> Result<(), String> {
     validate(up)?;
     let info = crate::engine::probe::probe(input)?;
-    let fps = info
-        .fps
-        .filter(|f| *f > 0.0)
-        .ok_or("入力に映像が見つかりません(フレームレートを取得できません)")?;
+    let fps = info.fps.filter(|f| *f > 0.0).ok_or("入力に映像が見つかりません(フレームレートを取得できません)")?;
     let (start, dur) = trim.unwrap_or((None, None));
     let seconds = dur.unwrap_or((info.duration_secs - start.unwrap_or(0.0)).max(0.0));
     let est_frames = (seconds * fps).ceil() as u64;
@@ -301,14 +230,10 @@ pub fn make_upscaled_mezzanine(
     let exe = ensure_plugin()?;
     let backend = choose_backend(&exe, up)?;
 
-    let work = mezzanine
-        .parent()
-        .unwrap_or(Path::new("."))
-        .join(format!(".make-disk-ai-{}", std::process::id()));
+    let work = mezzanine.parent().unwrap_or(Path::new(".")).join(format!(".make-disk-ai-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     let frames_in = work.join("in");
-    std::fs::create_dir_all(&frames_in)
-        .map_err(|e| format!("作業フォルダを作成できません: {e}"))?;
+    std::fs::create_dir_all(&frames_in).map_err(|e| format!("作業フォルダを作成できません: {e}"))?;
     let cleanup = |w: &Path| {
         let _ = std::fs::remove_dir_all(w);
     };
@@ -323,27 +248,13 @@ pub fn make_upscaled_mezzanine(
     if let Some(d) = dur {
         cmd.args(["-t", &d.to_string()]);
     }
-    cmd.args([
-        "-an",
-        "-fps_mode",
-        "passthrough",
-        &frames_in.join("%08d.png").to_string_lossy(),
-    ]);
-    let out = cmd
-        .output()
-        .map_err(|e| format!("ffmpegの起動に失敗しました: {e}"))?;
+    cmd.args(["-an", "-fps_mode", "passthrough", &frames_in.join("%08d.png").to_string_lossy()]);
+    let out = cmd.output().map_err(|e| format!("ffmpegの起動に失敗しました: {e}"))?;
     if !out.status.success() {
         cleanup(&work);
-        return Err(format!(
-            "フレームの展開に失敗しました: {}",
-            String::from_utf8_lossy(&out.stderr)
-        ));
+        return Err(format!("フレームの展開に失敗しました: {}", String::from_utf8_lossy(&out.stderr)));
     }
-    let mut names: Vec<_> = std::fs::read_dir(&frames_in)
-        .map_err(|e| e.to_string())?
-        .filter_map(|e| e.ok())
-        .map(|e| e.file_name())
-        .collect();
+    let mut names: Vec<_> = std::fs::read_dir(&frames_in).map_err(|e| e.to_string())?.filter_map(|e| e.ok()).map(|e| e.file_name()).collect();
     names.sort();
     if names.is_empty() {
         cleanup(&work);
@@ -355,13 +266,10 @@ pub fn make_upscaled_mezzanine(
     for (ci, chunk) in names.chunks(CHUNK_FRAMES).enumerate() {
         let cin = work.join(format!("c{ci}_in"));
         let cout = work.join(format!("c{ci}_out"));
-        std::fs::create_dir_all(&cin)
-            .and_then(|_| std::fs::create_dir_all(&cout))
-            .map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(&cin).and_then(|_| std::fs::create_dir_all(&cout)).map_err(|e| e.to_string())?;
         for (i, n) in chunk.iter().enumerate() {
             // 連番を0始まりにそろえて、ffmpegの入力パターンを単純にする。
-            std::fs::rename(frames_in.join(n), cin.join(format!("{i:08}.png")))
-                .map_err(|e| e.to_string())?;
+            std::fs::rename(frames_in.join(n), cin.join(format!("{i:08}.png"))).map_err(|e| e.to_string())?;
         }
         if let Err(e) = run_backend(&backend, &cin, &cout, up) {
             cleanup(&work);
@@ -369,27 +277,14 @@ pub fn make_upscaled_mezzanine(
         }
         let video = work.join(format!("chunk_{ci}.mkv"));
         let enc = resolve_tool("ffmpeg")
-            .args([
-                "-v",
-                "error",
-                "-y",
-                "-framerate",
-                &fps.to_string(),
-                "-i",
-                &cout.join("%08d.png").to_string_lossy(),
-            ])
-            .args([
-                "-c:v", "libx264", "-crf", "12", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-            ])
+            .args(["-v", "error", "-y", "-framerate", &fps.to_string(), "-i", &cout.join("%08d.png").to_string_lossy()])
+            .args(["-c:v", "libx264", "-crf", "12", "-preset", "veryfast", "-pix_fmt", "yuv420p"])
             .arg(&video)
             .output()
             .map_err(|e| format!("ffmpegの起動に失敗しました: {e}"))?;
         if !enc.status.success() {
             cleanup(&work);
-            return Err(format!(
-                "中間動画の作成に失敗しました: {}",
-                String::from_utf8_lossy(&enc.stderr)
-            ));
+            return Err(format!("中間動画の作成に失敗しました: {}", String::from_utf8_lossy(&enc.stderr)));
         }
         let _ = std::fs::remove_dir_all(&cin);
         let _ = std::fs::remove_dir_all(&cout);
@@ -397,59 +292,23 @@ pub fn make_upscaled_mezzanine(
     }
 
     // 3) 中間動画を結合し、元の音声(同じトリミング)を付ける。
-    let list: String = chunk_videos
-        .iter()
-        .map(|p| {
-            format!(
-                "file '{}'\n",
-                p.to_string_lossy()
-                    .replace('\\', "/")
-                    .replace('\'', "'\\''")
-            )
-        })
-        .collect();
+    let list: String = chunk_videos.iter().map(|p| format!("file '{}'\n", p.to_string_lossy().replace('\\', "/").replace('\'', "'\\''"))).collect();
     let list_path = work.join("list.txt");
     std::fs::write(&list_path, list).map_err(|e| e.to_string())?;
     let mut mux = resolve_tool("ffmpeg");
-    mux.args([
-        "-v",
-        "error",
-        "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        &list_path.to_string_lossy(),
-    ]);
+    mux.args(["-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", &list_path.to_string_lossy()]);
     if let Some(s) = start {
         mux.args(["-ss", &s.to_string()]);
     }
     if let Some(d) = dur {
         mux.args(["-t", &d.to_string()]);
     }
-    mux.args([
-        "-i",
-        input,
-        "-map",
-        "0:v",
-        "-map",
-        "1:a?",
-        "-c",
-        "copy",
-        "-shortest",
-    ])
-    .arg(mezzanine);
-    let res = mux
-        .output()
-        .map_err(|e| format!("ffmpegの起動に失敗しました: {e}"));
+    mux.args(["-i", input, "-map", "0:v", "-map", "1:a?", "-c", "copy", "-shortest"]).arg(mezzanine);
+    let res = mux.output().map_err(|e| format!("ffmpegの起動に失敗しました: {e}"));
     cleanup(&work);
     let res = res?;
     if !res.status.success() {
-        return Err(format!(
-            "中間ファイルの作成に失敗しました: {}",
-            String::from_utf8_lossy(&res.stderr)
-        ));
+        return Err(format!("中間ファイルの作成に失敗しました: {}", String::from_utf8_lossy(&res.stderr)));
     }
     Ok(())
 }
@@ -460,19 +319,8 @@ mod tests {
 
     #[test]
     fn validates_models_and_scales() {
-        let ok = |m: &str, s: u32| {
-            validate(&AiUpscale {
-                model: m.into(),
-                scale: s,
-                backend: "auto".into(),
-            })
-            .is_ok()
-        };
-        assert!(
-            ok("realesr-animevideov3", 2)
-                && ok("realesr-animevideov3", 4)
-                && ok("realesrgan-x4plus", 4)
-        );
+        let ok = |m: &str, s: u32| validate(&AiUpscale { model: m.into(), scale: s, backend: "auto".into() }).is_ok();
+        assert!(ok("realesr-animevideov3", 2) && ok("realesr-animevideov3", 4) && ok("realesrgan-x4plus", 4));
         assert!(!ok("realesr-animevideov3", 5) && !ok("realesrgan-x4plus", 2) && !ok("unknown", 4));
     }
 
@@ -486,12 +334,7 @@ mod tests {
     /// (Vulkan非対応のPC相当)。ネットワーク(初回のみ)とffmpegが無い環境ではスキップする。
     #[test]
     fn real_ai_upscale_quadruples_a_short_clip_on_the_cpu_backend() {
-        if !Command::new("ffmpeg")
-            .arg("-version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
+        if !Command::new("ffmpeg").arg("-version").output().map(|o| o.status.success()).unwrap_or(false) {
             return;
         }
         if let Err(e) = ensure_plugin() {
@@ -502,68 +345,24 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let src = tmp.join("src.mp4");
         let st = Command::new("ffmpeg")
-            .args([
-                "-y",
-                "-f",
-                "lavfi",
-                "-i",
-                "testsrc=duration=1:size=160x120:rate=3",
-                "-f",
-                "lavfi",
-                "-i",
-                "sine=frequency=440:duration=1",
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-shortest",
-                src.to_str().unwrap(),
-            ])
+            .args(["-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=160x120:rate=3", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", src.to_str().unwrap()])
             .output()
             .unwrap();
         assert!(st.status.success());
         let mezz = tmp.join("mezz.mkv");
-        let up = AiUpscale {
-            model: "realesr-animevideov3".into(),
-            scale: 4,
-            backend: "cpu".into(),
-        };
-        make_upscaled_mezzanine(src.to_str().unwrap(), None, &up, &mezz)
-            .expect("CPU AI upscaling should succeed");
-        let o = Command::new("ffprobe")
-            .args([
-                "-v",
-                "error",
-                "-show_entries",
-                "stream=codec_type,width,height",
-                "-of",
-                "csv=p=0",
-                mezz.to_str().unwrap(),
-            ])
-            .output()
-            .unwrap();
+        let up = AiUpscale { model: "realesr-animevideov3".into(), scale: 4, backend: "cpu".into() };
+        make_upscaled_mezzanine(src.to_str().unwrap(), None, &up, &mezz).expect("CPU AI upscaling should succeed");
+        let o = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_type,width,height", "-of", "csv=p=0", mezz.to_str().unwrap()]).output().unwrap();
         let text = String::from_utf8_lossy(&o.stdout).to_string();
         let _ = std::fs::remove_dir_all(&tmp);
-        assert!(
-            text.contains("640,480"),
-            "160x120が4倍の640x480になるはず(実際: {text})"
-        );
-        assert!(
-            text.contains("audio"),
-            "元の音声が保持されるはず(実際: {text})"
-        );
+        assert!(text.contains("640,480"), "160x120が4倍の640x480になるはず(実際: {text})");
+        assert!(text.contains("audio"), "元の音声が保持されるはず(実際: {text})");
     }
 
     #[test]
     fn x4plus_requires_the_gpu_backend() {
         let exe = std::path::PathBuf::from("dummy");
-        let up = AiUpscale {
-            model: "realesrgan-x4plus".into(),
-            scale: 4,
-            backend: "cpu".into(),
-        };
+        let up = AiUpscale { model: "realesrgan-x4plus".into(), scale: 4, backend: "cpu".into() };
         assert!(choose_backend(&exe, &up).is_err(), "x4plusはCPU版の対象外");
     }
 
@@ -571,12 +370,7 @@ mod tests {
     /// Vulkan対応GPU・ネットワーク(初回のみ約45MBのダウンロード)・ffmpegが無い環境ではスキップする。
     #[test]
     fn real_ai_upscale_quadruples_a_short_clip_on_the_gpu() {
-        if !Command::new("ffmpeg")
-            .arg("-version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
+        if !Command::new("ffmpeg").arg("-version").output().map(|o| o.status.success()).unwrap_or(false) {
             eprintln!("ffmpegが無いためスキップ");
             return;
         }
@@ -588,34 +382,12 @@ mod tests {
         std::fs::create_dir_all(&tmp).unwrap();
         let src = tmp.join("src.mp4");
         let st = Command::new("ffmpeg")
-            .args([
-                "-y",
-                "-f",
-                "lavfi",
-                "-i",
-                "testsrc=duration=1:size=160x120:rate=3",
-                "-f",
-                "lavfi",
-                "-i",
-                "sine=frequency=440:duration=1",
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-shortest",
-                src.to_str().unwrap(),
-            ])
+            .args(["-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=160x120:rate=3", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", src.to_str().unwrap()])
             .output()
             .unwrap();
         assert!(st.status.success());
         let mezz = tmp.join("mezz.mkv");
-        let up = AiUpscale {
-            model: "realesr-animevideov3".into(),
-            scale: 4,
-            backend: "gpu".into(),
-        };
+        let up = AiUpscale { model: "realesr-animevideov3".into(), scale: 4, backend: "gpu".into() };
         let result = make_upscaled_mezzanine(src.to_str().unwrap(), None, &up, &mezz);
         if let Err(e) = &result {
             if e.contains("Vulkan") || e.contains("gpu") {
@@ -625,27 +397,10 @@ mod tests {
             }
         }
         result.expect("AI upscaling should succeed on a Vulkan GPU");
-        let o = Command::new("ffprobe")
-            .args([
-                "-v",
-                "error",
-                "-show_entries",
-                "stream=codec_type,width,height",
-                "-of",
-                "csv=p=0",
-                mezz.to_str().unwrap(),
-            ])
-            .output()
-            .unwrap();
+        let o = Command::new("ffprobe").args(["-v", "error", "-show_entries", "stream=codec_type,width,height", "-of", "csv=p=0", mezz.to_str().unwrap()]).output().unwrap();
         let text = String::from_utf8_lossy(&o.stdout).to_string();
         let _ = std::fs::remove_dir_all(&tmp);
-        assert!(
-            text.contains("640,480"),
-            "160x120が4倍の640x480になるはず(実際: {text})"
-        );
-        assert!(
-            text.contains("audio"),
-            "元の音声が保持されるはず(実際: {text})"
-        );
+        assert!(text.contains("640,480"), "160x120が4倍の640x480になるはず(実際: {text})");
+        assert!(text.contains("audio"), "元の音声が保持されるはず(実際: {text})");
     }
 }

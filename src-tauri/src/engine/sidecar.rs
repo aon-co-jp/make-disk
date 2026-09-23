@@ -132,20 +132,12 @@ mod tests {
         let name = "make-disk-test-fake-sidecar-tool";
         let sidecar_path = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
 
-        std::fs::write(
-            &sidecar_path,
-            b"not a real binary, just needs to exist for is_file()",
-        )
-        .unwrap();
+        std::fs::write(&sidecar_path, b"not a real binary, just needs to exist for is_file()").unwrap();
         let found = find_sidecar(name);
         let cmd = resolve_tool(name); // ファイルがまだ存在するうちに呼ぶこと(削除後だとフォールバックしてしまう)
         let _ = std::fs::remove_file(&sidecar_path); // 掃除は最後に必ず行う
 
-        assert_eq!(
-            found.as_deref(),
-            Some(sidecar_path.as_path()),
-            "find_sidecar should locate the file placed next to the current executable"
-        );
+        assert_eq!(found.as_deref(), Some(sidecar_path.as_path()), "find_sidecar should locate the file placed next to the current executable");
         // 見つかった場合はbareな名前ではなく、フルパスが使われているはず。
         assert!(!format!("{cmd:?}").contains(&format!("\"{name}\"")), "resolve_tool should use the full sidecar path, not the bare name, once a sidecar is found");
     }

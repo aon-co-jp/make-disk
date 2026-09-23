@@ -19,16 +19,9 @@ const CREATE_ISO_PS1: &str = include_str!("scripts/imapi_create_iso.ps1");
 const BURN_PS1: &str = include_str!("scripts/imapi_burn.ps1");
 
 fn run_script(script: &str, args: &[&str]) -> Result<String, String> {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let path = std::env::temp_dir().join(format!(
-        "make-disk-imapi-{}-{nanos}.ps1",
-        std::process::id()
-    ));
-    std::fs::write(&path, script)
-        .map_err(|e| format!("一時スクリプトの作成に失敗しました: {e}"))?;
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let path = std::env::temp_dir().join(format!("make-disk-imapi-{}-{nanos}.ps1", std::process::id()));
+    std::fs::write(&path, script).map_err(|e| format!("一時スクリプトの作成に失敗しました: {e}"))?;
 
     let output = Command::new("powershell.exe")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
@@ -41,32 +34,14 @@ fn run_script(script: &str, args: &[&str]) -> Result<String, String> {
     let output = output.map_err(|e| format!("PowerShellの起動に失敗しました: {e}"))?;
     if !output.status.success() {
         let msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if msg.is_empty() {
-            format!(
-                "PowerShellが失敗しました(終了コード: {:?})",
-                output.status.code()
-            )
-        } else {
-            msg
-        });
+        return Err(if msg.is_empty() { format!("PowerShellが失敗しました(終了コード: {:?})", output.status.code()) } else { msg });
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 /// `source_dir`の内容からISO9660+JolietのISOを作る(Unicodeファイル名を保持)。
 pub fn create_iso(source_dir: &str, output_iso: &str, volume_label: &str) -> Result<(), String> {
-    run_script(
-        CREATE_ISO_PS1,
-        &[
-            "-SourceDir",
-            source_dir,
-            "-OutIso",
-            output_iso,
-            "-Label",
-            volume_label,
-        ],
-    )
-    .map(|_| ())
+    run_script(CREATE_ISO_PS1, &["-SourceDir", source_dir, "-OutIso", output_iso, "-Label", volume_label]).map(|_| ())
 }
 
 /// ISOを`drive`(例: `"D:"`)の空きメディアへ書き込み、成功後に排出する。
@@ -98,10 +73,7 @@ mod tests {
 
         result.expect("IMAPI2FS ISO creation should succeed");
         // Jolietは名前をUTF-16BEで保持する。「龍」=U+9F8D,「神」=U+795E。
-        assert!(
-            bytes.windows(4).any(|w| w == [0x9F, 0x8D, 0x79, 0x5E]),
-            "日本語ファイル名がISOに保持されているはず"
-        );
+        assert!(bytes.windows(4).any(|w| w == [0x9F, 0x8D, 0x79, 0x5E]), "日本語ファイル名がISOに保持されているはず");
     }
 
     #[test]
@@ -134,12 +106,7 @@ mod tests {
 
 #[cfg(test)]
 mod full_flow {
-    use crate::engine::{
-        burn,
-        capacity::{self, DiscType},
-        convert::{self, BitrateMode, ConvertJob},
-        iso, probe,
-    };
+    use crate::engine::{burn, capacity::{self, DiscType}, convert::{self, BitrateMode, ConvertJob}, iso, probe};
 
     /// 手動E2E(`--ignored`): MP4→(CD容量いっぱいの音声)→ISO→書き込み。
     /// GUIの実行ボタンと同じバックエンド関数を同じ順に呼ぶ。
@@ -153,18 +120,10 @@ mod full_flow {
 
         let info = probe::probe(&src).expect("probe");
         eprintln!("source duration: {:.1}s", info.duration_secs);
-        let kbps = capacity::max_bitrate_for_capacity(
-            DiscType::Cd700,
-            info.duration_secs,
-            50 * 1024 * 1024,
-        ) / 1000;
+        let kbps = capacity::max_bitrate_for_capacity(DiscType::Cd700, info.duration_secs, 50 * 1024 * 1024) / 1000;
         eprintln!("disc-full audio bitrate: {kbps} kbps");
 
-        let stem = std::path::Path::new(&src)
-            .file_stem()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
+        let stem = std::path::Path::new(&src).file_stem().unwrap().to_string_lossy().to_string();
         let audio = format!("{out}/{stem}.aac");
         convert::run_convert(&ConvertJob {
             input_path: src.clone(),
@@ -196,13 +155,7 @@ mod full_flow {
 
         let drives = burn::list_devices().expect("list_devices");
         eprintln!("drives: {drives:?}");
-        burn::burn_image(
-            &iso_path,
-            &drives[0],
-            DiscType::Cd700,
-            burn::WriteSpeed::Auto,
-        )
-        .expect("burn");
+        burn::burn_image(&iso_path, &drives[0], DiscType::Cd700, burn::WriteSpeed::Auto).expect("burn");
         eprintln!("BURN OK");
     }
 }

@@ -42,12 +42,9 @@ pub struct MediaInfo {
 pub fn probe(path: &str) -> Result<MediaInfo, String> {
     match resolve_tool("ffprobe")
         .args([
-            "-v",
-            "error",
-            "-show_format",
-            "-show_streams",
-            "-of",
-            "json",
+            "-v", "error",
+            "-show_format", "-show_streams",
+            "-of", "json",
             path,
         ])
         .output()
@@ -59,18 +56,11 @@ pub fn probe(path: &str) -> Result<MediaInfo, String> {
 }
 
 fn parse_ffprobe_json(stdout: &[u8]) -> Result<MediaInfo, String> {
-    let json: serde_json::Value = serde_json::from_slice(stdout)
-        .map_err(|e| format!("ffprobe出力の解析に失敗しました: {e}"))?;
+    let json: serde_json::Value = serde_json::from_slice(stdout).map_err(|e| format!("ffprobe出力の解析に失敗しました: {e}"))?;
 
     let format = &json["format"];
-    let duration_secs: f64 = format["duration"]
-        .as_str()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.0);
-    let format_name = format["format_name"]
-        .as_str()
-        .unwrap_or("unknown")
-        .to_string();
+    let duration_secs: f64 = format["duration"].as_str().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+    let format_name = format["format_name"].as_str().unwrap_or("unknown").to_string();
     let bit_rate = format["bit_rate"].as_str().and_then(|s| s.parse().ok());
 
     let streams = json["streams"].as_array().cloned().unwrap_or_default();
@@ -78,40 +68,16 @@ fn parse_ffprobe_json(stdout: &[u8]) -> Result<MediaInfo, String> {
     let audio = streams.iter().find(|s| s["codec_type"] == "audio");
     let dolby_vision = stream
         .and_then(|s| s["side_data_list"].as_array())
-        .is_some_and(|l| {
-            l.iter().any(|d| {
-                d["side_data_type"]
-                    .as_str()
-                    .is_some_and(|t| t.contains("DOVI"))
-            })
-        });
-    let audio_codec = audio
-        .and_then(|a| a["codec_name"].as_str())
-        .map(String::from);
+        .is_some_and(|l| l.iter().any(|d| d["side_data_type"].as_str().is_some_and(|t| t.contains("DOVI"))));
+    let audio_codec = audio.and_then(|a| a["codec_name"].as_str()).map(String::from);
     let audio_channels = audio.and_then(|a| a["channels"].as_u64()).map(|c| c as u32);
     let audio_profile = audio.and_then(|a| a["profile"].as_str()).map(String::from);
-    let audio_sample_rate = audio
-        .and_then(|a| a["sample_rate"].as_str())
-        .and_then(|s| s.parse().ok());
+    let audio_sample_rate = audio.and_then(|a| a["sample_rate"].as_str()).and_then(|s| s.parse().ok());
     let width = stream.and_then(|s| s["width"].as_u64()).map(|v| v as u32);
     let height = stream.and_then(|s| s["height"].as_u64()).map(|v| v as u32);
-    let fps = stream
-        .and_then(|s| s["r_frame_rate"].as_str())
-        .and_then(parse_frame_rate_fraction);
+    let fps = stream.and_then(|s| s["r_frame_rate"].as_str()).and_then(parse_frame_rate_fraction);
 
-    Ok(MediaInfo {
-        duration_secs,
-        format_name,
-        bit_rate,
-        width,
-        height,
-        fps,
-        audio_codec,
-        audio_channels,
-        audio_profile,
-        dolby_vision,
-        audio_sample_rate,
-    })
+    Ok(MediaInfo { duration_secs, format_name, bit_rate, width, height, fps, audio_codec, audio_channels, audio_profile, dolby_vision, audio_sample_rate })
 }
 
 /// ffprobeの`r_frame_rate`(例: `"30000/1001"`や`"25/1"`)を`f64`に変換する。
@@ -138,24 +104,12 @@ fn probe_with_rs_ffmpeg(path: &str) -> Result<MediaInfo, String> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let field = |key: &str| -> Option<&str> {
-        stdout
-            .split_whitespace()
-            .find_map(|tok| tok.strip_prefix(&format!("{key}=")))
-    };
+    let field = |key: &str| -> Option<&str> { stdout.split_whitespace().find_map(|tok| tok.strip_prefix(&format!("{key}="))) };
 
-    let sample_rate: u64 = field("sample_rate")
-        .and_then(|s| s.parse().ok())
-        .ok_or("rs-ffmpeg probe出力の解析に失敗しました(sample_rate)")?;
-    let channels: u64 = field("channels")
-        .and_then(|s| s.parse().ok())
-        .ok_or("rs-ffmpeg probe出力の解析に失敗しました(channels)")?;
-    let bits_per_sample: u64 = field("bits_per_sample")
-        .and_then(|s| s.parse().ok())
-        .ok_or("rs-ffmpeg probe出力の解析に失敗しました(bits_per_sample)")?;
-    let duration_secs: f64 = field("duration_secs")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0.0);
+    let sample_rate: u64 = field("sample_rate").and_then(|s| s.parse().ok()).ok_or("rs-ffmpeg probe出力の解析に失敗しました(sample_rate)")?;
+    let channels: u64 = field("channels").and_then(|s| s.parse().ok()).ok_or("rs-ffmpeg probe出力の解析に失敗しました(channels)")?;
+    let bits_per_sample: u64 = field("bits_per_sample").and_then(|s| s.parse().ok()).ok_or("rs-ffmpeg probe出力の解析に失敗しました(bits_per_sample)")?;
+    let duration_secs: f64 = field("duration_secs").and_then(|s| s.parse().ok()).unwrap_or(0.0);
 
     Ok(MediaInfo {
         duration_secs,
@@ -204,19 +158,11 @@ mod tests {
         // このテストはターゲットトリプルの正確な文字列を知る必要が無いよう
         // 単純にプレフィックス一致で探す。
         let find_by_prefix = |prefix: &str| -> Option<std::path::PathBuf> {
-            std::fs::read_dir(&binaries_dir)
-                .ok()?
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .find(|p| {
-                    p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
-                        n.starts_with(prefix) && n.ends_with(std::env::consts::EXE_SUFFIX)
-                    })
-                })
+            std::fs::read_dir(&binaries_dir).ok()?.filter_map(|e| e.ok()).map(|e| e.path()).find(|p| {
+                p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(prefix) && n.ends_with(std::env::consts::EXE_SUFFIX))
+            })
         };
-        let (Some(ffmpeg_src), Some(ffprobe_src)) =
-            (find_by_prefix("ffmpeg-"), find_by_prefix("ffprobe-"))
-        else {
+        let (Some(ffmpeg_src), Some(ffprobe_src)) = (find_by_prefix("ffmpeg-"), find_by_prefix("ffprobe-")) else {
             eprintln!("src-tauri/binaries/にffmpeg/ffprobeが無いためスキップ / skipping: run scripts/fetch-ffmpeg-sidecars.sh first");
             return;
         };
@@ -226,10 +172,8 @@ mod tests {
         // 実行時に探すのはbareな名前(sidecar::find_sidecarと同じ規約)。
         let ffprobe_sidecar = dir.join(format!("ffprobe{}", std::env::consts::EXE_SUFFIX));
         let ffmpeg_sidecar = dir.join(format!("ffmpeg{}", std::env::consts::EXE_SUFFIX));
-        std::fs::copy(&ffprobe_src, &ffprobe_sidecar)
-            .expect("failed to place ffprobe sidecar next to the test binary");
-        std::fs::copy(&ffmpeg_src, &ffmpeg_sidecar)
-            .expect("failed to place ffmpeg sidecar next to the test binary");
+        std::fs::copy(&ffprobe_src, &ffprobe_sidecar).expect("failed to place ffprobe sidecar next to the test binary");
+        std::fs::copy(&ffmpeg_src, &ffmpeg_sidecar).expect("failed to place ffmpeg sidecar next to the test binary");
 
         let cleanup = || {
             let _ = std::fs::remove_file(&ffprobe_sidecar);
@@ -239,30 +183,16 @@ mod tests {
         // 同梱ffmpeg(=ffprobe_sidecarの隣に置いたffmpeg_sidecar自体では
         // なく、上でコピーしたffmpeg_sidecarパス)でごく短いテスト動画を
         // 生成し、それを同梱ffprobeでprobeする。
-        let tmp =
-            std::env::temp_dir().join(format!("make_disk_sidecar_e2e_{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("make_disk_sidecar_e2e_{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         let test_file = tmp.join("sidecar_test.mp4");
         let gen_status = Command::new(&ffmpeg_sidecar)
-            .args([
-                "-y",
-                "-f",
-                "lavfi",
-                "-i",
-                "testsrc=duration=2:size=64x64:rate=5",
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                test_file.to_str().unwrap(),
-            ])
+            .args(["-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=64x64:rate=5", "-c:v", "libx264", "-pix_fmt", "yuv420p", test_file.to_str().unwrap()])
             .output();
         if gen_status.is_err() || !gen_status.as_ref().unwrap().status.success() {
             cleanup();
             let _ = std::fs::remove_dir_all(&tmp);
-            panic!(
-                "failed to generate test fixture with the bundled ffmpeg sidecar: {gen_status:?}"
-            );
+            panic!("failed to generate test fixture with the bundled ffmpeg sidecar: {gen_status:?}");
         }
 
         let result = probe(test_file.to_str().unwrap());
@@ -270,11 +200,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
 
         let info = result.expect("probe() should succeed using the bundled ffprobe sidecar");
-        assert!(
-            (info.duration_secs - 2.0).abs() < 0.5,
-            "expected ~2s duration from the bundled sidecar, got {}",
-            info.duration_secs
-        );
+        assert!((info.duration_secs - 2.0).abs() < 0.5, "expected ~2s duration from the bundled sidecar, got {}", info.duration_secs);
     }
 
     /// 実際にビルドした`rs-ffmpeg`バイナリを実行ファイルの隣へ配置し、
@@ -286,18 +212,12 @@ mod tests {
     /// `F:\rs-FFmpeg`をcloneしてリリースビルド済みでない環境ではスキップする。
     #[test]
     fn probe_with_rs_ffmpeg_actually_parses_a_real_wav_via_the_bundled_binary() {
-        let rs_ffmpeg_release =
-            std::path::PathBuf::from("F:\\rs-FFmpeg\\target\\release\\rs-ffmpeg.exe");
+        let rs_ffmpeg_release = std::path::PathBuf::from("F:\\rs-FFmpeg\\target\\release\\rs-ffmpeg.exe");
         if !rs_ffmpeg_release.is_file() {
             eprintln!("F:\\rs-FFmpeg のリリースビルドが無いためスキップ / skipping: build rs-FFmpeg first");
             return;
         }
-        if !Command::new("ffmpeg")
-            .arg("-version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
+        if !Command::new("ffmpeg").arg("-version").output().map(|o| o.status.success()).unwrap_or(false) {
             eprintln!("ffmpegが見つからないためスキップ(テスト用WAV生成に必要) / skipping: ffmpeg not found (needed to generate the test WAV)");
             return;
         }
@@ -305,30 +225,13 @@ mod tests {
         let exe = std::env::current_exe().unwrap();
         let dir = exe.parent().unwrap().to_path_buf();
         let sidecar_path = dir.join(format!("rs-ffmpeg{}", std::env::consts::EXE_SUFFIX));
-        std::fs::copy(&rs_ffmpeg_release, &sidecar_path)
-            .expect("failed to place rs-ffmpeg sidecar next to the test binary");
+        std::fs::copy(&rs_ffmpeg_release, &sidecar_path).expect("failed to place rs-ffmpeg sidecar next to the test binary");
 
-        let tmp = std::env::temp_dir().join(format!(
-            "make_disk_test_rsffmpeg_probe_{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_rsffmpeg_probe_{}", std::process::id()));
         std::fs::create_dir_all(&tmp).unwrap();
         let wav_path = tmp.join("test.wav");
         let gen_status = Command::new("ffmpeg")
-            .args([
-                "-y",
-                "-f",
-                "lavfi",
-                "-i",
-                "sine=frequency=440:duration=3",
-                "-ar",
-                "44100",
-                "-ac",
-                "2",
-                "-c:a",
-                "pcm_s16le",
-                wav_path.to_str().unwrap(),
-            ])
+            .args(["-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", wav_path.to_str().unwrap()])
             .output();
 
         let result = if gen_status.is_ok() && gen_status.as_ref().unwrap().status.success() {
@@ -341,18 +244,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
 
         let result = result.expect("failed to generate the test WAV fixture with ffmpeg");
-        let info =
-            result.expect("probe_with_rs_ffmpeg should succeed using the bundled rs-ffmpeg binary");
+        let info = result.expect("probe_with_rs_ffmpeg should succeed using the bundled rs-ffmpeg binary");
         assert_eq!(info.format_name, "wav");
-        assert!(
-            (info.duration_secs - 3.0).abs() < 0.2,
-            "expected ~3s duration from rs-ffmpeg probe, got {}",
-            info.duration_secs
-        );
-        assert_eq!(
-            info.bit_rate,
-            Some(44100 * 2 * 16),
-            "非圧縮WAVのビットレートはsample_rate*channels*bits_per_sampleのはず"
-        );
+        assert!((info.duration_secs - 3.0).abs() < 0.2, "expected ~3s duration from rs-ffmpeg probe, got {}", info.duration_secs);
+        assert_eq!(info.bit_rate, Some(44100 * 2 * 16), "非圧縮WAVのビットレートはsample_rate*channels*bits_per_sampleのはず");
     }
 }
