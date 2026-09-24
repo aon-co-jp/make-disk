@@ -199,32 +199,70 @@
       </section>
 
       <section>
-        <h2>4.3. AI超解像(Real-ESRGAN / GPU) / AI super-resolution (Real-ESRGAN, GPU)</h2>
+        <h2>4.3. AI超解像とフレーム補間 / AI super-resolution and frame interpolation</h2>
         <label><input type="checkbox" id="ai-upscale" /> 映像をAIで拡大し、失われたディテールを補う(補間ではなく学習済みニューラルネット) / Upscale video with a trained neural network that restores detail (not interpolation)</label>
-        <br />
-        <label>モデル / Model:
-          <select id="ai-upscale-model">
-            <option value="realesr-animevideov3" selected>高速(realesr-animevideov3)</option>
-            <option value="realesrgan-x4plus">高品質・非常に遅い(realesrgan-x4plus、4倍のみ)</option>
-          </select>
-        </label>
-        <label>実行環境 / Device:
-          <select id="ai-upscale-backend">
-            <option value="auto" selected>自動(GPUがあればGPU、無ければCPU) / Auto (GPU if available, else CPU)</option>
-            <option value="gpu">GPU(Vulkan)</option>
-            <option value="cpu">CPU(高速モデルのみ) / CPU (fast model only)</option>
-          </select>
-        </label>
-        <label>倍率 / Scale:
-          <select id="ai-upscale-scale"><option value="2">2x</option><option value="3">3x</option><option value="4" selected>4x</option></select>
-        </label>
+        <div class="row" style="flex-wrap:wrap;align-items:center">
+          <label>映像の内容 / Content:
+            <select id="ai-upscale-content">
+              <option value="live" selected>実写 / Live action</option>
+              <option value="anime">アニメ・CG / Anime, CG</option>
+            </select>
+          </label>
+          <label>モデル / Model:
+            <select id="ai-upscale-model">
+              <option value="auto" selected>自動 / Auto</option>
+              <option value="realesr-animevideov3">高速(realesr-animevideov3)</option>
+              <option value="realesrgan-x4plus">高品質・非常に遅い(realesrgan-x4plus、GPU必須・4倍のみ)</option>
+            </select>
+          </label>
+          <label>実行環境 / Device:
+            <select id="ai-upscale-backend">
+              <option value="auto" selected>自動(このPCで実測して一番速い方式) / Auto (measured fastest on this PC)</option>
+              <option value="hybrid">CPU+GPU併用 / CPU + GPU together</option>
+              <option value="gpu">GPU(Vulkan)</option>
+              <option value="cpu">CPUのみ / CPU only</option>
+            </select>
+          </label>
+          <label>倍率 / Scale:
+            <select id="ai-upscale-scale"><option value="0" selected>自動 / Auto</option><option value="2">2x</option><option value="3">3x</option><option value="4">4x</option></select>
+          </label>
+        </div>
+        <div class="row" style="flex-wrap:wrap;align-items:center">
+          <label>インターレース解除 / Deinterlace:
+            <select id="ai-deinterlace">
+              <option value="auto" selected>自動判定 / Auto-detect</option>
+              <option value="off">しない / Off</option>
+              <option value="interlaced">インターレース(bwdif) / Interlaced</option>
+              <option value="telecine">テレシネ(24pへ戻す) / Telecine (back to 24p)</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="ai-crop-bars" checked /> 黒帯を切ってAI処理し、後で戻す / Crop black bars for the AI, restore afterwards</label>
+          <label><input type="checkbox" id="ai-skip-static" checked /> 真っ黒・静止コマはAIを省略 / Skip AI on black / still frames</label>
+          <label>フレームレート / Frame rate:
+            <select id="ai-target-fps">
+              <option value="0" selected>元のまま / Keep original</option>
+              <option value="60">60 FPS(RIFE補間) / 60 FPS (RIFE)</option>
+              <option value="120">120 FPS(RIFE補間) / 120 FPS (RIFE)</option>
+            </select>
+          </label>
+        </div>
+        <div class="row" style="flex-wrap:wrap;align-items:center">
+          <button id="ai-bench-btn" type="button">このPCのCPU/GPUを測定 / Benchmark CPU vs GPU</button>
+          <button id="ai-estimate-btn" type="button">下調べ(所要時間・空き容量) / Estimate time &amp; space</button>
+          <button id="ai-cancel-btn" type="button" disabled>処理を中止 / Cancel</button>
+        </div>
+        <progress id="ai-progress" value="0" max="100" hidden style="width:100%"></progress>
+        <pre id="ai-status" class="hint" style="white-space:pre-wrap"></pre>
         <p class="hint">
-          ※GPU(Vulkan対応のNVIDIA/AMD/Intel、内蔵GPUも可)があればGPUで、無い環境ではCPU(AVX2+FMAを自動使用)で動きます。CPU版は高速モデル(realesr-animevideov3)のみで、高品質モデルはGPU必須です。初回のみプラグイン(約45MB、MIT)を自動ダウンロードします。<br />
-          ※非常に遅く、短いクリップ向けです(実測、720×480の1フレーム: 高速モデルはCPU(32スレッド、AVX2+FMA)で約1.2秒、GT 730 GPUで約4.6秒、高品質モデルはGT 730で約110秒。CPUのコア数が少ないと遅くなります。上限2400フレーム)。フレームを一時的にPNG展開するためディスク容量も使います。<br />
-          ※解像度の指定(4.2)と併用すると、AI拡大後に指定の解像度へリサイズします(例: DVD→4K)。<br />
-          Runs on a Vulkan-capable GPU (NVIDIA/AMD/Intel, integrated included) when available, otherwise on the CPU (AVX2+FMA used automatically). The CPU build supports only the fast model; the high-quality model needs a GPU. The plugin (~45 MB, MIT) is downloaded on first use.<br />
-          Very slow — for short clips (measured per 720x480 frame: fast model ~1.2 s on a 32-thread CPU with AVX2+FMA, ~4.6 s on a GT 730 GPU; high-quality model ~110 s on the GT 730. Fewer CPU cores means slower; limit 2400 frames). Frames are temporarily extracted as PNG, using disk space.<br />
-          Combined with a resolution preset (4.2), the AI-upscaled video is resized to it afterwards (e.g. DVD→4K).
+          ※<b>実行方式は自動で選びます</b>: 初回にこのPCのCPUとGPUを実測し、CPUのみ/GPUのみ/併用のうち最も速い方式を使います(結果は保存され、CPUの構成が変わると再測定)。open-cudaにはGPUの畳み込み演算が無く、AI計算そのものはCPU(自前のAVX2+FMA)とVulkan(NCNN)で行っています。<br />
+          ※<b>非常に時間がかかります</b>。「下調べ」で見積もりを確認してください(720×480の1コマ: CPU(32スレッド)約1.3秒、GT 730 GPU約2.8秒、併用で約1.3倍)。映画1本は数日規模になり得ます。途中で中止しても、同じ設定でもう一度実行すれば続きから再開します。<br />
+          ※真っ黒・単色・ほぼ静止のコマはAIを通さず再利用します。これが減らすのは主に<b>計算時間</b>で、ディスク容量への効果は小さいです(エンコーダは静止画面にほとんどビットを使わないため)。<br />
+          ※<b>フレーム補間(RIFE)</b>は近似です。動きの大きい場面・場面転換でゴーストやゆがみが出ることがあり、本当に120fpsで撮影した映像と同じにはなりません。4Kでは非常に遅く、一時的に数GBのディスクを使います。初回のみプラグイン(約12MB)を取得します。<br />
+          ※初回のみAIのプラグイン(約45MB、MIT)を自動ダウンロードします。解像度の指定(4.2)や6.のアップコンバートと併用すると、AI拡大後に指定の解像度へリサイズします(例: DVD→4K)。<br />
+          Device choice is automatic: the first run measures this PC's CPU and GPU and uses the fastest of CPU-only / GPU-only / both (cached; re-measured if the CPU changes). open-cuda has no GPU convolution, so the AI math itself runs on our own AVX2+FMA CPU kernel and Vulkan (NCNN).<br />
+          <b>Very slow</b> — check "Estimate" first (per 720x480 frame: CPU 32 threads ~1.3 s, GT 730 GPU ~2.8 s, both ~1.3x faster). A feature film can take days. If you cancel, running again with the same settings resumes.<br />
+          Black / flat / near-static frames skip the AI; that mainly saves <b>compute time</b> and has little effect on disc capacity (encoders spend almost no bits on still images).<br />
+          <b>Frame interpolation (RIFE)</b> is an approximation: fast motion and scene cuts can show ghosting or warping, and the result is not the same as real 120 fps footage. It is very slow at 4K and temporarily uses several GB of disk. The plugin (~12 MB) is fetched on first use. The AI plugin (~45 MB, MIT) is downloaded on first use; combined with a resolution preset (4.2) or the section 6 upconvert, the result is resized to it (e.g. DVD→4K).
         </p>
       </section>
 
@@ -281,8 +319,18 @@
           </label>
           <label><input type="radio" name="upconv-res" value="1920x1080" checked /> フルHD / Full HD (1920×1080)</label>
           <label><input type="radio" name="upconv-res" value="3840x2160" /> 4K (3840×2160)</label>
+          <label><input type="checkbox" id="upconv-ai" checked /> AI超解像を使う(4.3) / Use AI super-resolution (4.3)</label>
+          <label>fps:
+            <select id="upconv-fps">
+              <option value="0" selected>元のまま / Original</option>
+              <option value="60">60</option>
+              <option value="120">120</option>
+            </select>
+          </label>
           <button id="upconv-apply-btn" type="button">この設定にする / Apply</button>
+          <button id="upconv-fit-btn" type="button">収まるか予測 / Predict fit</button>
         </div>
+        <div id="upconv-fit-result" class="hint"></div>
         <p class="hint">
           動画(MKV、H.264+AAC)を選んだ解像度へ拡大し、選んだディスクの容量いっぱいになるビットレートを、全ソースの合計の長さから自動で計算します(音声の分も差し引きます)。ISO作成も同時に設定します。
           画質がそれ以上上がらない上限(フルHD 40Mbps=Blu-ray規格の上限、4K 100Mbps=Ultra HD Blu-rayの上限)に達した場合は、その値で止めて空き容量が残る旨を表示します。
@@ -291,8 +339,8 @@
           If the ceiling beyond which quality no longer improves is reached (Full HD 40 Mbps = Blu-ray limit, 4K 100 Mbps = Ultra HD Blu-ray limit), it stops there and reports the free space left.
           Full HD / 4K on DVD is a data disc outside DVD-Video and may not play on set-top DVD players.
         </p>
-        <p class="hint"><b>拡大の方法: 補間による拡大です。細部を補いたい場合は、「4.3 AI超解像」も一緒にチェックしてください。</b><br />
-          <b>How it scales: this is interpolation-based upscaling. To restore fine detail, also tick "4.3 AI super-resolution".</b></p>
+        <p class="hint"><b>拡大の方法: 「AI超解像を使う」がオンなら学習済みニューラルネットで細部を補い、オフなら補間による拡大です。</b>4K 120FPSはRIFEによる補間で、ディスクに収まるかは「収まるか予測」で確認できます。<br />
+          <b>How it scales: with "Use AI super-resolution" on, a trained neural network restores detail; off, it is plain interpolation.</b> 4K 120 FPS uses RIFE interpolation; use "Predict fit" to see whether it fits the disc.</p>
 
         <h3>SACD/Blu-rayオーディオ風プリセット / SACD- and Blu-ray-Audio-style preset</h3>
         <button id="preset-hires-disc-btn" type="button">DSD256 + ISOを一括設定(PCMは付けない) / Set DSD256 + ISO (no PCM)</button>
