@@ -51,6 +51,8 @@ One codebase; only the installers differ per OS.
   The "AI-optimized" resolution/FPS options are simple heuristics, not AI super-resolution.
 - DSD files are huge (per stereo minute: DSD64 ≈ 42 MB … DSD1024 ≈ 678 MB) and are DSF files, not a Super Audio CD disc.
 - Full HD on a DVD is outside the DVD-Video standard (max 720x480/576); set-top DVD players do not downscale it automatically, so it may not play.
+- Upconversion is interpolation; tick "4.3 AI super-resolution" as well to restore fine detail. Video bitrate stops at 40 Mbps (Full HD) / 100 Mbps (4K), beyond which quality does not improve, and some disc space is then left free.
+- "Find with AI" only uses what is said (subtitles/speech), not what is shown. Music-only videos (auto-captions like `[Music]`) cannot be searched by content.
 - Burning on Linux/macOS relies on real xorriso (not bundled). Discs are written as data discs (audio CD / CD-DA burning is unsupported).
 - iOS is unsupported (no test device).
 
