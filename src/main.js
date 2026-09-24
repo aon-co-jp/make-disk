@@ -889,7 +889,29 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
       // 超えても画質は上がらない(尺が極端に短いと容量逆算が数Gbpsになる、
       // 実機で「10003421 kbps」を確認)ため、元のビットレートで頭打ちにする。
       let effectiveBitrateKbps = bitrateKbps;
-      if ((mode === "auto" || mode === "max_quality") && format !== "wav" && format !== "flac") {
+      const isVideoJob = format in VIDEO_CODEC_ARGS;
+      const fillingDisc = document.getElementById("fill-disc").checked;
+      if (fillingDisc && isVideoJob && format !== "passthrough-mkv" && !/^hevc-hdr10/.test(format)) {
+        // 「ディスクいっぱいに収める」動画(2026-09-24): 拡大すると画素が増えるので、元ファイルのビットレートでは
+        // 頭打ちにしない。代わりに、同時に作る動画の本数で分け、音声(AAC 320kbps)とコンテナの余裕を差し引き、
+        // 画質がそれ以上上がらない規格上限(フルHD 40Mbps、4K 100Mbps)で止める。
+        const res = await resolveResolutionSetting(f);
+        const is4k = res ? res.width * res.height > 1920 * 1080 : false;
+        const videoFormatsCount = Math.max(1, document.querySelectorAll('input[name="video-format"]:checked').length);
+        const AUDIO_KBPS = 320;
+        let videoKbps = Math.floor((bitrateKbps / videoFormatsCount) * 0.98) - AUDIO_KBPS;
+        const ceiling = is4k ? 100000 : 40000;
+        if (videoKbps > ceiling) {
+          log(`映像ビットレートを${ceiling / 1000}Mbpsで止めました(${is4k ? "Ultra HD Blu-ray" : "Blu-ray"}規格の上限で、これ以上は画質が上がりません)。ディスクには空き容量が残ります。 / Video bitrate capped at ${ceiling / 1000} Mbps (the ${is4k ? "Ultra HD Blu-ray" : "Blu-ray"} limit; quality does not improve beyond it), so some space is left on the disc.`);
+          videoKbps = ceiling;
+        }
+        if (videoKbps < 500) {
+          log(`⚠ 映像ビットレートが${videoKbps}kbpsと非常に低くなります(長さに対してディスクが小さすぎます)。 / Very low video bitrate for this length.`);
+        }
+        effectiveBitrateKbps = Math.max(100, videoKbps);
+        codecArgs = [...codecArgs, "-b:a", `${AUDIO_KBPS}k`];
+        log(`ディスクいっぱい: 映像 ${effectiveBitrateKbps} kbps + 音声 ${AUDIO_KBPS} kbps(${res ? `${res.width}×${res.height}` : "元の解像度 / original"}) / Fill disc: video ${effectiveBitrateKbps} kbps + audio ${AUDIO_KBPS} kbps`);
+      } else if ((mode === "auto" || mode === "max_quality") && format !== "wav" && format !== "flac") {
         try {
           const srcInfo = await invoke("probe_media", { path: f.path });
           if (srcInfo.bit_rate) {
@@ -1541,6 +1563,29 @@ checkForUpdatesOnStartup();
     // 参考情報のため失敗しても続行する
   }
 })();
+
+// アップコンバートしてディスクいっぱいに収める(2026-09-24新設)。
+// DVD 1〜2層 / Blu-ray 1〜4層のどれか1つと、フルHD/4Kを選ぶと、関係する設定をまとめて行う。
+document.getElementById("upconv-apply-btn").addEventListener("click", () => {
+  const disc = document.getElementById("upconv-disc").value;
+  const res = document.querySelector('input[name="upconv-res"]:checked').value;
+  for (const el of document.querySelectorAll('input[name="disc-type"]')) el.checked = el.value === disc;
+  for (const el of document.querySelectorAll('input[name="video-format"]')) el.checked = el.value === "mkv";
+  for (const el of document.querySelectorAll('input[name="audio-format"]')) el.checked = false; // 同じディスクの容量を奪わないよう音声だけの出力は外す
+  document.getElementById("disc-direction").value = "any";
+  applyDiscDirection("any");
+  const resSel = document.getElementById("resolution-preset");
+  resSel.value = res;
+  resSel.dispatchEvent(new Event("change"));
+  document.getElementById("fill-disc").checked = true;
+  document.getElementById("output-iso").checked = true;
+  const discLabel = document.getElementById("upconv-disc").selectedOptions[0].textContent;
+  const resLabel = res === "3840x2160" ? "4K" : "フルHD / Full HD";
+  log(`設定しました: ${discLabel} に ${resLabel} で容量いっぱいに収めます(MKV・ISO作成)。出力先を選んで「実行」を押してください。 / Set: fill ${discLabel} at ${resLabel} (MKV + ISO). Choose the output folder and press Run.`);
+  if (disc.startsWith("dvd")) {
+    log("※DVDへのフルHD・4Kは家庭用DVDプレイヤーでは再生できない場合があります(PC・対応機器向けのデータディスク)。 / Full HD/4K on DVD may not play on set-top DVD players.");
+  }
+});
 
 // SACD/Blu-rayオーディオ風プリセット(2026-09-19新設): DSD256 + 384kHz/32bit PCM + ISO出力を一括で選ぶ。
 // 標準のSACD/BD-Audio規格ディスクではなく、DSF/WAVを収めたデータディスクを作る(index.htmlの注記参照)。

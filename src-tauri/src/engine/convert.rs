@@ -409,10 +409,62 @@ fn run_convert_simple(job: &ConvertJob) -> Result<(), String> {
     let mut args = merge_audio_filters(args);
     apply_opus_limits(&mut args);
 
+    // ディスク容量から逆算したビットレート(ディスクいっぱいに収める)の動画は、2パスで正確に合わせる(2026-09-24)。
+    // 1パスのlibx264は指定より6〜7%大きくなることを実測で確認(DVD画質→フルHD/4K、60秒、目標100MBに対し105.8/107.2MB)
+    // し、ディスクに収まらなくなるため。2パスでは98.6%(はみ出さず、ほぼいっぱい)、所要時間は約1.3倍だった。
+    if needs_two_pass(job, &args) {
+        return run_two_pass(args, &job.output_path);
+    }
+
     args.push("-y".into());
     args.push(job.output_path.clone());
 
     run_ffmpeg(&args)
+}
+
+/// 容量から逆算したビットレートの動画を、ソフトウェアエンコーダ(libx264/libx265)で作るときだけ2パスにする。
+/// GPUのハードウェアエンコーダ・音声だけの出力・無変換コピーは対象外(従来どおり1パス)。
+fn needs_two_pass(job: &ConvertJob, args: &[String]) -> bool {
+    matches!(job.bitrate, Some(BitrateMode::AutoMaxForCapacity(_)))
+        && !is_audio_only_output(&job.output_path)
+        && args.windows(2).any(|w| w[0] == "-c:v" && (w[1] == "libx264" || w[1] == "libx265"))
+}
+
+fn run_two_pass(args: Vec<String>, output_path: &str) -> Result<(), String> {
+    let log = std::env::temp_dir().join(format!(
+        "make-disk-2pass-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+    ));
+    let log_s = log.to_string_lossy().to_string();
+    let null_dev = if cfg!(windows) { "NUL" } else { "/dev/null" };
+    let x265 = args.windows(2).any(|w| w[0] == "-c:v" && w[1] == "libx265");
+    // libx265は`-pass`ではなく`-x265-params pass=N:stats=...`で指定する。
+    let pass_args = |n: u8| -> Vec<String> {
+        if x265 {
+            vec!["-x265-params".into(), format!("pass={n}:stats={}", log_s.replace('\\', "/"))]
+        } else {
+            vec!["-pass".into(), n.to_string(), "-passlogfile".into(), log_s.clone()]
+        }
+    };
+    let mut pass1 = args.clone();
+    pass1.extend(pass_args(1));
+    pass1.extend(["-an".into(), "-f".into(), "null".into(), "-y".into(), null_dev.into()]);
+    let mut pass2 = args;
+    pass2.extend(pass_args(2));
+    pass2.extend(["-y".into(), output_path.to_string()]);
+    let result = run_ffmpeg(&pass1).and_then(|_| run_ffmpeg(&pass2));
+    // 2パスの統計ファイル(<log>-0.log、.mbtree、x265の.cutree等)を片付ける。
+    if let (Some(dir), Some(name)) = (log.parent(), log.file_name().map(|n| n.to_string_lossy().to_string())) {
+        if let Ok(rd) = fs::read_dir(dir) {
+            for e in rd.flatten() {
+                if e.file_name().to_string_lossy().starts_with(&name) {
+                    let _ = fs::remove_file(e.path());
+                }
+            }
+        }
+    }
+    result
 }
 
 fn run_convert_with_cut_ranges(job: &ConvertJob, cuts: &[CutRange]) -> Result<(), String> {
@@ -1720,6 +1772,53 @@ Hello
         let out = accelerate_h264_args(v(&["-c:v", "libx264", "-c:a", "aac"]));
         let enc = &out[1];
         assert!(enc.starts_with("h264_") || (enc == "libx264" && out.iter().any(|a| a == "-preset")), "{out:?}");
+    }
+
+    /// 2026-09-24: 「ディスクいっぱいに収める」動画は2パスで目標サイズに合わせる。
+    /// DVD画質(720x480)の素材をフルHDへ拡大し、10MBに収まるビットレートを指定して、はみ出さずほぼいっぱいになることを確認する。
+    #[test]
+    fn real_ffmpeg_two_pass_fills_the_target_size_without_overflow() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_2pass_{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        let src = tmp.join("dvd.mkv");
+        let st = Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=720x480:rate=30:duration=20", "-f", "lavfi", "-i", "sine=frequency=440:duration=20",
+                   "-c:v", "libx264", "-b:v", "4000k", "-c:a", "aac", src.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(st.status.success(), "{}", String::from_utf8_lossy(&st.stderr));
+        let target_bytes: u64 = 10_000_000;
+        let total_kbps = target_bytes * 8 / 20 / 1000;
+        let video_kbps = total_kbps * 98 / 100 - 320;
+        let out = tmp.join("out.mkv");
+        let job = ConvertJob {
+            input_path: src.to_string_lossy().to_string(),
+            output_path: out.to_string_lossy().to_string(),
+            codec_args: vec!["-c:v".into(), "libx264".into(), "-c:a".into(), "aac".into(), "-b:a".into(), "320k".into()],
+            bitrate: Some(BitrateMode::AutoMaxForCapacity(video_kbps)),
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: Some(Resolution { width: 1920, height: 1080 }),
+            fps: None,
+            ai_denoise: None,
+            dsd_rate: None,
+            dop_wav_bits: None,
+            mkv_keep_all_tracks: None,
+            extra_tracks: vec![],
+            ai_upscale: None,
+            audio_bwe: None,
+        };
+        run_convert(&job).expect("2-pass encode should succeed");
+        let size = fs::metadata(&out).unwrap().len();
+        let _ = fs::remove_dir_all(&tmp);
+        let ratio = size as f64 / target_bytes as f64;
+        eprintln!("2パス: 目標{target_bytes}バイトに対し{size}バイト({:.1}%)", ratio * 100.0);
+        assert!(ratio <= 1.0, "目標サイズを超えてはいけない: {:.1}%", ratio * 100.0);
+        assert!(ratio >= 0.85, "ほぼいっぱいになるはず: {:.1}%", ratio * 100.0);
     }
 
 }
