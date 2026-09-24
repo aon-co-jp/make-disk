@@ -229,7 +229,8 @@ pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
         // 1) AI超解像した映像+元の音声の中間ファイルを作り、2) それを入力に通常の変換を行う。
         let mezzanine = std::path::Path::new(&job.output_path).with_extension("ai-upscaled.mkv");
         let trim = job.trim.as_ref().map(|t| (t.start_secs, t.duration_secs));
-        crate::engine::ai_upscale::make_upscaled_mezzanine(&job.input_path, trim, up, &mezzanine)?;
+        let target = job.resolution.as_ref().map(|r| (r.width, r.height));
+        crate::engine::ai_video::make_upscaled_mezzanine(&job.input_path, trim, up, target, &mezzanine)?;
         let mut next = job.clone();
         next.input_path = mezzanine.to_string_lossy().to_string();
         next.trim = None;

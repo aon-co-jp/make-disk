@@ -72,3 +72,13 @@ strip = true
 # 行番号だけを残してデバッグ情報を大幅に削り、APKを小さくする(バックトレースの行番号は残る)。
 [profile.dev]
 debug = "line-tables-only"
+
+# 実機の速度を測るテスト用(`cargo test --profile fastcheck ...`)。開発用ビルドは最適化が無くCPU超解像が約100倍遅くなるため、
+# 速度に関わる実機テストは最適化ありで動かす。releaseと違いLTOを切ってビルド時間を短くする。
+[profile.fastcheck]
+inherits = "release"
+lto = false
+codegen-units = 16
+panic = "unwind"
+strip = false
+

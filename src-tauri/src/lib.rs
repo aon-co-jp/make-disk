@@ -1,4 +1,5 @@
 mod engine;
+mod progress;
 
 use engine::burn::{self, WriteSpeed};
 use engine::capacity::{self, DiscType, MediaKind, QualityWarning};
@@ -7,6 +8,7 @@ use engine::cpu::{self, CpuEncodeEstimate};
 use engine::iso;
 use engine::pdf::{self, BindingDirection};
 use engine::probe;
+use tauri::Emitter;
 
 /// 欲しい部分をAIが探して切り出し範囲を提案する(時間がかかり得るため別スレッドで実行し、画面を固めない)。
 #[tauri::command]
@@ -21,9 +23,46 @@ fn probe_media(path: String) -> Result<probe::MediaInfo, String> {
     probe::probe(&path)
 }
 
+/// 変換を実行する。数時間かかり得る(AI超解像など)ので、別スレッドで動かして画面を固めない。
 #[tauri::command]
-fn convert_media(job: ConvertJob) -> Result<(), String> {
-    convert::run_convert(&job)
+async fn convert_media(job: ConvertJob) -> Result<(), String> {
+    if job.ai_upscale.is_some() {
+        progress::clear_cancel();
+    }
+    tauri::async_runtime::spawn_blocking(move || convert::run_convert(&job)).await.map_err(|e| e.to_string())?
+}
+
+/// 実行中の長い処理(AI超解像など)を中止する。途中経過は残り、同じ設定でもう一度実行すると続きから再開する。
+#[tauri::command]
+fn cancel_conversion() {
+    progress::request_cancel();
+}
+
+/// このPCのCPU・GPUの速さを測って、AI処理に使う装置を自動で選ぶ(初回は1〜数分かかる)。`force`で再測定。
+#[tauri::command]
+async fn ai_hw_benchmark(force: bool) -> Result<engine::hw_bench::HwBench, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        engine::hw_bench::benchmark(force, &|m| progress::emit("ai-progress", serde_json::json!({ "stage": "info", "message": m })))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// 保存済みの測定結果(無ければnull)。
+#[tauri::command]
+fn ai_hw_status() -> Option<engine::hw_bench::HwBench> {
+    engine::hw_bench::cached()
+}
+
+/// AI超解像の下調べ: 映像の種類(インターレース・黒帯)、コマ数、このPCでの所要時間、作業用の空き容量。
+#[tauri::command]
+async fn ai_estimate(path: String, start_secs: Option<f64>, duration_secs: Option<f64>, options: engine::ai_upscale::AiUpscale, target_w: Option<u32>, target_h: Option<u32>, work_dir: String) -> Result<engine::ai_video::Estimate, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let target = target_w.zip(target_h);
+        engine::ai_video::estimate(&path, start_secs, duration_secs, &options, target, std::path::Path::new(&work_dir))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// 「AI判断で自動カット」モード(2026-09-16新設)向け: 無音区間を検出する。
@@ -86,7 +125,7 @@ fn ai_upscale_cpu_kernel() -> String {
 /// 画像1枚をAI超解像する(GPUがあればGPU、無ければCPU版)。初回のみプラグイン(約45MB)をダウンロードする。
 #[tauri::command]
 fn ai_upscale_image(input: String, output: String, model: String, scale: u32, backend: Option<String>) -> Result<(), String> {
-    engine::ai_upscale::upscale_image(&input, &output, &engine::ai_upscale::AiUpscale { model, scale, backend: backend.unwrap_or_else(|| "auto".to_string()) })
+    engine::ai_upscale::upscale_image(&input, &output, &engine::ai_upscale::AiUpscale { model, scale, backend: backend.unwrap_or_else(|| "auto".to_string()), ..Default::default() })
 }
 
 /// フォルダ内の全ファイルの合計サイズ(バイト)。ISO化・書き込みの前にディスク容量へ収まるか確かめるために使う。
@@ -199,6 +238,14 @@ pub fn run() {
     let _ = engine::plugins::sync_bundled_plugins();
 
     let builder = tauri::Builder::default()
+        .setup(|app| {
+            // 長い処理の進捗を画面へ届ける出口(エンジンはAppHandleを知らなくてよい)。
+            let handle = app.handle().clone();
+            progress::set_sink(Box::new(move |kind, payload| {
+                let _ = handle.emit("make-disk-progress", serde_json::json!({ "kind": kind, "payload": payload }));
+            }));
+            Ok(())
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init());
@@ -215,6 +262,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             probe_media,
             convert_media,
+            cancel_conversion,
+            ai_hw_benchmark,
+            ai_hw_status,
+            ai_estimate,
             calc_auto_bitrate_kbps,
             check_bitrate_quality,
             create_iso,
@@ -245,6 +296,10 @@ pub fn run() {
     let builder = builder.invoke_handler(tauri::generate_handler![
         probe_media,
         convert_media,
+        cancel_conversion,
+        ai_hw_benchmark,
+        ai_hw_status,
+        ai_estimate,
         calc_auto_bitrate_kbps,
         check_bitrate_quality,
         create_iso,

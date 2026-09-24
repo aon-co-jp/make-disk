@@ -38,6 +38,15 @@ pub struct SrModel {
 }
 
 impl SrModel {
+    /// x4専用のネットワーク(例: `realesr-general-x4v3`)から、2倍・3倍の出力を作るための後段リサイズを設定する
+    /// (ncnnの公式配布のx2/x3モデルが、x4の出力を双三次で縮小しているのと同じ方法)。`target`が4以上なら何もしない。
+    pub fn with_output_scale(mut self, target: u32) -> Self {
+        if (2..self.scale as u32).contains(&target) {
+            self.post_resize = Some(target as f32 / self.scale as f32);
+        }
+        self
+    }
+
     /// ネットワークの拡大倍率(後段のリサイズ前)。テスト用。
     #[cfg(test)]
     pub fn scale(&self) -> usize {
@@ -247,10 +256,18 @@ pub fn parse_model(param: &str, bin: &[u8]) -> Result<SrModel, String> {
 
 /// モデルフォルダから`realesr-animevideov3-x{scale}`(2/3/4)を読み込む。
 pub fn load_model(models_dir: &Path, scale: u32) -> Result<SrModel, String> {
-    let base = format!("realesr-animevideov3-x{scale}");
+    load_named(models_dir, "realesr-animevideov3", scale)
+}
+
+/// モデル名`name`を読み込む。`realesr-animevideov3`は倍率ごとの配布ファイル(`-x2/-x3/-x4`)を使い、
+/// それ以外(`realesr-general-x4v3`など、x4専用)は`<name>.param/.bin`を読んで、必要なら後段リサイズで2倍・3倍にする。
+pub fn load_named(models_dir: &Path, name: &str, scale: u32) -> Result<SrModel, String> {
+    let per_scale = name == "realesr-animevideov3";
+    let base = if per_scale { format!("{name}-x{scale}") } else { name.to_string() };
     let param = std::fs::read_to_string(models_dir.join(format!("{base}.param"))).map_err(|e| format!("{base}.paramを読めません: {e}"))?;
     let bin = std::fs::read(models_dir.join(format!("{base}.bin"))).map_err(|e| format!("{base}.binを読めません: {e}"))?;
-    parse_model(&param, &bin)
+    let model = parse_model(&param, &bin)?;
+    Ok(if per_scale { model } else { model.with_output_scale(scale) })
 }
 
 /// 使う計算カーネルの名前(ログ表示用)。open-cpuの検出結果に従う。
@@ -417,6 +434,11 @@ fn run_tile(model: &SrModel, rgb: &[f32], h: usize, w: usize, use_avx2: bool) ->
 
 /// 画像全体(HWC、0〜1)を超解像する。タイルを複数スレッドで並列処理する。
 pub fn upscale_rgb(model: &SrModel, rgb: &[f32], w: usize, h: usize) -> Vec<f32> {
+    upscale_rgb_threads(model, rgb, w, h, 0)
+}
+
+/// `upscale_rgb`のスレッド数指定版(`0`=全論理コア)。GPUと同時に動かすとき、GPU側の読み書きに数コアを残すために使う。
+pub fn upscale_rgb_threads(model: &SrModel, rgb: &[f32], w: usize, h: usize, threads: usize) -> Vec<f32> {
     let r = model.scale;
     let use_avx2 = avx2_available();
     let mut tiles = Vec::new();
@@ -426,7 +448,8 @@ pub fn upscale_rgb(model: &SrModel, rgb: &[f32], w: usize, h: usize) -> Vec<f32>
         }
     }
     let next = std::sync::atomic::AtomicUsize::new(0);
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(tiles.len().max(1));
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    let threads = (if threads == 0 { cores } else { threads.min(cores) }).max(1).min(tiles.len().max(1));
     let results = std::sync::Mutex::new(Vec::<(usize, usize, usize, usize, Vec<f32>)>::new());
     std::thread::scope(|s| {
         for _ in 0..threads {
@@ -467,7 +490,12 @@ pub fn upscale_rgb(model: &SrModel, rgb: &[f32], w: usize, h: usize) -> Vec<f32>
 
 /// タイル処理のAI拡大(ネットワークの倍率)に、x2/x3用の後段リサイズを加えた最終結果`(データ, 幅, 高さ)`を返す。
 pub fn upscale_full(model: &SrModel, rgb: &[f32], w: usize, h: usize) -> (Vec<f32>, usize, usize) {
-    let up = upscale_rgb(model, rgb, w, h);
+    upscale_full_threads(model, rgb, w, h, 0)
+}
+
+/// `upscale_full`のスレッド数指定版(`0`=全論理コア)。
+pub fn upscale_full_threads(model: &SrModel, rgb: &[f32], w: usize, h: usize, threads: usize) -> (Vec<f32>, usize, usize) {
+    let up = upscale_rgb_threads(model, rgb, w, h, threads);
     let (nw, nh) = (w * model.scale, h * model.scale);
     match model.post_resize {
         Some(_) => {
