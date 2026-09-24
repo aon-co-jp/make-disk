@@ -45,7 +45,14 @@ Platform differences are confined to the installers (bundles); the app itself (`
 
 Pushing a `v*` tag makes `.github/workflows/release.yml` build Windows/macOS/Linux/Android installers and publish them on GitHub Releases.
 
-## Latest state (2026-09-23)
+## Latest state (2026-09-24, v0.1.28)
 
-Fixed the cut editor that could not be operated from section 8; stopped creating PCM alongside DSD; redesigned cutting as exclusive YES/NO "cut by size / cut by time" (size by default) with "fill the disc" and "AI silence cut" as post-processing checkboxes;
-added playback-standard limits (CD / DVD-Video / DVD-Audio / Blu-ray / UHD Blu-ray / PC only) for max kHz, bit depth and bitrate. Real-file E2E of these features is still pending.
+- v0.1.26: fixed the 0.6-second WAV bug (cut intermediates were stream-copied into `.wav`, breaking AAC framing; they are now MKV), ISO/burn aborted after any failed conversion,
+  fast extract of only the needed range (input seek), GPU hardware encoder / open-cpu speed preset for the extract's re-encode, AI range search via aruaru-llm (speech only, not the picture), source and output folders must differ.
+  Heavy work runs at below-normal priority so playback (e.g. a Blu-ray) stays smooth.
+- v0.1.27: upconvert and fill the disc (DVD 1–2 layer / Blu-ray 1–4 layer × Full HD / 4K). Capacity-derived bitrates for libx264/libx265 use **2-pass** (1-pass overshot by 6–7% and would not fit);
+  audio is subtracted, the source-bitrate cap is skipped when filling, and 40 Mbps (Full HD) / 100 Mbps (4K) ceilings apply.
+- v0.1.28: separate bilingual note that scaling is interpolation.
+- **Verifying the installed app without desktop control**: start `make-disk.exe` with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`, read `http://127.0.0.1:9333/json/list`,
+  and drive the page with CDP `Runtime.evaluate` (Node's built-in `WebSocket`); `window.__TAURI__.core.invoke` calls the app's own Rust commands. Local only; close the app afterwards.
+- Not yet verified: a full-size upconvert filling a real disc (hours long).

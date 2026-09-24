@@ -8,7 +8,28 @@
 詳細な技術的発見・方針決定は[`CLAUDE.md`](CLAUDE.md)にあるので、
 ここでは「今どこまで進んでいて、次に何をするか」だけを簡潔に記す。
 
-## 🔁 再開用メッセージ / Resume note (2026-09-23、最新 / latest)
+## 🔁 再開用メッセージ / Resume note (2026-09-24、最新 / latest、v0.1.28)
+
+**日本語**:
+- **リリース済み**: v0.1.26(MP4→CDでWAVが0.6秒になる実バグ修正・変換失敗時はISO化/書き込み中止・必要な部分だけ切り出す(高速)・切り出し後の再エンコードをGPU/open-cpuで高速化・AIで探す(aruaru-llm)・出力先フォルダ検証)、v0.1.27(アップコンバートしてディスクいっぱいに収める: DVD 1〜2層/Blu-ray 1〜4層×フルHD/4K、容量から逆算したビットレートは2パス)、v0.1.28(「拡大の方法」の注意書きを日英で独立表示)。全プラットフォームのCI成功。
+- **インストール版で確認済み(v0.1.28、このPC)**: 本体・アプリ一覧・ショートカットが0.1.28、起動・応答OK。WebView2のデバッグ接続(`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`でアプリを起動し、CDPの`Runtime.evaluate`で画面を読み取り・操作)で、アップコンバート欄(6種のディスク・日英注意書き・「この設定にする」でディスク/MKV/4K/ディスクいっぱい/ISOが設定される)と、**アプリ自身の`convert_media`で3時間33分の実動画から60分切り出し→WAV 3600秒・635MB(8.6秒)**を確認。
+- **未確認**: アップコンバートの本番サイズ(25GB〜)いっぱいまでの実変換(数時間かかるため未実施。容量合わせの計算と2パスの精度は短い素材で96〜99%・超過なしを確認済み)。
+
+**次にやること(ユーザー依頼済み・未着手)**:
+1. インストール構成: `%LOCALAPPDATA%\open-easy-web\`を一番上にし、その下に`make-disk`・`aruaru-llm`・`open-web-server`(open-cpu/open-directx/open-cudaはライブラリなのでaruaru-llm・make-diskに組み込み)。make-disk本体のNSISインストール先変更も含む。
+2. make-diskに「AIエンジン(LLM)」設定画面: aruaru-llm(Releases v0.2.4)とopen-web-server(v0.1.0)を取得・起動/停止、CPU(open-cpu)・メモリ・GPU/VRAM(aruaru-llm`/v1/recommend`)を表示、「推奨/一つ大きい/一つ小さい」LLMのインストール。**NPUは後回し**(ユーザー指示)。
+3. ローカルのopen-web-serverはaruaru-llmへの窓口(ユーザー決定)。「AIで探す」の接続先もそこへ。
+4. easy-web.tokyoに紹介+リンク、easy-web.tokyo/make-diskのブラウザからも操作可能に。**ローカルにインストール済みならアイコンからもブラウザからもローカル版を優先起動**(`make-disk://`のURLプロトコルをインストーラーで登録)。ブラウザ操作は許可元をeasy-web.tokyoに限定+初回ペアリングコード。
+5. アップコンバートの本番サイズでの実変換E2E。
+
+**English**:
+- **Released**: v0.1.26 (fixed the 0.6-second WAV bug, abort ISO/burn after a failed conversion, fast extract of only the needed range, GPU/open-cpu-accelerated re-encode, AI range search via aruaru-llm, output-folder checks), v0.1.27 (upconvert and fill the disc: DVD 1–2 layer / Blu-ray 1–4 layer × Full HD / 4K, 2-pass for capacity-derived bitrates), v0.1.28 (separate bilingual note on interpolation upscaling). CI green on all platforms.
+- **Verified on the installed app (v0.1.28, this PC)**: version 0.1.28 everywhere, launches and responds. Through WebView2 remote debugging (start the app with `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`, then read/drive the page with CDP `Runtime.evaluate`): the upconvert panel works, and **the app's own `convert_media` extracted 60 minutes from a real 3h33m video → WAV 3600 s, 635 MB, in 8.6 s**.
+- **Not yet verified**: a full-size upconvert filling a real disc (hours long); the fill math and 2-pass accuracy were verified on short clips (96–99%, never over).
+
+**Next (requested, not started)**: open-easy-web install layout; LLM manager screen (recommended / one size up / one size down, NPU later); local open-web-server as the aruaru-llm gateway; easy-web.tokyo intro + browser control with local-first launch via `make-disk://`; full-size upconvert E2E.
+
+## 🔁 再開用メッセージ / Resume note (2026-09-23)
 
 **日本語**: 区間カットが「8.」から操作できなかった実バグを修正、DSD作成時はPCMを作らない仕様へ変更、
 「サイズ/時間でカット(YES/NO排他)」「ディスクいっぱいに収める」「再生規格(CD/DVD/BD/PC)の上限kHz・ビットレート」を実装し、
