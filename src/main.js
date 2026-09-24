@@ -1582,6 +1582,7 @@ document.getElementById("upconv-apply-btn").addEventListener("click", () => {
   const discLabel = document.getElementById("upconv-disc").selectedOptions[0].textContent;
   const resLabel = res === "3840x2160" ? "4K" : "フルHD / Full HD";
   log(`設定しました: ${discLabel} に ${resLabel} で容量いっぱいに収めます(MKV・ISO作成)。出力先を選んで「実行」を押してください。 / Set: fill ${discLabel} at ${resLabel} (MKV + ISO). Choose the output folder and press Run.`);
+  log('拡大の方法: 補間による拡大です。細部を補いたい場合は、「4.3 AI超解像」も一緒にチェックしてください。 / How it scales: this is interpolation-based upscaling. To restore fine detail, also tick "4.3 AI super-resolution".');
   if (disc.startsWith("dvd")) {
     log("※DVDへのフルHD・4Kは家庭用DVDプレイヤーでは再生できない場合があります(PC・対応機器向けのデータディスク)。 / Full HD/4K on DVD may not play on set-top DVD players.");
   }

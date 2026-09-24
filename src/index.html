@@ -286,11 +286,13 @@
         <p class="hint">
           動画(MKV、H.264+AAC)を選んだ解像度へ拡大し、選んだディスクの容量いっぱいになるビットレートを、全ソースの合計の長さから自動で計算します(音声の分も差し引きます)。ISO作成も同時に設定します。
           画質がそれ以上上がらない上限(フルHD 40Mbps=Blu-ray規格の上限、4K 100Mbps=Ultra HD Blu-rayの上限)に達した場合は、その値で止めて空き容量が残る旨を表示します。
-          ※DVDへのフルHD・4Kは、DVD-Video規格外のデータディスクになるため、家庭用DVDプレイヤーでは再生できない場合があります。拡大は補間による拡大です(細部を補う本格的なAI超解像は「4.3」をあわせてチェック)。<br />
+          ※DVDへのフルHD・4Kは、DVD-Video規格外のデータディスクになるため、家庭用DVDプレイヤーでは再生できない場合があります。<br />
           Scales video (MKV, H.264+AAC) to the chosen resolution and computes, from the total length of all sources, the bitrate that fills the chosen disc (audio is subtracted). ISO output is also enabled.
           If the ceiling beyond which quality no longer improves is reached (Full HD 40 Mbps = Blu-ray limit, 4K 100 Mbps = Ultra HD Blu-ray limit), it stops there and reports the free space left.
-          Full HD / 4K on DVD is a data disc outside DVD-Video and may not play on set-top DVD players. Scaling is interpolation (tick 4.3 for real AI super-resolution).
+          Full HD / 4K on DVD is a data disc outside DVD-Video and may not play on set-top DVD players.
         </p>
+        <p class="hint"><b>拡大の方法: 補間による拡大です。細部を補いたい場合は、「4.3 AI超解像」も一緒にチェックしてください。</b><br />
+          <b>How it scales: this is interpolation-based upscaling. To restore fine detail, also tick "4.3 AI super-resolution".</b></p>
 
         <h3>SACD/Blu-rayオーディオ風プリセット / SACD- and Blu-ray-Audio-style preset</h3>
         <button id="preset-hires-disc-btn" type="button">DSD256 + ISOを一括設定(PCMは付けない) / Set DSD256 + ISO (no PCM)</button>
