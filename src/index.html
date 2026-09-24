@@ -267,6 +267,31 @@
         </div>
         <p class="hint">チェックした種別ごとに、その容量に合わせたISO/書き込みを行います。出力がディスク容量に収まらない種別は、書き込みを飛ばして理由を表示します。</p>
 
+        <h3>アップコンバートしてディスクいっぱいに収める / Upconvert and fill the disc</h3>
+        <div class="row" style="flex-wrap:wrap;align-items:center">
+          <label>書き込むディスク / Disc:
+            <select id="upconv-disc">
+              <option value="dvd47">DVD 1層 (4.7GB)</option>
+              <option value="dvd_dl85">DVD 2層 (8.5GB)</option>
+              <option value="bd25" selected>Blu-ray 1層 (25GB)</option>
+              <option value="bd50">Blu-ray 2層 (50GB)</option>
+              <option value="bd100">Blu-ray 3層 (100GB)</option>
+              <option value="bd128">Blu-ray 4層 (128GB)</option>
+            </select>
+          </label>
+          <label><input type="radio" name="upconv-res" value="1920x1080" checked /> フルHD / Full HD (1920×1080)</label>
+          <label><input type="radio" name="upconv-res" value="3840x2160" /> 4K (3840×2160)</label>
+          <button id="upconv-apply-btn" type="button">この設定にする / Apply</button>
+        </div>
+        <p class="hint">
+          動画(MKV、H.264+AAC)を選んだ解像度へ拡大し、選んだディスクの容量いっぱいになるビットレートを、全ソースの合計の長さから自動で計算します(音声の分も差し引きます)。ISO作成も同時に設定します。
+          画質がそれ以上上がらない上限(フルHD 40Mbps=Blu-ray規格の上限、4K 100Mbps=Ultra HD Blu-rayの上限)に達した場合は、その値で止めて空き容量が残る旨を表示します。
+          ※DVDへのフルHD・4Kは、DVD-Video規格外のデータディスクになるため、家庭用DVDプレイヤーでは再生できない場合があります。拡大は補間による拡大です(細部を補う本格的なAI超解像は「4.3」をあわせてチェック)。<br />
+          Scales video (MKV, H.264+AAC) to the chosen resolution and computes, from the total length of all sources, the bitrate that fills the chosen disc (audio is subtracted). ISO output is also enabled.
+          If the ceiling beyond which quality no longer improves is reached (Full HD 40 Mbps = Blu-ray limit, 4K 100 Mbps = Ultra HD Blu-ray limit), it stops there and reports the free space left.
+          Full HD / 4K on DVD is a data disc outside DVD-Video and may not play on set-top DVD players. Scaling is interpolation (tick 4.3 for real AI super-resolution).
+        </p>
+
         <h3>SACD/Blu-rayオーディオ風プリセット / SACD- and Blu-ray-Audio-style preset</h3>
         <button id="preset-hires-disc-btn" type="button">DSD256 + ISOを一括設定(PCMは付けない) / Set DSD256 + ISO (no PCM)</button>
         <p class="hint">

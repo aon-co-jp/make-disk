@@ -32,6 +32,7 @@ One codebase; only the installers differ per OS.
   Post-processing checkboxes: "Fill the disc" (CD / DVD 1–2 layer / Blu-ray 1–4 layer) and "AI auto-cut" (silence detection).
 - **Playback-standard limits**: shows the maximum kHz, bit depth and bitrate of CD / DVD-Video / DVD-Audio / Blu-ray / Ultra HD Blu-ray / PC only,
   and converts to fit the chosen one (sources already below the limit are left as is; no upsampling).
+- **Upconvert and fill the disc**: pick one of DVD 1–2 layer / Blu-ray 1–4 layer and Full HD or 4K; the bitrate that fills the disc is computed from the total length (audio subtracted) and hit precisely with 2-pass encoding (measured ~96–99% of the target, never over). It stops at the ceiling beyond which quality no longer improves (Full HD 40 Mbps, 4K 100 Mbps).
 - **Fast extract of only the part you need**: even from a 5-hour source, set the start and end of the part you want (e.g. 60 or 10 minutes) and only that part is read and processed (measured: 10 minutes from the 2-hour mark of a 3h33m MP4 to WAV in ~1 s, 60 minutes in ~5 s).
 - **Find with AI (aruaru-llm)**: describe what you want and it searches the subtitles (or a transcription) for a matching range and fills in the extract start/end, offering 3 options. It uses what is said, not what is shown. Re-encoding after an extract uses the GPU hardware encoder (or a speed-first setting chosen from open-cpu).
 - **Editing**: multi-range cutting (choose the file in section 8 and set ranges while previewing the video/audio), concatenating files,
