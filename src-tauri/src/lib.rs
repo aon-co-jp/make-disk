@@ -54,6 +54,32 @@ fn ai_hw_status() -> Option<engine::hw_bench::HwBench> {
     engine::hw_bench::cached()
 }
 
+/// 「選んだディスクに、この解像度・fpsで収まるか」の予測(フルHD/4K × 元のfps/60/120)。静止・単色コマの割合も抜き取りで推定する。
+#[tauri::command]
+async fn ai_fit_predict(path: String, start_secs: Option<f64>, duration_secs: Option<f64>, disc: DiscType, audio_kbps: f64, src_fps: f64) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let probe = engine::probe::probe(&path)?;
+        let dur = duration_secs.unwrap_or((probe.duration_secs - start_secs.unwrap_or(0.0)).max(0.0));
+        let static_fraction = engine::fit_predict::estimate_static_fraction(&path, start_secs, duration_secs);
+        let mut fps_list = vec![src_fps];
+        for f in [60.0, 120.0] {
+            if f >= src_fps * 1.5 {
+                fps_list.push(f);
+            }
+        }
+        let mut rows = Vec::new();
+        for (w, h) in [(1920u32, 1080u32), (3840, 2160)] {
+            for &fps in &fps_list {
+                let r = engine::fit_predict::predict(disc, dur, audio_kbps, static_fraction.unwrap_or(0.0), &engine::fit_predict::FitOption { width: w, height: h, fps });
+                rows.push(r);
+            }
+        }
+        Ok(serde_json::json!({ "duration_secs": dur, "static_fraction": static_fraction, "rows": rows }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// AI超解像の下調べ: 映像の種類(インターレース・黒帯)、コマ数、このPCでの所要時間、作業用の空き容量。
 #[tauri::command]
 async fn ai_estimate(path: String, start_secs: Option<f64>, duration_secs: Option<f64>, options: engine::ai_upscale::AiUpscale, target_w: Option<u32>, target_h: Option<u32>, work_dir: String) -> Result<engine::ai_video::Estimate, String> {
@@ -266,6 +292,7 @@ pub fn run() {
             ai_hw_benchmark,
             ai_hw_status,
             ai_estimate,
+            ai_fit_predict,
             calc_auto_bitrate_kbps,
             check_bitrate_quality,
             create_iso,
@@ -300,6 +327,7 @@ pub fn run() {
         ai_hw_benchmark,
         ai_hw_status,
         ai_estimate,
+        ai_fit_predict,
         calc_auto_bitrate_kbps,
         check_bitrate_quality,
         create_iso,

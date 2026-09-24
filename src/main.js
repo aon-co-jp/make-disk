@@ -1005,9 +1005,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
               ? { cutoff_hz: parseFloat(document.getElementById("audio-bwe-cutoff").value) || null }
               : null,
           ai_upscale:
-            isVideo && format !== "passthrough-mkv" && document.getElementById("ai-upscale").checked
-              ? { model: document.getElementById("ai-upscale-model").value, scale: parseInt(document.getElementById("ai-upscale-scale").value, 10), backend: document.getElementById("ai-upscale-backend").value }
-              : null,
+            isVideo && format !== "passthrough-mkv" && document.getElementById("ai-upscale").checked ? aiUpscaleOptions() : null,
           ai_denoise: document.getElementById("ai-denoise").checked && format !== "passthrough-mkv" ? { mix: parseFloat(document.getElementById("ai-denoise-mix").value) } : null,
         },
       });
@@ -1023,6 +1021,121 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
   conversionFailures += results.filter((p) => p === null).length;
   return results.filter((p) => p !== null);
 }
+
+// ── AI超解像・フレーム補間(4.3)の設定と進捗 ─────────────────
+function aiUpscaleOptions() {
+  const fps = parseInt(document.getElementById("ai-target-fps").value, 10);
+  return {
+    model: document.getElementById("ai-upscale-model").value,
+    scale: parseInt(document.getElementById("ai-upscale-scale").value, 10),
+    backend: document.getElementById("ai-upscale-backend").value,
+    content: document.getElementById("ai-upscale-content").value,
+    deinterlace: document.getElementById("ai-deinterlace").value,
+    crop_bars: document.getElementById("ai-crop-bars").checked,
+    skip_static: document.getElementById("ai-skip-static").checked,
+    target_fps: fps > 0 ? fps : null,
+  };
+}
+
+function fmtDur(secs) {
+  if (secs == null || !isFinite(secs)) return "?";
+  const s = Math.max(0, Math.round(secs));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d}日${h}時間 / ${d}d ${h}h`;
+  if (h > 0) return `${h}時間${m}分 / ${h}h ${m}m`;
+  if (m > 0) return `${m}分${s % 60}秒 / ${m}m ${s % 60}s`;
+  return `${s}秒 / ${s}s`;
+}
+
+function setAiRunning(running) {
+  document.getElementById("ai-cancel-btn").disabled = !running;
+  const bar = document.getElementById("ai-progress");
+  bar.hidden = !running;
+  if (!running) bar.value = 0;
+}
+
+window.__TAURI__.event.listen("make-disk-progress", (ev) => {
+  const { kind, payload: p } = ev.payload || {};
+  if (kind !== "ai-progress" || !p) return;
+  if (p.stage === "info") {
+    log(p.message);
+    return;
+  }
+  if (p.stage === "upscale" || p.stage === "interpolate") {
+    setAiRunning(true);
+    const bar = document.getElementById("ai-progress");
+    bar.max = p.total || 100;
+    bar.value = p.done || 0;
+    const label = p.stage === "upscale" ? "AI超解像 / Upscaling" : `フレーム補間(${p.factor}倍) / Interpolating (x${p.factor})`;
+    const detail = p.stage === "upscale" ? `(CPU ${p.cpu} / GPU ${p.gpu} / 単色 ${p.flat} / 再利用 ${p.repeat})` : "";
+    document.getElementById("ai-status").textContent = `${label}: ${p.done}/${p.total} コマ / frames、経過 ${fmtDur(p.elapsed_secs)}、残り約 ${fmtDur(p.eta_secs)}${detail}`;
+  }
+});
+
+document.getElementById("ai-cancel-btn").addEventListener("click", async () => {
+  await invoke("cancel_conversion");
+  log("中止を依頼しました。次の区切りで止まり、途中経過は残ります。 / Cancel requested; it stops at the next checkpoint and progress is kept.");
+});
+
+document.getElementById("ai-bench-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("ai-bench-btn");
+  btn.disabled = true;
+  document.getElementById("ai-status").textContent = "測定中(1分ほどかかります)… / Measuring (about a minute)…";
+  try {
+    const b = await invoke("ai_hw_benchmark", { force: true });
+    document.getElementById("ai-status").textContent = `${b.message_ja}\n${b.message_en}`;
+  } catch (e) {
+    document.getElementById("ai-status").textContent = `測定に失敗しました / Benchmark failed: ${e}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function selectedTargetSize() {
+  const r = document.querySelector('input[name="upconv-res"]:checked');
+  const sel = document.getElementById("resolution-preset").value;
+  const v = /^\d+x\d+$/.test(sel) ? sel : r ? r.value : null;
+  if (!v) return {};
+  const [w, h] = v.split("x").map((n) => parseInt(n, 10));
+  return { target_w: w, target_h: h };
+}
+
+document.getElementById("ai-estimate-btn").addEventListener("click", async () => {
+  const f = sourceFiles[0];
+  const status = document.getElementById("ai-status");
+  if (!f) {
+    status.textContent = "先に動画ファイルを追加してください。 / Add a video file first.";
+    return;
+  }
+  status.textContent = "解析中… / Analyzing…";
+  try {
+    const t = selectedTargetSize();
+    const e = await invoke("ai_estimate", {
+      path: f.path,
+      startSecs: f.extract ? f.extract.startSecs : null,
+      durationSecs: f.extract ? f.extract.endSecs - f.extract.startSecs : null,
+      options: aiUpscaleOptions(),
+      targetW: t.target_w ?? null,
+      targetH: t.target_h ?? null,
+      workDir: outputFolder || ".",
+    });
+    const a = e.analysis;
+    const free = e.free_bytes != null ? `${(e.free_bytes / 1e9).toFixed(1)}GB` : "不明 / unknown";
+    const lines = [
+      `${a.width}×${a.height}、${a.frames}コマ → ${e.out_w}×${e.out_h}(${e.scale}倍、モデル ${e.model})`,
+      `所要時間の目安(最悪): ${fmtDur(e.eta_secs)}${e.eta_secs == null ? "(先に「CPU/GPUを測定」を実行) / (run the benchmark first)" : ""}`,
+      `作業用の一時容量: 約${(e.temp_bytes / 1e9).toFixed(1)}GB(空き ${free})`,
+      ...(a.notes_ja || []),
+      ...(e.warnings_ja || []).map((w) => `⚠ ${w}`),
+      ...(e.warnings_en || []).map((w) => `⚠ ${w}`),
+    ];
+    status.textContent = lines.join("\n");
+  } catch (err) {
+    status.textContent = `下調べに失敗しました / Estimate failed: ${err}`;
+  }
+});
 
 document.getElementById("ai-denoise-mix").addEventListener("input", (e) => {
   document.getElementById("ai-denoise-mix-label").textContent = e.target.value;
@@ -1579,12 +1692,48 @@ document.getElementById("upconv-apply-btn").addEventListener("click", () => {
   resSel.dispatchEvent(new Event("change"));
   document.getElementById("fill-disc").checked = true;
   document.getElementById("output-iso").checked = true;
+  const useAi = document.getElementById("upconv-ai").checked;
+  document.getElementById("ai-upscale").checked = useAi;
+  document.getElementById("ai-target-fps").value = document.getElementById("upconv-fps").value;
   const discLabel = document.getElementById("upconv-disc").selectedOptions[0].textContent;
   const resLabel = res === "3840x2160" ? "4K" : "フルHD / Full HD";
   log(`設定しました: ${discLabel} に ${resLabel} で容量いっぱいに収めます(MKV・ISO作成)。出力先を選んで「実行」を押してください。 / Set: fill ${discLabel} at ${resLabel} (MKV + ISO). Choose the output folder and press Run.`);
-  log('拡大の方法: 補間による拡大です。細部を補いたい場合は、「4.3 AI超解像」も一緒にチェックしてください。 / How it scales: this is interpolation-based upscaling. To restore fine detail, also tick "4.3 AI super-resolution".');
+  log(useAi ? "拡大の方法: AI超解像(4.3)で細部を補います。非常に時間がかかるので、4.3の「下調べ」で所要時間を確認してください。 / How it scales: AI super-resolution (4.3) restores detail. It is very slow — check Estimate in 4.3 first." : "拡大の方法: 補間による拡大です(AI超解像はオフ)。 / How it scales: interpolation only (AI off).");
+  if (document.getElementById("upconv-fps").value !== "0") {
+    log("フレーム補間(RIFE)で目標のfpsにします。近似のため動きの大きい場面で破綻することがあります。 / Frame rate is raised by RIFE interpolation, which is approximate and can break on fast motion.");
+  }
   if (disc.startsWith("dvd")) {
     log("※DVDへのフルHD・4Kは家庭用DVDプレイヤーでは再生できない場合があります(PC・対応機器向けのデータディスク)。 / Full HD/4K on DVD may not play on set-top DVD players.");
+  }
+});
+
+// 「選んだディスクに収まるか」の予測(フルHD/4K × 元のfps/60/120)。
+const VERDICT_MARK = { comfortable: "◎", ok: "○", tight: "△", poor: "▲", impossible: "×" };
+document.getElementById("upconv-fit-btn").addEventListener("click", async () => {
+  const box = document.getElementById("upconv-fit-result");
+  const f = sourceFiles[0];
+  if (!f) {
+    box.textContent = "先に動画ファイルを追加してください。 / Add a video file first.";
+    return;
+  }
+  box.textContent = "予測中(数か所を抜き取って調べます)… / Predicting (sampling a few places)…";
+  try {
+    const info = await invoke("probe_media", { path: f.path });
+    const r = await invoke("ai_fit_predict", {
+      path: f.path,
+      startSecs: f.extract ? f.extract.startSecs : null,
+      durationSecs: f.extract ? f.extract.endSecs - f.extract.startSecs : null,
+      disc: document.getElementById("upconv-disc").value,
+      audioKbps: 320,
+      srcFps: info.fps || 24,
+    });
+    const rows = r.rows.map((x) => `${VERDICT_MARK[x.verdict] || "?"} ${x.width}×${x.height} ${Number(x.fps.toFixed(2))}fps: 映像 約${(x.video_kbps / 1000).toFixed(1)}Mbps — ${x.message_ja}`);
+    const sf = r.static_fraction == null ? "不明" : `${(r.static_fraction * 100).toFixed(0)}%`;
+    const multi = sourceFiles.length > 1 ? "のみ(複数本の合計では計算していません)" : "";
+    box.style.whiteSpace = "pre-wrap";
+    box.textContent = `${rows.join("\n")}\n(対象: 1本目のファイル${multi}、長さ ${fmtDur(r.duration_secs)}、単色・静止コマの推定割合 ${sf}。目安であり、内容によって変わります。 / Estimate for the first file only; static-frame share ${sf}; a guide, content-dependent.)`;
+  } catch (e) {
+    box.textContent = `予測に失敗しました / Prediction failed: ${e}`;
   }
 });
 
