@@ -20,8 +20,10 @@ One codebase; only the installers differ per OS.
   available resampler (soxr, else a high-precision swresample setup) with TPDF dither. Measured SNR against an exact reference sine:
   352.8 kHz/24-bit = 141.2 dB, 384 kHz/32-bit = 150.2 dB. When DSD is created, no PCM is written alongside it
   (players convert DSD to PCM automatically on hardware without DSD, so PCM would only waste space). Measured DSD round-trip SNR: DSD64 = 99.6 dB, DSD128 = 132.4 dB.
-- **AI super-resolution (video)**: Real-ESRGAN (MIT) as an on-demand plugin (e.g. DVD→4K). Uses the GPU (NCNN-Vulkan) when a Vulkan device works,
-  otherwise our own **Rust CPU implementation** (AVX2+FMA used automatically; output PSNR 42.0 dB against the official GPU implementation), switching automatically.
+- **AI super-resolution (video) and frame interpolation**: Real-ESRGAN (MIT) as an on-demand plugin (upconvert DVD 1-2 layer -> Blu-ray 1-4 layer, Full HD / 4K).
+  **It benchmarks this PC's CPU and GPU and automatically picks the fastest of CPU-only / GPU-only / both** (our own Rust CPU build uses AVX2+FMA; output PSNR 42-57 dB against the official GPU build).
+  Interlace/telecine auto-detection, black-bar crop and restore, skipping the AI on black/still frames, cancel and resume, and remaining-time display.
+  **4K / 120 FPS** uses RIFE frame interpolation (rife-ncnn-vulkan, MIT; only ~12 MB fetched by range requests), and "Predict fit" tells you beforehand whether it fits the disc.
 - **AI bandwidth extension (experimental)**: fills in the missing highs of band-limited audio with a trained model (LavaSR, Apache-2.0, run by pure-Rust tract, ~56 MB fetched on first use).
   **The existing band is never modified**, and the generated highs are capped by an extrapolation of the input envelope (the raw model output worsened music, hence this design).
   Measured (music band-limited at 8/12 kHz): LSD in the band with ground truth 3.4→1.5 and 2.7→1.6, low band unchanged. It is synthesis, not restoration, and does nothing for sources that are not band-limited.
@@ -46,12 +48,14 @@ One codebase; only the installers differ per OS.
 
 - **Circumventing copy protection (CSS/AACS, etc.) is not implemented** (it can be illegal). Unprotected discs only.
 - **Newly creating Dolby Vision / Atmos / Dolby Cinema / IMAX / 4DX is not possible** (licensed formats). Only preservation (stream copy) and compatible lower formats.
-- **AI video super-resolution (Real-ESRGAN) is very slow — short clips only** (per 720x480 frame: fast model ~1.2 s on a 32-thread AVX2 CPU, ~4.6 s on a GT 730 GPU;
-  high-quality model ~110 s on the GT 730). The CPU build supports the fast model only. **Audio AI bandwidth extension is experimental** (synthesis, no guarantee of perceptual quality).
-  The "AI-optimized" resolution/FPS options are simple heuristics, not AI super-resolution.
+- **AI video super-resolution is very slow** (per 720x480 frame, measured on this PC: ~1.3 s on a 32-thread AVX2 CPU, ~2.8 s on a GT 730 GPU, both together ~1.3x faster; a feature film can take days).
+  "Estimate" shows the expected time. Skipping still frames mainly saves compute time and has little effect on disc capacity. open-cuda has no GPU convolution, so the AI math runs on our own CPU kernel and Vulkan (NCNN).
+  **RIFE interpolation is an approximation**: fast motion and scene cuts can show ghosting or warping, and it is not real 120 fps footage. It is very slow at 4K and temporarily uses several GB.
+  On the GT 730, RIFE produced black frames with default settings, so it runs with `-j 1:1:1` and outputs are checked; broken segments are replaced by frame repetition. The general model (realesr-general-x4v3) is not bundled yet (live action also uses the fast model).
+  **Audio AI bandwidth extension is experimental** (synthesis, no guarantee of perceptual quality). The "AI-optimized" resolution/FPS options are simple heuristics, not AI super-resolution.
 - DSD files are huge (per stereo minute: DSD64 ≈ 42 MB … DSD1024 ≈ 678 MB) and are DSF files, not a Super Audio CD disc.
 - Full HD on a DVD is outside the DVD-Video standard (max 720x480/576); set-top DVD players do not downscale it automatically, so it may not play.
-- Upconversion is interpolation; tick "4.3 AI super-resolution" as well to restore fine detail. Video bitrate stops at 40 Mbps (Full HD) / 100 Mbps (4K), beyond which quality does not improve, and some disc space is then left free.
+- Upconversion restores detail with AI when "Use AI super-resolution" is on, and is plain interpolation when off. Video bitrate stops at 40 Mbps (Full HD) / 100 Mbps (4K), beyond which quality does not improve, and some disc space is then left free.
 - "Find with AI" only uses what is said (subtitles/speech), not what is shown. Music-only videos (auto-captions like `[Music]`) cannot be searched by content.
 - Burning on Linux/macOS relies on real xorriso (not bundled). Discs are written as data discs (audio CD / CD-DA burning is unsupported).
 - iOS is unsupported (no test device).
