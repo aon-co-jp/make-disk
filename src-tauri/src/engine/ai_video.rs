@@ -685,6 +685,16 @@ pub fn make_upscaled_mezzanine(input: &str, trim: Option<(Option<f64>, Option<f6
         return Err(format!("中間ファイルの結合に失敗しました: {}", String::from_utf8_lossy(&res.stderr)));
     }
     let _ = std::fs::remove_dir_all(&work);
+
+    // フレーム補間(RIFE): 目標fpsが元より十分高いときだけ。
+    let out_fps_f = fps.0 as f64 / fps.1 as f64;
+    if let Some(f) = crate::engine::rife::factor_for(out_fps_f, up.target_fps) {
+        say(format!(
+            "フレーム補間(RIFE)を行います: {:.3}fps → {:.3}fps({}倍)。 / Interpolating frames with RIFE: {:.3} fps -> {:.3} fps (x{}).",
+            out_fps_f, out_fps_f * f as f64, f, out_fps_f, out_fps_f * f as f64, f
+        ));
+        crate::engine::rife::interpolate_in_place(mezzanine, f, gpu_index)?;
+    }
     Ok(())
 }
 
