@@ -1250,3 +1250,13 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
 - **2026-09-24続き28 / Continued 28 — v0.1.28とインストール版での確認方法**: 「拡大の方法: 補間による拡大です。細部を補いたい場合は、「4.3 AI超解像」も一緒にチェックしてください。」を日英の独立した注意書きにし、「この設定にする」でもログに出すようにしてv0.1.28をリリース。
   **インストール版の画面を確認する方法(このセッションはデスクトップ操作不可のため)**: 環境変数`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`を付けてインストール済みの`make-disk.exe`を起動すると、`http://127.0.0.1:9333/json/list`にページ(`http://tauri.localhost/`)が出る。Node.jsの組み込み`WebSocket`でCDPの`Runtime.evaluate`を送れば、実際の画面のDOMを読み取り・操作でき、`window.__TAURI__.core.invoke`でアプリ自身のRustコマンドも呼べる。これで v0.1.28 のアップコンバート欄(6種のディスク・日英注意書き・設定の一括反映)と、アプリの`convert_media`で3時間33分の実動画から60分切り出し→WAV 3600秒・635MB(8.6秒)を確認した。デバッグポートはこのPCのローカルのみ・確認後にアプリを終了。
   なおTauriは画面ファイルを圧縮して実行ファイルへ埋め込むため、exeを文字列検索しても画面の文言は見つからない(問題ではない)。 / v0.1.28; how to verify the installed app's UI via WebView2 remote debugging + CDP.
+
+- **2026-09-24続き29 / Continued 29 — AI超解像の作り直し・CPU/GPU自動選択・RIFE補間・収まる予測**:
+  - **`engine/ai_video.rs`(新)**: ストリーミング(生RGBをパイプ)・240コマごとに確定して再開可能・コマ数の上限なし。インターレース/テレシネ判定(idet)、黒帯検出(cropdetect)、BT.601→709、DAR維持、単色/静止コマの再利用、残り時間、中止(`progress.rs`、イベント`make-disk-progress`)。
+  - **`engine/hw_bench.rs`(新)**: このPCでCPU/GPU/併用を実測し(結果は保存、CPU構成・ビルド種別が変わると再測定)、1.08倍以上速い方式を選ぶ。**このPC(GT 730)の実測: CPU 1.27秒/コマ、GPU 2.76秒+起動1.6秒、併用で約1.3倍**。`engine/sr_pool.rs`がCPU・GPUの作業を分担(GPUは複数コマをまとめて起動の固定費を割る)。
+    open-cudaには畳み込み演算が無いので、AI計算そのものは自前CPUカーネル(open-cpuで命令セット検出)とNCNN-Vulkanで行い、open-cuda/open-directx/aruaru-llmは速度向上には寄与しない(GPU検出・範囲検索の補助のみ)と正直に開示した。
+  - **`engine/rife.rs`(新)**: RIFE(20221029、rife-v4.6)。配布ZIP約411MBのうち約12MBだけHTTP Rangeで取得。区間ごとに確定して再開可能。**GT 730では既定の`-j 1:2:2`で黒画面(エラー無し)になる**ため`-j 1:1:1`で動かし、出力の明るさを検査して壊れた区間はコマの繰り返しに置換。完全静止の区間はRIFEを省略。実機テスト(10fps→20fps、60コマ)合格。
+  - **`engine/fit_predict.rs`(新)**: ディスク容量とbpp(fps^0.6で増加)から◎○△▲×を判定、規格上限(フルHD 40/4K 100Mbps)で頭打ち、blackdetect/freezedetectで静止割合を抜き取り推定。UI(6.の「収まるか予測」)から`ai_fit_predict`で呼ぶ。
+  - **バグ修正(実機テストで発見)**: GPUのみのモードで最後の1コマが処理されずハング/回収側が切断を無視、GPU出力が黒くなる問題(出力検査+双三次へ置換)、デバッグビルドの測定結果が保存されて誤選択(署名にビルド種別を追加)。
+  - **未実施・制限**: 汎用モデルrealesr-general-x4v3は未同梱、映画1本規模の通し実行は未検証(数日規模)、4KでのRIFE速度は未測定、複数本の合計での収まる予測は未対応(1本目のみ)、`realesrgan-x4plus`はGPU必須。
+  - **次回**: open-easy-webのインストール配置(`%LOCALAPPDATA%\open-easy-web\`)、LLMマネージャ(NPUは後回し)、ローカルopen-web-server、easy-web.tokyo連携と`make-disk://`起動。
