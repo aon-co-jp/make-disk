@@ -6,16 +6,16 @@
 音声/動画フォーマット変換GUIアプリ。インストーラーのみをOSごとに分ける
 方針で、アプリ本体は単一コードベース。
 
-### 最新版: v0.1.30
+### 最新版: v0.1.31
 
 [最新のリリース](https://github.com/aon-co-jp/make-disk/releases/latest)から入手できます。全ファイル名の版番号は同じです。
 
 | 環境 | ファイル |
 |---|---|
-| Windows | `make-disk_0.1.30_x64-setup.exe`(推奨)・`make-disk_0.1.30_x64_en-US.msi` |
-| macOS | `make-disk_0.1.30_aarch64.dmg`(Apple Silicon)・`make-disk_0.1.30_x64.dmg`(Intel) |
-| Linux | `make-disk_0.1.30_amd64.deb`・`make-disk_0.1.30_amd64.AppImage`・`make-disk-0.1.30-1.x86_64.rpm` |
-| Android | `make-disk_0.1.30_android-universal.apk`(未署名、サイドロード) |
+| Windows | `make-disk_0.1.31_x64-setup.exe`(推奨)・`make-disk_0.1.31_x64_en-US.msi` |
+| macOS | `make-disk_0.1.31_aarch64.dmg`(Apple Silicon)・`make-disk_0.1.31_x64.dmg`(Intel) |
+| Linux | `make-disk_0.1.31_amd64.deb`・`make-disk_0.1.31_amd64.AppImage`・`make-disk-0.1.31-1.x86_64.rpm` |
+| Android | `make-disk_0.1.31_android-universal.apk`(未署名、サイドロード) |
 
 Windowsの既定のインストール先は`%LOCALAPPDATA%\open-easy-web\make-disk`です(旧配置からの更新は自動で移ります)。
 
@@ -65,10 +65,12 @@ Windowsの既定のインストール先は`%LOCALAPPDATA%\open-easy-web\make-di
 
 - **著作権保護(CSS/AACS等)の回避は実装しません**(違法となり得るため)。保護のないディスクのみ対象。
 - **Dolby Vision / Atmos / Dolby Cinema / IMAX / 4DX の新規生成は不可**(ライセンス制)。保持(無変換コピー)と互換下位形式のみ。
-- **AI映像超解像は非常に時間がかかる**(720×480の1コマ、このPCの実測: CPU 32スレッド/AVX2で約1.3秒、GT 730 GPUで約2.8秒、併用で約1.3倍速。映画1本は数日規模)。
-  「下調べ」で所要時間を確認できる。静止コマの省略が減らすのは主に計算時間で、ディスク容量への効果は小さい。open-cudaにはGPUの畳み込み演算が無く、AI計算はCPU(自前カーネル)とVulkan(NCNN)で行う。
-  **フレーム補間(RIFE)は近似**: 動きの大きい場面・場面転換でゴースト・ゆがみが出ることがあり、本物の120fps撮影とは違う。4Kでは非常に遅く、一時的に数GBを使う。
-  GT 730では既定設定でRIFEが黒画面を出したため`-j 1:1:1`で動かし、出力を検査して壊れた区間はコマの繰り返しに置き換える。汎用モデル(realesr-general-x4v3)は未同梱(実写でも高速モデルを使う)。
+- **AI映像超解像は非常に時間がかかる**(720×480の1コマ、このPCの実測: CPU 32スレッド/AVX2で約1.3秒、GT 730 GPUで約2.8秒、併用で約1.3倍速)。
+  実測の通し検証: 2分(3596コマ)のDVD相当クリップ→フルHDを、途中中止→再開つきで完走(約1.8秒/コマ、コマ数一致)。**映画1本(約17万コマ)は約3.5日**の見込みで、実際の通し実行はしていない(「下調べ」で所要時間を確認できる)。
+  静止コマの省略が減らすのは主に計算時間で、ディスク容量への効果は小さい。open-cudaにはGPUの畳み込み演算が無く、AI計算はCPU(自前カーネル)とVulkan(NCNN)で行う。aruaru-llmは言語モデルなので映像のコマは作れず、動きを滑らかにするのはRIFEで、aruaru-llmはGPU検出・範囲の提案の補助にとどまる。
+  **フレーム補間(RIFE)は近似**: 動きの大きい場面・場面転換でゴースト・ゆがみが出ることがあり、本物の120fps撮影とは違う。**このPCでの実測(補間コマ1枚あたり): フルHDはGPUで約4.2秒、4KはGPUが壊れた出力を返すためCPUで約31秒。**
+  4K・120fpsの通し変換(DVD相当→3840×2160・120fps・音声つき)は極小(4コマ)で成功したが、映画1本では現実的でない(24fps→120fpsで補間コマ4枚/コマ)。GT 730のGPUは4Kで「デバイス喪失」になり補間コマが黒くなるため、出力を全コマ検査し、壊れたらCPUでやり直す。
+  AI超解像をオフにしてfpsだけ上げると、超解像なしのフレーム補間(RIFE)だけを行う。実写向けモデル(realesr-general-x4v3、約2倍遅い)を同梱し、公式GPU実装との出力PSNR 46.5dBで変換の正しさを確認した。
   **音声のAI高域生成は実験的**(合成であり聴感品質を保証しない)。「AI最適化」表記の解像度/FPS設定は簡易ヒューリスティックで、AI超解像とは別物。
 - DSDは巨大(ステレオ1分あたりDSD64≈42MB〜DSD1024≈678MB)。SACD規格ディスクではなくDSFファイル。
 - DVDのフルHDはDVD-Video規格(最大720×480/576)外。家庭用DVDプレイヤーは自動で解像度を落として再生しないため、再生できない場合がある。

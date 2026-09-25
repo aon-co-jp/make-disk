@@ -461,4 +461,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(&work);
     }
 
+    /// 同梱した実写モデル(realesr-general-x4v3、自前でncnn形式へ変換)が、公式のGPU実装(NCNN-Vulkan)と同じ出力になるか。
+    /// 変換の誤り(重みの並び・層の対応)があれば、ここで大きくずれる。
+    #[test]
+    #[ignore]
+    fn real_general_model_cpu_matches_the_official_gpu() {
+        let cli = crate::engine::ai_upscale::ensure_plugin().expect("plugin");
+        let models = cli.parent().unwrap().join("models");
+        assert!(models.join("realesr-general-x4v3.bin").is_file());
+        let work = std::env::temp_dir().join(format!("make-disk-generaltest-{}", std::process::id()));
+        std::fs::create_dir_all(&work).unwrap();
+        let run = |mode: Mode| -> sr_pool::Done {
+            let mut cfg = gpu_cfg(&models, &work, mode, Some(cli.clone()));
+            cfg.spec = sr_pool::SrSpec { model: "realesr-general-x4v3".to_string(), scale: 2 };
+            cfg.gpu_batch = 1;
+            cfg.queue_cap = 4;
+            let pool = sr_pool::SrPool::start(cfg).expect("start");
+            pool.submit(frames(1, 700).remove(0)).unwrap();
+            pool.close();
+            let mut out = None;
+            while let Ok(r) = pool.recv_timeout(std::time::Duration::from_secs(300)) {
+                if let Some(r) = r {
+                    out = Some(r.expect("frame"));
+                }
+            }
+            pool.shutdown();
+            out.expect("no output")
+        };
+        let cpu = run(Mode::Cpu);
+        let gpu = run(Mode::Gpu(0));
+        assert_eq!((cpu.w, cpu.h), (BENCH_W * 2, BENCH_H * 2));
+        assert_eq!(cpu.by, "cpu");
+        assert_eq!(gpu.by, "gpu");
+        let mse: f64 = cpu.rgb.iter().zip(&gpu.rgb).map(|(a, b)| (*a as f64 - *b as f64).powi(2)).sum::<f64>() / cpu.rgb.len() as f64;
+        let psnr = 10.0 * (255.0f64 * 255.0 / mse.max(1e-9)).log10();
+        eprintln!("general model: PSNR(cpu vs official gpu) = {psnr:.1} dB");
+        assert!(psnr > 35.0, "自前変換したモデルが公式GPU実装とずれています: {psnr}");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
 }

@@ -698,6 +698,41 @@ pub fn make_upscaled_mezzanine(input: &str, trim: Option<(Option<f64>, Option<f6
     Ok(())
 }
 
+/// 超解像をせず、フレーム補間(RIFE)だけで目標のfpsにした中間ファイルを作る。
+/// 元の大きさのまま、色行列だけ(SDならBT.601→709)を整えてx264 CRF14へ書き出し、RIFEで補間する。
+pub fn make_interpolated_mezzanine(input: &str, trim: Option<(Option<f64>, Option<f64>)>, up: &AiUpscale, mezzanine: &Path) -> Result<(), String> {
+    ai_upscale::validate(up)?;
+    let (start, dur) = trim.unwrap_or((None, None));
+    let info = probe_video(input)?;
+    let src_fps = info.fps.0 as f64 / info.fps.1 as f64;
+    let factor = crate::engine::rife::factor_for(src_fps, up.target_fps).ok_or_else(|| format!("元のfps({src_fps:.2})に対して目標のfpsが低すぎるため、補間は行いません / target fps is too low relative to the source ({src_fps:.2})"))?;
+    say(format!(
+        "フレーム補間(RIFE)だけを行います: {:.3}fps → {:.3}fps({}倍、超解像なし)。 / Interpolation only (no upscaling): {:.3} fps -> {:.3} fps (x{}).",
+        src_fps, src_fps * factor as f64, factor, src_fps, src_fps * factor as f64, factor
+    ));
+    let vf = if info.h <= 576 {
+        "scale=in_color_matrix=bt601:out_color_matrix=bt709:out_range=tv,format=yuv420p"
+    } else {
+        "scale=out_color_matrix=bt709:out_range=tv,format=yuv420p"
+    };
+    let mut cmd = resolve_tool("ffmpeg");
+    cmd.args(["-v", "error", "-y"]);
+    if let Some(s) = start {
+        cmd.args(["-ss", &s.to_string()]);
+    }
+    if let Some(d) = dur {
+        cmd.args(["-t", &d.to_string()]);
+    }
+    cmd.args(["-i", input, "-map", "0:v:0", "-map", "0:a?", "-vf", vf, "-c:v", "libx264", "-crf", MEZZANINE_CRF, "-preset", "veryfast", "-profile:v", "high"]);
+    cmd.args(["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv", "-c:a", "copy"]).arg(mezzanine);
+    let out = cmd.output().map_err(|e| format!("ffmpegの起動に失敗しました: {e}"))?;
+    if !out.status.success() {
+        return Err(format!("中間ファイルの作成に失敗しました: {}", String::from_utf8_lossy(&out.stderr)));
+    }
+    let gpu = hw_bench::cached().and_then(|b| b.gpu_index);
+    crate::engine::rife::interpolate_in_place(mezzanine, factor, gpu)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn decode_and_submit(
     input: &str,
@@ -949,6 +984,13 @@ pub struct Estimate {
     /// このPCの実測がまだ無いとき`None`(先に測定してもらう)。
     pub secs_per_frame: Option<f64>,
     pub eta_secs: Option<f64>,
+    /// フレーム補間(RIFE)の倍率・補間コマ1枚あたりの秒・方式・所要時間(補間を行わないときは`None`)。
+    pub rife_factor: Option<u32>,
+    pub rife_secs_per_frame: Option<f64>,
+    pub rife_method: Option<String>,
+    pub rife_eta_secs: Option<f64>,
+    /// 超解像とフレーム補間を合わせた所要時間(どちらかが不明なら`None`)。
+    pub total_eta_secs: Option<f64>,
     pub hw_message_ja: Option<String>,
     pub hw_message_en: Option<String>,
     pub temp_bytes: u64,
@@ -975,6 +1017,36 @@ pub fn estimate(input: &str, start: Option<f64>, dur: Option<f64>, up: &AiUpscal
     let spf = bench.as_ref().map(|b| hw_bench::secs_per_frame(b, cw as usize, ch as usize) * model_factor);
     let eta = spf.map(|s| s * an.frames as f64);
 
+    // フレーム補間(RIFE)の見積もり。GPUが壊れた出力を返す大きさ(GT 730の4Kなど)では、CPUの速さで見積もる。
+    let out_fps = an.out_fps_num as f64 / an.out_fps_den.max(1) as f64;
+    let rife_factor = crate::engine::rife::factor_for(out_fps, up.target_fps);
+    let (rife_spf, rife_method, rife_eta, mut rife_warn) = match rife_factor {
+        Some(f) => {
+            let (rw, rh) = if up.interpolate_only { (an.width, an.height) } else { (out_w, out_h) };
+            match crate::engine::rife::speed(rw, rh, bench.as_ref().and_then(|b| b.gpu_index)) {
+                Ok(sp) => {
+                    let frames = an.duration_secs * out_fps;
+                    let eta = sp.secs_per_frame * frames * (f as f64 - 1.0);
+                    let mut w = Vec::new();
+                    if let Some(note) = &sp.gpu_note {
+                        w.push((
+                            format!("この画面の大きさ({rw}×{rh})では、このPCのGPUがフレーム補間で壊れた出力を返します({note})。CPUで補間するため非常に遅くなります(補間コマ1枚あたり約{:.0}秒)。", sp.secs_per_frame),
+                            format!("At {rw}x{rh} this PC's GPU returns broken interpolation output ({note}); the CPU is used and is very slow (~{:.0} s per interpolated frame).", sp.secs_per_frame),
+                        ));
+                    }
+                    (Some(sp.secs_per_frame), Some(sp.method.clone()), Some(eta), w)
+                }
+                Err(_) => (None, None, None, Vec::new()),
+            }
+        }
+        None => (None, None, None, Vec::new()),
+    };
+    let total_eta = match (up.interpolate_only, eta, rife_eta) {
+        (true, _, r) => r,
+        (false, Some(e), Some(r)) => Some(e + r),
+        (false, e, None) if rife_factor.is_none() => e,
+        _ => None,
+    };
     let mezz_bytes = (out_w as f64 * out_h as f64 * an.fps * MEZZANINE_BPP / 8.0 * an.duration_secs) as u64;
     let temp_bytes = mezz_bytes * 2; // 中間ファイルの分割分 + 結合後の1本
     let free = free_space_bytes(work_dir);
@@ -991,13 +1063,28 @@ pub fn estimate(input: &str, start: Option<f64>, dur: Option<f64>, up: &AiUpscal
             we.push(format!("This will take {} — consider extracting only the part you need (section 8) or a faster GPU.", progress::fmt_duration(e)));
         }
     }
+    for (ja, en) in rife_warn.drain(..) {
+        wj.push(ja);
+        we.push(en);
+    }
+    if let Some(e) = rife_eta {
+        if e > 86400.0 {
+            wj.push(format!("フレーム補間だけで{}かかる見込みです。fpsを下げるか、解像度を下げるか、必要な部分だけ切り出してください。", progress::fmt_duration(e)));
+            we.push(format!("Frame interpolation alone will take about {} — lower the fps or resolution, or extract only the part you need.", progress::fmt_duration(e)));
+        }
+    }
     Ok(Estimate {
         model,
         scale,
         out_w,
         out_h,
         secs_per_frame: spf,
-        eta_secs: eta,
+        eta_secs: if up.interpolate_only { None } else { eta },
+        rife_factor,
+        rife_secs_per_frame: rife_spf,
+        rife_method,
+        rife_eta_secs: rife_eta,
+        total_eta_secs: total_eta,
         hw_message_ja: bench.as_ref().map(|b| b.message_ja.clone()),
         hw_message_en: bench.as_ref().map(|b| b.message_en.clone()),
         temp_bytes,
@@ -1240,4 +1327,56 @@ mod tests {
         assert!(text.contains("audio"), "元の音声が保持されるはず(実際: {text})");
     }
 
+    /// 長時間実行の検証: 2分(約3600コマ)のDVD相当クリップを、途中で中止→再開しながらフルHDへ超解像する。
+    /// 1時間以上かかるので通常は実行しない。コマ数の一致・再開・処理速度・一時ディスクの使用量を確かめる。
+    #[test]
+    #[ignore]
+    fn real_long_run_cancel_and_resume() {
+        let tmp = std::env::temp_dir().join(format!("make-disk-longrun-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let src = tmp.join("dvd.mkv");
+        let ok = resolve_tool("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=720x480:rate=30000/1001:duration=120", "-f", "lavfi", "-i", "sine=frequency=440:duration=120"])
+            .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "ac3", "-shortest"])
+            .arg(&src)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        let src_frames = crate::engine::rife::count_frames_pub(&src.to_string_lossy());
+        eprintln!("source frames: {src_frames}");
+        let out = tmp.join("out.mkv");
+        let up = AiUpscale { backend: "auto".into(), ..Default::default() };
+        let t = Instant::now();
+        // 1回目: 約15分で中止を依頼する。
+        let killer = std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_secs(15 * 60));
+            progress::request_cancel();
+        });
+        progress::clear_cancel();
+        let r = make_upscaled_mezzanine(&src.to_string_lossy(), None, &up, Some((1920, 1080)), &out);
+        let _ = killer.join();
+        eprintln!("first run ended after {:.0}s: {:?}", t.elapsed().as_secs_f64(), r.as_ref().err().map(|e| e.chars().take(40).collect::<String>()));
+        assert!(r.is_err() && r.unwrap_err().contains("中止"), "中止されるはず");
+        let work_bytes: u64 = std::fs::read_dir(&tmp).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().starts_with(".make-disk-ai-")).map(|e| dir_size(&e.path())).sum();
+        eprintln!("work dir after cancel: {:.1} MB", work_bytes as f64 / 1e6);
+        assert!(work_bytes > 0, "再開用の途中経過が残っているはず");
+        // 2回目: 続きから再開して最後まで。
+        progress::clear_cancel();
+        let t2 = Instant::now();
+        make_upscaled_mezzanine(&src.to_string_lossy(), None, &up, Some((1920, 1080)), &out).expect("resume to completion");
+        eprintln!("second run took {:.0}s (total {:.0}s)", t2.elapsed().as_secs_f64(), t.elapsed().as_secs_f64());
+        let n = crate::engine::rife::count_frames_pub(&out.to_string_lossy());
+        let info = probe_video(&out.to_string_lossy()).unwrap();
+        eprintln!("output frames: {n}, {}x{}", info.w, info.h);
+        assert_eq!((info.w, info.h), (1920, 1080));
+        assert_eq!(n, src_frames, "コマ数が元と一致するはず");
+        assert!(std::fs::read_dir(&tmp).unwrap().filter_map(|e| e.ok()).all(|e| !e.file_name().to_string_lossy().starts_with(".make-disk-ai-")), "完了後は作業フォルダが消えるはず");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    fn dir_size(p: &Path) -> u64 {
+        std::fs::read_dir(p).map(|r| r.filter_map(|e| e.ok()).map(|e| e.metadata().map(|m| if m.is_dir() { dir_size(&e.path()) } else { m.len() }).unwrap_or(0)).sum()).unwrap_or(0)
+    }
 }

@@ -230,7 +230,11 @@ pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
         let mezzanine = std::path::Path::new(&job.output_path).with_extension("ai-upscaled.mkv");
         let trim = job.trim.as_ref().map(|t| (t.start_secs, t.duration_secs));
         let target = job.resolution.as_ref().map(|r| (r.width, r.height));
-        crate::engine::ai_video::make_upscaled_mezzanine(&job.input_path, trim, up, target, &mezzanine)?;
+        if up.interpolate_only {
+            crate::engine::ai_video::make_interpolated_mezzanine(&job.input_path, trim, up, &mezzanine)?;
+        } else {
+            crate::engine::ai_video::make_upscaled_mezzanine(&job.input_path, trim, up, target, &mezzanine)?;
+        }
         let mut next = job.clone();
         next.input_path = mezzanine.to_string_lossy().to_string();
         next.trim = None;
@@ -1178,6 +1182,106 @@ mod tests {
 
         assert_eq!((width, height), (1920, 1080), "指定した解像度(1920x1080)に変換されているはず");
         assert!((fps - 30.0).abs() < 0.1, "指定したフレームレート(30fps)に変換されているはず、実際: {fps}");
+    }
+
+    /// 実物の通しテスト: DVD相当(720×480、29.97fps、音声つき)→フルHD・約60fps(AI超解像+RIFE補間)。
+    /// 遅い(CPU/GPU実測・RIFE取得が入る)ので通常は実行しない。`--ignored`で実行する。
+    #[test]
+    #[ignore]
+    fn real_dvd_to_full_hd_60fps_with_ai_and_rife() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_dvd_hd_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let source = tmp.join("dvd.mkv");
+        let ok = crate::engine::sidecar::resolve_tool("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=720x480:rate=30000/1001:duration=2", "-f", "lavfi", "-i", "sine=frequency=440:duration=2"])
+            .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "ac3", "-shortest"])
+            .arg(&source)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        let output = tmp.join("out.mkv");
+        let job = ConvertJob {
+            input_path: source.to_string_lossy().to_string(),
+            output_path: output.to_string_lossy().to_string(),
+            codec_args: vec!["-c:v".to_string(), "libx264".to_string(), "-pix_fmt".to_string(), "yuv420p".to_string(), "-c:a".to_string(), "aac".to_string()],
+            bitrate: None,
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: Some(Resolution { width: 1920, height: 1080 }),
+            fps: None,
+            ai_denoise: None,
+            dsd_rate: None,
+            dop_wav_bits: None,
+            mkv_keep_all_tracks: Some(false),
+            extra_tracks: vec![],
+            ai_upscale: Some(crate::engine::ai_upscale::AiUpscale { backend: "auto".to_string(), target_fps: Some(60), ..Default::default() }),
+            audio_bwe: None,
+        };
+        run_convert(&job).expect("DVD -> Full HD 60fps conversion");
+        let (w, h, fps) = probe_video_dimensions_and_fps(&output);
+        let has_audio = crate::engine::mkv_tracks::count_streams(&output.to_string_lossy(), 'a') > 0;
+        let _ = fs::remove_dir_all(&tmp);
+        assert_eq!((w, h), (1920, 1080));
+        assert!((fps - 59.94).abs() < 0.1, "fps={fps}");
+        assert!(has_audio, "音声が残っているはず");
+    }
+
+    /// 実物の通しテスト: DVD相当(720×480、24fps)→4K・120fps(AI超解像+RIFE 5倍補間)。
+    /// このPC(GT 730)ではGPUが4Kで壊れた補間結果を返すため、CPUへ自動で切り替わる(非常に遅い)。極小の4コマで確かめる。
+    #[test]
+    #[ignore]
+    fn real_dvd_to_4k_120fps_end_to_end() {
+        if !ffmpeg_available() {
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("make_disk_test_dvd_4k120_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let source = tmp.join("dvd.mkv");
+        let ok = crate::engine::sidecar::resolve_tool("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=720x480:rate=24:duration=0.1667", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.1667"])
+            .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "ac3", "-shortest"])
+            .arg(&source)
+            .status()
+            .unwrap()
+            .success();
+        assert!(ok);
+        let output = tmp.join("out.mkv");
+        let job = ConvertJob {
+            input_path: source.to_string_lossy().to_string(),
+            output_path: output.to_string_lossy().to_string(),
+            codec_args: vec!["-c:v".to_string(), "libx264".to_string(), "-pix_fmt".to_string(), "yuv420p".to_string(), "-c:a".to_string(), "aac".to_string()],
+            bitrate: None,
+            trim: None,
+            cut_ranges: None,
+            frame_accurate: false,
+            resolution: Some(Resolution { width: 3840, height: 2160 }),
+            fps: None,
+            ai_denoise: None,
+            dsd_rate: None,
+            dop_wav_bits: None,
+            mkv_keep_all_tracks: Some(false),
+            extra_tracks: vec![],
+            ai_upscale: Some(crate::engine::ai_upscale::AiUpscale { backend: "auto".to_string(), target_fps: Some(120), ..Default::default() }),
+            audio_bwe: None,
+        };
+        let t = std::time::Instant::now();
+        run_convert(&job).expect("DVD -> 4K 120fps conversion");
+        eprintln!("4K120 e2e took {:.0}s", t.elapsed().as_secs_f64());
+        let (w, h, fps) = probe_video_dimensions_and_fps(&output);
+        let frames = crate::engine::probe::probe(&output.to_string_lossy()).map(|i| i.duration_secs * fps).unwrap_or(0.0);
+        let has_audio = crate::engine::mkv_tracks::count_streams(&output.to_string_lossy(), 'a') > 0;
+        let _ = fs::remove_dir_all(&tmp);
+        assert_eq!((w, h), (3840, 2160));
+        assert!((fps - 120.0).abs() < 0.1, "fps={fps}");
+        assert!(frames > 15.0, "frames~{frames}");
+        assert!(has_audio);
     }
 
     #[test]

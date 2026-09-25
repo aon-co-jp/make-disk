@@ -204,6 +204,7 @@ fn png_name(dir: &Path, n: usize) -> PathBuf {
 /// `video`(映像+音声)を`factor`倍のフレームレートへ補間し、同じファイル名へ置き換える。
 /// `gpu`は使うVulkanデバイス(`None`ならCPUモード=非常に遅い)。
 pub fn interpolate_in_place(video: &Path, factor: u32, gpu: Option<u32>) -> Result<(), String> {
+    let mut gpu = gpu;
     let exe = ensure_plugin()?;
     let models = exe.parent().ok_or("プラグインの場所が不正です")?.to_path_buf();
     let path_s = video.to_string_lossy().to_string();
@@ -232,7 +233,7 @@ pub fn interpolate_in_place(video: &Path, factor: u32, gpu: Option<u32>) -> Resu
             let s = k * seg;
             let n = seg.min(total - s);
             let has_next = s + n < total;
-            if let SegOutcome::Replaced = make_segment(&exe, &models, gpu, &path_s, &info, factor, out_fps, s, n, has_next, &work, &seg_file)? {
+            if let SegOutcome::Replaced = make_segment(&exe, &models, &mut gpu, &path_s, &info, factor, out_fps, s, n, has_next, &work, &seg_file)? {
                 replaced += 1;
             }
             done_new += 1;
@@ -272,6 +273,12 @@ pub fn interpolate_in_place(video: &Path, factor: u32, gpu: Option<u32>) -> Resu
     Ok(())
 }
 
+/// テスト用: コマ数を数える。
+pub fn count_frames_pub(input: &str) -> u64 {
+    let info = crate::engine::ai_video::probe_video(input).expect("probe");
+    count_frames(input, info.duration, info.fps).expect("count")
+}
+
 fn count_frames(input: &str, duration: f64, fps: (u64, u64)) -> Result<u64, String> {
     let out = resolve_tool("ffprobe")
         .args(["-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", input])
@@ -292,7 +299,7 @@ enum SegOutcome {
 fn make_segment(
     exe: &Path,
     models: &Path,
-    gpu: Option<u32>,
+    gpu: &mut Option<u32>,
     input: &str,
     info: &crate::engine::ai_video::VideoInfo,
     factor: u32,
@@ -344,25 +351,28 @@ fn make_segment(
     if is_static || m < 2 {
         outcome = SegOutcome::Static;
     } else {
-        let mut cmd = background_command(exe);
-        cmd.args(["-i", &din.to_string_lossy(), "-o", &dout.to_string_lossy(), "-m", RIFE_MODEL]);
-        cmd.args(["-n", &((m - 1) * factor as u64 + 1).to_string(), "-f", "%08d.png", "-j", "1:1:1"]);
-        cmd.args(["-g", &gpu.map_or("-1".to_string(), |g| g.to_string())]);
-        if info.w >= 2560 {
-            cmd.arg("-u");
+        // GPUで試し、出力が壊れていたら(実機のGT 730では4Kで「デバイス喪失」になり、一部のコマが黒くなる)
+        // 同じ区間をCPUでやり直す。GPUが壊れたら、以降の区間は最初からCPUで処理する。
+        let mut attempts: Vec<Option<u32>> = Vec::new();
+        if gpu.is_some() {
+            attempts.push(*gpu);
         }
-        cmd.current_dir(models);
-        let out = cmd.output().map_err(|e| format!("rife-ncnn-vulkanの起動に失敗しました: {e}"))?;
-        let produced = count_pngs(&dout) as u64;
-        if out.status.success() && produced >= (m - 1) * factor as u64 + 1 {
-            // 補間で作られたコマ(元コマの間)の明るさを、元コマと比べる。
-            let f = factor as usize;
-            let i1 = f / 2 + 1;
-            let i2 = ((m as usize - 1) * f).saturating_sub(f / 2).max(1) + 1;
-            frames_ok = match (&first, &last, load_rgb(&png_name(&dout, i1)), load_rgb(&png_name(&dout, i2))) {
-                (Some(a), Some(l), Some(b), Some(c)) => crate::engine::sr_pool::output_looks_sane(a, &b) && crate::engine::sr_pool::output_looks_sane(l, &c),
-                _ => false,
-            };
+        attempts.push(None);
+        for dev in attempts {
+            let _ = std::fs::remove_dir_all(&dout);
+            let _ = std::fs::create_dir_all(&dout);
+            let out = run_rife(exe, models, dev, &din, &dout, m, factor, info.w)?;
+            if all_interpolated_frames_ok(&din, &dout, m, factor) {
+                frames_ok = true;
+                break;
+            }
+            if dev.is_some() {
+                *gpu = None;
+                progress::emit(
+                    "ai-progress",
+                    serde_json::json!({ "stage": "info", "message": format!("GPUでの補間結果が壊れていました(この画面の大きさではGPUが対応できない場合があります)。CPUでやり直します(遅くなります)。 / GPU interpolation output was invalid; redoing on the CPU (slower). {}", out.lines().last().unwrap_or("")) }),
+                );
+            }
         }
         if !frames_ok {
             outcome = SegOutcome::Replaced;
@@ -397,6 +407,135 @@ fn make_segment(
     }
     std::fs::rename(&part, seg_file).map_err(|e| format!("区間ファイルを確定できません: {e}"))?;
     Ok(outcome)
+}
+
+/// rife-ncnn-vulkanを1回実行する。標準エラー出力の末尾(失敗の手掛かり)を返す。
+#[allow(clippy::too_many_arguments)]
+fn run_rife(exe: &Path, models: &Path, dev: Option<u32>, din: &Path, dout: &Path, m: u64, factor: u32, width: u32) -> Result<String, String> {
+    let mut cmd = background_command(exe);
+    cmd.args(["-i", &din.to_string_lossy(), "-o", &dout.to_string_lossy(), "-m", RIFE_MODEL]);
+    cmd.args(["-n", &((m - 1) * factor as u64 + 1).to_string(), "-f", "%08d.png", "-j", "1:1:1"]);
+    cmd.args(["-g", &dev.map_or("-1".to_string(), |g| g.to_string())]);
+    if width >= 2560 {
+        cmd.arg("-u");
+    }
+    cmd.current_dir(models);
+    let out = cmd.output().map_err(|e| format!("rife-ncnn-vulkanの起動に失敗しました: {e}"))?;
+    let err = String::from_utf8_lossy(&out.stderr);
+    Ok(err.lines().filter(|l| l.contains("failed") || l.contains("error")).last().unwrap_or("").to_string())
+}
+
+fn mean_luma(rgb: &[u8]) -> f64 {
+    let step = (rgb.len() / 30000).max(1);
+    let (mut sum, mut n) = (0u64, 0u64);
+    for &b in rgb.iter().step_by(step) {
+        sum += b as u64;
+        n += 1;
+    }
+    if n == 0 {
+        0.0
+    } else {
+        sum as f64 / n as f64
+    }
+}
+
+/// 全ての出力コマが存在し、補間コマが前後の元コマに比べて極端に暗くないか(黒画面の検出)を確かめる。
+fn all_interpolated_frames_ok(din: &Path, dout: &Path, m: u64, factor: u32) -> bool {
+    let f = factor as usize;
+    let total = (m as usize - 1) * f + 1;
+    if count_pngs(dout) < total {
+        return false;
+    }
+    let src: Vec<Option<f64>> = (1..=m as usize).map(|i| load_rgb(&png_name(din, i)).map(|v| mean_luma(&v))).collect();
+    for k in 1..=total {
+        let (q, r) = ((k - 1) / f, (k - 1) % f);
+        let Some(v) = load_rgb(&png_name(dout, k)) else { return false };
+        let mo = mean_luma(&v);
+        let (a, b) = (src.get(q).copied().flatten(), src.get(q + 1).copied().flatten());
+        let lo = match (a, b) {
+            (Some(a), Some(b)) => a.min(b),
+            (Some(a), None) | (None, Some(a)) => a,
+            _ => continue,
+        };
+        // 元コマ自体(r==0)も、暗くなっていないか確かめる。
+        let _ = r;
+        if lo > 12.0 && mo < lo * 0.4 {
+            return false;
+        }
+    }
+    true
+}
+
+/// この画面の大きさでのRIFEの速さ(補間コマ1枚あたりの秒)の実測結果。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RifeSpeed {
+    pub width: u32,
+    pub height: u32,
+    /// `"gpu"`(GPUで正しく動いた)/ `"cpu"`(GPUが壊れた出力を返したのでCPU)。
+    pub method: String,
+    pub secs_per_frame: f64,
+    /// GPUが使えなかった理由(あれば)。
+    pub gpu_note: Option<String>,
+    pub signature: String,
+}
+
+fn speed_cache_path() -> Option<PathBuf> {
+    Some(plugins::plugin_dir()?.join("rife-bench.json"))
+}
+
+fn speed_signature() -> String {
+    format!("v1|{RIFE_VERSION}|{}", if cfg!(debug_assertions) { "debug" } else { "release" })
+}
+
+/// 指定の大きさで、補間コマ1枚あたりの秒を測る(GPUで試し、出力が壊れていればCPUで測る)。結果は保存して次回以降に使う。
+pub fn speed(width: u32, height: u32, gpu: Option<u32>) -> Result<RifeSpeed, String> {
+    let sig = speed_signature();
+    let mut cache: Vec<RifeSpeed> = speed_cache_path().and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    if let Some(c) = cache.iter().find(|c| c.width == width && c.height == height && c.signature == sig) {
+        return Ok(c.clone());
+    }
+    let exe = ensure_plugin()?;
+    let models = exe.parent().ok_or("プラグインの場所が不正です")?.to_path_buf();
+    let dir = std::env::temp_dir().join(format!("make-disk-rife-speed-{}", std::process::id()));
+    let (din, dout) = (dir.join("in"), dir.join("out"));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&din).and_then(|_| std::fs::create_dir_all(&dout)).map_err(|e| e.to_string())?;
+    for i in 1..=2u64 {
+        let f = crate::engine::sr_pool::synthetic_frame(width as usize, height as usize, 900 + i);
+        crate::engine::sr_pool::write_png_fast(&png_name(&din, i as usize), width as usize, height as usize, &f)?;
+    }
+    let mut result: Option<RifeSpeed> = None;
+    let mut gpu_note = None;
+    let mut attempts: Vec<Option<u32>> = Vec::new();
+    if gpu.is_some() {
+        attempts.push(gpu);
+    }
+    attempts.push(None);
+    for dev in attempts {
+        let _ = std::fs::remove_dir_all(&dout);
+        let _ = std::fs::create_dir_all(&dout);
+        let t = Instant::now();
+        let note = run_rife(&exe, &models, dev, &din, &dout, 2, 2, width)?;
+        let secs = t.elapsed().as_secs_f64();
+        if all_interpolated_frames_ok(&din, &dout, 2, 2) {
+            result = Some(RifeSpeed { width, height, method: if dev.is_some() { "gpu" } else { "cpu" }.to_string(), secs_per_frame: secs, gpu_note: gpu_note.clone(), signature: sig.clone() });
+            break;
+        }
+        if dev.is_some() {
+            gpu_note = Some(if note.is_empty() { "GPUの出力が壊れていました".to_string() } else { note });
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    let r = result.ok_or("RIFEの速さを測れませんでした(CPUでも正しい出力が得られません)")?;
+    cache.retain(|c| !(c.width == width && c.height == height));
+    cache.push(r.clone());
+    if let Some(p) = speed_cache_path() {
+        if let Some(d) = p.parent() {
+            let _ = std::fs::create_dir_all(d);
+        }
+        let _ = std::fs::write(p, serde_json::to_vec_pretty(&cache).unwrap_or_default());
+    }
+    Ok(r)
 }
 
 #[cfg(test)]
@@ -450,5 +589,15 @@ mod tests {
         let n = count_frames(&src.to_string_lossy(), info.duration, info.fps).unwrap();
         assert!((59..=61).contains(&n), "frames={n}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 実測: このPCでのRIFEの速さ(補間コマ1枚あたりの秒)を、フルHDと4Kで測る。
+    #[test]
+    #[ignore]
+    fn real_rife_speed_at_full_hd_and_4k() {
+        for (w, h) in [(1920u32, 1080u32), (3840, 2160)] {
+            let sp = speed(w, h, Some(0)).expect("speed");
+            eprintln!("RIFE {w}x{h}: {} {:.1} s per interpolated frame, gpu_note={:?}", sp.method, sp.secs_per_frame, sp.gpu_note);
+        }
     }
 }

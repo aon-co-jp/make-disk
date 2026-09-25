@@ -5,16 +5,16 @@
 A cross-platform (Rust + Tauri) GUI for burning CD/DVD/Blu-ray and converting audio/video.
 One codebase; only the installers differ per OS.
 
-## Latest version: v0.1.30
+## Latest version: v0.1.31
 
 Get it from the [latest release](https://github.com/aon-co-jp/make-disk/releases/latest). Every file name carries the same version.
 
 | Platform | File |
 |---|---|
-| Windows | `make-disk_0.1.30_x64-setup.exe` (recommended), `make-disk_0.1.30_x64_en-US.msi` |
-| macOS | `make-disk_0.1.30_aarch64.dmg` (Apple Silicon), `make-disk_0.1.30_x64.dmg` (Intel) |
-| Linux | `make-disk_0.1.30_amd64.deb`, `make-disk_0.1.30_amd64.AppImage`, `make-disk-0.1.30-1.x86_64.rpm` |
-| Android | `make-disk_0.1.30_android-universal.apk` (unsigned, sideload) |
+| Windows | `make-disk_0.1.31_x64-setup.exe` (recommended), `make-disk_0.1.31_x64_en-US.msi` |
+| macOS | `make-disk_0.1.31_aarch64.dmg` (Apple Silicon), `make-disk_0.1.31_x64.dmg` (Intel) |
+| Linux | `make-disk_0.1.31_amd64.deb`, `make-disk_0.1.31_amd64.AppImage`, `make-disk-0.1.31-1.x86_64.rpm` |
+| Android | `make-disk_0.1.31_android-universal.apk` (unsigned, sideload) |
 
 On Windows the default install folder is `%LOCALAPPDATA%\open-easy-web\make-disk` (updates from the old layout are moved automatically).
 
@@ -61,10 +61,12 @@ On Windows the default install folder is `%LOCALAPPDATA%\open-easy-web\make-disk
 
 - **Circumventing copy protection (CSS/AACS, etc.) is not implemented** (it can be illegal). Unprotected discs only.
 - **Newly creating Dolby Vision / Atmos / Dolby Cinema / IMAX / 4DX is not possible** (licensed formats). Only preservation (stream copy) and compatible lower formats.
-- **AI video super-resolution is very slow** (per 720x480 frame, measured on this PC: ~1.3 s on a 32-thread AVX2 CPU, ~2.8 s on a GT 730 GPU, both together ~1.3x faster; a feature film can take days).
-  "Estimate" shows the expected time. Skipping still frames mainly saves compute time and has little effect on disc capacity. open-cuda has no GPU convolution, so the AI math runs on our own CPU kernel and Vulkan (NCNN).
-  **RIFE interpolation is an approximation**: fast motion and scene cuts can show ghosting or warping, and it is not real 120 fps footage. It is very slow at 4K and temporarily uses several GB.
-  On the GT 730, RIFE produced black frames with default settings, so it runs with `-j 1:1:1` and outputs are checked; broken segments are replaced by frame repetition. The general model (realesr-general-x4v3) is not bundled yet (live action also uses the fast model).
+- **AI video super-resolution is very slow** (per 720x480 frame, measured on this PC: ~1.3 s on a 32-thread AVX2 CPU, ~2.8 s on a GT 730 GPU, both together ~1.3x faster).
+  End-to-end check: a 2-minute (3596-frame) DVD-like clip -> Full HD ran to completion with a cancel and resume in the middle (~1.8 s/frame, frame count matched). **A feature film (~170,000 frames) would take about 3.5 days**; a full-length run has not been done ("Estimate" shows the expected time).
+  Skipping still frames mainly saves compute time and has little effect on disc capacity. open-cuda has no GPU convolution, so the AI math runs on our own CPU kernel and Vulkan (NCNN). aruaru-llm is a language model and cannot create video frames: RIFE makes the motion smoother, and aruaru-llm only helps with GPU detection and range suggestions.
+  **RIFE interpolation is an approximation**: fast motion and scene cuts can show ghosting or warping, and it is not real 120 fps footage. **Measured on this PC (per interpolated frame): Full HD ~4.2 s on the GPU; 4K ~31 s on the CPU because the GPU returns broken output.**
+  A 4K / 120 fps end-to-end conversion (DVD-like -> 3840x2160, 120 fps, with audio) succeeded on a tiny 4-frame clip but is impractical for a feature film (4 interpolated frames per source frame at 24 -> 120 fps). The GT 730 loses the device at 4K and returns black frames, so every output frame is checked and a broken segment is redone on the CPU.
+  With AI upscaling off, raising the fps runs interpolation-only (RIFE, no upscaling). The live-action model (realesr-general-x4v3, about 2x slower) is bundled; its converted weights match the official GPU implementation at 46.5 dB PSNR.
   **Audio AI bandwidth extension is experimental** (synthesis, no guarantee of perceptual quality). The "AI-optimized" resolution/FPS options are simple heuristics, not AI super-resolution.
 - DSD files are huge (per stereo minute: DSD64 ≈ 42 MB … DSD1024 ≈ 678 MB) and are DSF files, not a Super Audio CD disc.
 - Full HD on a DVD is outside the DVD-Video standard (max 720x480/576); set-top DVD players do not downscale it automatically, so it may not play.

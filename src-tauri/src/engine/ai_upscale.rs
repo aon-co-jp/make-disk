@@ -55,6 +55,9 @@ pub struct AiUpscale {
     /// フレーム補間の目標fps(60/120など)。未指定なら補間しない。
     #[serde(default)]
     pub target_fps: Option<u32>,
+    /// `true`なら超解像はせず、フレーム補間(RIFE)だけを行う(動きを滑らかにするだけ)。`target_fps`が必須。
+    #[serde(default)]
+    pub interpolate_only: bool,
 }
 
 fn default_backend() -> String {
@@ -160,6 +163,7 @@ pub fn installed_exe() -> Option<PathBuf> {
 /// プラグインが無ければダウンロード・展開して、実行ファイルのパスを返す(導入済みならスキップ)。
 pub fn ensure_plugin() -> Result<PathBuf, String> {
     if let Some(exe) = installed_exe() {
+        install_general_model(&exe);
         return Ok(exe);
     }
     let asset = asset_name()?;
@@ -196,10 +200,32 @@ pub fn ensure_plugin() -> Result<PathBuf, String> {
             let _ = std::fs::set_permissions(&exe, perm);
         }
     }
-    installed_exe().ok_or_else(|| "展開後にrealesrgan-ncnn-vulkanが見つかりません".to_string())
+    let exe = installed_exe().ok_or_else(|| "展開後にrealesrgan-ncnn-vulkanが見つかりません".to_string())?;
+    install_general_model(&exe);
+    Ok(exe)
+}
+
+/// 実写・汎用モデル`realesr-general-x4v3`(Real-ESRGAN、BSD-3-Clause)。公式のncnn配布物には含まれないため、
+/// 公式の重み(`realesr-general-x4v3.pth`と`realesr-general-wdn-x4v3.pth`)を公式の既定どおりノイズ除去の強さ0.5で混ぜ、
+/// ncnn形式へ変換したものを本体に同梱している(変換手順は`scripts/convert_general_model.py`)。
+static GENERAL_PARAM: &str = include_str!("../../models/realesr-general-x4v3.param");
+static GENERAL_BIN: &[u8] = include_bytes!("../../models/realesr-general-x4v3.bin");
+
+fn install_general_model(exe: &Path) {
+    let Some(models) = exe.parent().map(|p| p.join("models")) else { return };
+    let (param, bin) = (models.join("realesr-general-x4v3.param"), models.join("realesr-general-x4v3.bin"));
+    let up_to_date = std::fs::metadata(&bin).is_ok_and(|m| m.len() == GENERAL_BIN.len() as u64) && std::fs::read_to_string(&param).is_ok_and(|t| t == GENERAL_PARAM);
+    if !up_to_date {
+        let _ = std::fs::create_dir_all(&models);
+        let _ = std::fs::write(&param, GENERAL_PARAM);
+        let _ = std::fs::write(&bin, GENERAL_BIN);
+    }
 }
 
 pub(crate) fn validate(up: &AiUpscale) -> Result<(), String> {
+    if up.interpolate_only && up.target_fps.is_none() {
+        return Err("フレーム補間だけを行うには、目標のfpsを指定してください / choose a target fps for interpolation-only".to_string());
+    }
     let scale_ok = up.scale == 0 || (2..=4).contains(&up.scale);
     match up.model.as_str() {
         "" | "auto" | "realesr-animevideov3" | "realesr-general-x4v3" if scale_ok => Ok(()),
