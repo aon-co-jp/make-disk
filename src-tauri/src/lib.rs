@@ -54,6 +54,17 @@ fn ai_hw_status() -> Option<engine::hw_bench::HwBench> {
     engine::hw_bench::cached()
 }
 
+/// open-easy-webの配置(一番上のフォルダと、起動時に行った整備の説明)。
+static LAYOUT_NOTES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+#[tauri::command]
+fn open_easy_web_layout() -> serde_json::Value {
+    serde_json::json!({
+        "root": engine::layout::root_dir().map(|p| p.to_string_lossy().to_string()),
+        "notes": LAYOUT_NOTES.lock().map(|n| n.clone()).unwrap_or_default(),
+    })
+}
+
 /// 「選んだディスクに、この解像度・fpsで収まるか」の予測(フルHD/4K × 元のfps/60/120)。静止・単色コマの割合も抜き取りで推定する。
 #[tauri::command]
 async fn ai_fit_predict(path: String, start_secs: Option<f64>, duration_secs: Option<f64>, disc: DiscType, audio_kbps: f64, src_fps: f64) -> Result<serde_json::Value, String> {
@@ -261,6 +272,11 @@ async fn pick_output_tree(app: tauri::AppHandle) -> Result<Option<String>, Strin
 pub fn run() {
     // 同梱のrs-*プラグインをプラグインフォルダへ同期する(同じ版ならスキップ)。
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let notes = engine::layout::ensure_layout();
+        *LAYOUT_NOTES.lock().unwrap() = notes;
+    }
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let _ = engine::plugins::sync_bundled_plugins();
 
     let builder = tauri::Builder::default()
@@ -293,6 +309,7 @@ pub fn run() {
             ai_hw_status,
             ai_estimate,
             ai_fit_predict,
+            open_easy_web_layout,
             calc_auto_bitrate_kbps,
             check_bitrate_quality,
             create_iso,
@@ -328,6 +345,7 @@ pub fn run() {
         ai_hw_status,
         ai_estimate,
         ai_fit_predict,
+        open_easy_web_layout,
         calc_auto_bitrate_kbps,
         check_bitrate_quality,
         create_iso,

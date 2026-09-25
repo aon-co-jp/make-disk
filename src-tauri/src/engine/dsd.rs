@@ -633,7 +633,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let dsf = dir.join("track.dsf");
         let started = std::time::Instant::now();
-        convert_to_dsf(&input, dsf.to_str().unwrap(), 256, None).unwrap();
+        let mult: u32 = std::env::var("MAKE_DISK_DSD_MULT").ok().and_then(|v| v.parse().ok()).unwrap_or(256);
+        convert_to_dsf(&input, dsf.to_str().unwrap(), mult, None).unwrap();
         eprintln!("DSD256変換: {:.1}秒、{:.1} MB", started.elapsed().as_secs_f64(), std::fs::metadata(&dsf).unwrap().len() as f64 / 1e6);
         let dop = dir.join("track.dop.wav");
         dsf_to_dop_wav(dsf.to_str().unwrap(), dop.to_str().unwrap(), 24).unwrap();

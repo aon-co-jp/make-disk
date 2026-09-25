@@ -1260,3 +1260,11 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
   - **バグ修正(実機テストで発見)**: GPUのみのモードで最後の1コマが処理されずハング/回収側が切断を無視、GPU出力が黒くなる問題(出力検査+双三次へ置換)、デバッグビルドの測定結果が保存されて誤選択(署名にビルド種別を追加)。
   - **未実施・制限**: 汎用モデルrealesr-general-x4v3は未同梱、映画1本規模の通し実行は未検証(数日規模)、4KでのRIFE速度は未測定、複数本の合計での収まる予測は未対応(1本目のみ)、`realesrgan-x4plus`はGPU必須。
   - **次回**: open-easy-webのインストール配置(`%LOCALAPPDATA%\open-easy-web\`)、LLMマネージャ(NPUは後回し)、ローカルopen-web-server、easy-web.tokyo連携と`make-disk://`起動。
+
+- **2026-09-25続き30 / Continued 30 — open-easy-webのインストール配置(v0.1.30)**:
+  - 一番上を`%LOCALAPPDATA%\open-easy-web\`にし、`make-disk\`(本体とプラグイン)・`aruaru-llm\`・`open-web-server\`・`open-cpu\`・`open-directx\`・`open-cuda\`を置く(ユーザー選択: make-diskだけ移動、ライブラリも独立フォルダを作る)。macOS/Linuxはデータフォルダ直下の`open-easy-web`。
+  - **中身の無いフォルダを実体があるように見せない**: 各フォルダの`component.json`に状態を書く(`planned`=未実装で予約: aruaru-llm・open-web-server、`embedded`=make-disk/aruaru-llmに組み込み済みで単独の実行物なし: open-cpu・open-directx・open-cuda)。
+  - `engine/layout.rs`(新): 起動時に配置を整え、旧配置`%LOCALAPPDATA%\make-disk\plugins`を**移動**(取得済みのAI/RIFE/測定結果を再取得させない)。`plugins::plugin_dir()`は新配置を指す(`MAKE_DISK_PLUGIN_DIR`での上書きは従来どおり)。
+  - NSISの既定のインストール先を`open-easy-web\make-disk`へ: 公式テンプレートを`installer/installer.nsi`にコピーして2か所だけ変更し(`tauri.conf.json`の`bundle.windows.nsis.template`)、**旧配置からの更新も新配置へ移す**。Tauri CLIを上げたら、テンプレートも同じ版から取り直して差分を当て直すこと。
+  - 実機確認: ローカルでNSISインストーラーを作り、旧配置の環境へ上書きインストール→新配置に本体が入り、初回起動でプラグイン(realesrgan・rife・audio-sr・測定結果)が移動し、5つのフォルダと`component.json`ができ、旧プラグインフォルダは消えた。旧配置の本体(手動でインストールした古い分)は残るため、不要ならユーザーが削除する。
+  - **次回**: LLMマネージャ(推奨/一段大きい/一段小さい、NPUは後回し)→ローカルopen-web-server(aruaru-llmのゲートウェイ)→easy-web.tokyo連携と`make-disk://`起動。

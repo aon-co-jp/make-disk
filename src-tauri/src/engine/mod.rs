@@ -1,6 +1,7 @@
 pub mod ai_range;
 pub mod ai_upscale;
 pub mod ai_video;
+pub mod layout;
 pub mod rife;
 pub mod audio_sr;
 pub mod burn;

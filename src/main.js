@@ -1667,6 +1667,17 @@ checkForUpdatesOnStartup();
   }
 })();
 
+// open-easy-webの配置(旧配置からの移動などがあれば知らせる)。
+(async () => {
+  try {
+    const l = await invoke("open_easy_web_layout");
+    if (l.root) log(`open-easy-web: ${l.root}`);
+    for (const n of l.notes || []) log(n);
+  } catch (e) {
+    // 参考情報のため失敗しても続行する
+  }
+})();
+
 // 起動時に、AI超解像(CPU版)が使う計算カーネル(open-cpuの検出結果)を表示する。
 (async () => {
   try {
