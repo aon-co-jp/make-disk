@@ -60,14 +60,8 @@ pub fn plugin_dir() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("MAKE_DISK_PLUGIN_DIR") {
         return Some(PathBuf::from(dir));
     }
-    let base = if cfg!(windows) {
-        std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
-    } else if cfg!(target_os = "macos") {
-        std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support"))
-    } else {
-        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
-    }?;
-    Some(base.join("make-disk").join("plugins"))
+    // open-easy-web配置(2026-09-25): <open-easy-web>/make-disk/plugins。旧配置からの移動は`layout::ensure_layout`が行う。
+    Some(crate::engine::layout::app_dir()?.join("plugins"))
 }
 
 /// 配布元フォルダ`bundled_dir`のプラグインを`plugin_dir`へ同期する(版が同じならスキップ)。
