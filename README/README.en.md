@@ -5,6 +5,19 @@
 A cross-platform (Rust + Tauri) GUI for burning CD/DVD/Blu-ray and converting audio/video.
 One codebase; only the installers differ per OS.
 
+## Latest version: v0.1.30
+
+Get it from the [latest release](https://github.com/aon-co-jp/make-disk/releases/latest). Every file name carries the same version.
+
+| Platform | File |
+|---|---|
+| Windows | `make-disk_0.1.30_x64-setup.exe` (recommended), `make-disk_0.1.30_x64_en-US.msi` |
+| macOS | `make-disk_0.1.30_aarch64.dmg` (Apple Silicon), `make-disk_0.1.30_x64.dmg` (Intel) |
+| Linux | `make-disk_0.1.30_amd64.deb`, `make-disk_0.1.30_amd64.AppImage`, `make-disk-0.1.30-1.x86_64.rpm` |
+| Android | `make-disk_0.1.30_android-universal.apk` (unsigned, sideload) |
+
+On Windows the default install folder is `%LOCALAPPDATA%\open-easy-web\make-disk` (updates from the old layout are moved automatically).
+
 ## Features
 
 - **I/O**: pick multiple sources (audio/video/PDF) and an output folder; convert, build ISO images and burn

@@ -204,7 +204,8 @@ jobs:
           # (v0.1.5リリースで実際に確認した挙動)——分かりやすい
           # ファイル名で配布するため、事前にコピー/リネームしてから
           # アップロードする。
-          renamed="make-disk-${{ github.ref_name }}-android-universal.apk"
+          ver="${{ github.ref_name }}"
+          renamed="make-disk_${ver#v}_android-universal.apk"
           cp "$apk" "$renamed"
           echo "uploading $renamed"
           gh release upload "${{ github.ref_name }}" "$renamed" --clobber -R "${{ github.repository }}"

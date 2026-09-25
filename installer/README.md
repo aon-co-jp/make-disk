@@ -22,7 +22,7 @@ make the repository grow unboundedly and slow down every clone).
 | Linux (Debian/Ubuntu系) | `make-disk_<version>_amd64.deb` | 同上(`ubuntu-22.04`) |
 | Linux (Fedora/RHEL系) | `make-disk-<version>-1.x86_64.rpm` | 同上 |
 | Linux (配布形式非依存) | `make-disk_<version>_amd64.AppImage` | 同上 |
-| Android(スマホ・タブレット共通) | universal `.apk`(未署名、サイドロード配布) | `.github/workflows/release.yml` の `release-android` ジョブ(`ubuntu-latest`、`npm run tauri android build`) |
+| Android(スマホ・タブレット共通) | `make-disk_<version>_android-universal.apk`(universal、未署名、サイドロード配布) | `.github/workflows/release.yml` の `release-android` ジョブ(`ubuntu-latest`、`npm run tauri android build`) |
 | iOS | 未対応(テスト実機が無いため保留、`CLAUDE.md`参照) | — |
 
 ## リリースの仕組み / How releases work
