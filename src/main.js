@@ -1004,8 +1004,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
             !isVideo && document.getElementById("audio-bwe").checked
               ? { cutoff_hz: parseFloat(document.getElementById("audio-bwe-cutoff").value) || null }
               : null,
-          ai_upscale:
-            isVideo && format !== "passthrough-mkv" && document.getElementById("ai-upscale").checked ? aiUpscaleOptions() : null,
+          ai_upscale: isVideo && format !== "passthrough-mkv" ? aiJobOptions() : null,
           ai_denoise: document.getElementById("ai-denoise").checked && format !== "passthrough-mkv" ? { mix: parseFloat(document.getElementById("ai-denoise-mix").value) } : null,
         },
       });
@@ -1035,6 +1034,13 @@ function aiUpscaleOptions() {
     skip_static: document.getElementById("ai-skip-static").checked,
     target_fps: fps > 0 ? fps : null,
   };
+}
+
+// 超解像がオンなら超解像(+目標fps)、オフでも目標fpsが選ばれていればフレーム補間(RIFE)だけを行う。
+function aiJobOptions() {
+  const o = aiUpscaleOptions();
+  if (document.getElementById("ai-upscale").checked) return o;
+  return o.target_fps ? { ...o, interpolate_only: true } : null;
 }
 
 function fmtDur(secs) {
@@ -1126,6 +1132,8 @@ document.getElementById("ai-estimate-btn").addEventListener("click", async () =>
     const lines = [
       `${a.width}×${a.height}、${a.frames}コマ → ${e.out_w}×${e.out_h}(${e.scale}倍、モデル ${e.model})`,
       `所要時間の目安(最悪): ${fmtDur(e.eta_secs)}${e.eta_secs == null ? "(先に「CPU/GPUを測定」を実行) / (run the benchmark first)" : ""}`,
+      ...(e.rife_factor ? [`フレーム補間(${e.rife_factor}倍、${e.rife_method === "gpu" ? "GPU" : "CPU"}): 補間コマ1枚あたり約${(e.rife_secs_per_frame ?? 0).toFixed(1)}秒 → ${fmtDur(e.rife_eta_secs)}`] : []),
+      ...(e.rife_factor ? [`合計の目安: ${fmtDur(e.total_eta_secs)}`] : []),
       `作業用の一時容量: 約${(e.temp_bytes / 1e9).toFixed(1)}GB(空き ${free})`,
       ...(a.notes_ja || []),
       ...(e.warnings_ja || []).map((w) => `⚠ ${w}`),
@@ -1705,13 +1713,14 @@ document.getElementById("upconv-apply-btn").addEventListener("click", () => {
   document.getElementById("output-iso").checked = true;
   const useAi = document.getElementById("upconv-ai").checked;
   document.getElementById("ai-upscale").checked = useAi;
-  document.getElementById("ai-target-fps").value = document.getElementById("upconv-fps").value;
+  const wantFps = document.getElementById("upconv-fps").value;
+  document.getElementById("ai-target-fps").value = wantFps;
   const discLabel = document.getElementById("upconv-disc").selectedOptions[0].textContent;
   const resLabel = res === "3840x2160" ? "4K" : "フルHD / Full HD";
   log(`設定しました: ${discLabel} に ${resLabel} で容量いっぱいに収めます(MKV・ISO作成)。出力先を選んで「実行」を押してください。 / Set: fill ${discLabel} at ${resLabel} (MKV + ISO). Choose the output folder and press Run.`);
   log(useAi ? "拡大の方法: AI超解像(4.3)で細部を補います。非常に時間がかかるので、4.3の「下調べ」で所要時間を確認してください。 / How it scales: AI super-resolution (4.3) restores detail. It is very slow — check Estimate in 4.3 first." : "拡大の方法: 補間による拡大です(AI超解像はオフ)。 / How it scales: interpolation only (AI off).");
-  if (document.getElementById("upconv-fps").value !== "0") {
-    log("フレーム補間(RIFE)で目標のfpsにします。近似のため動きの大きい場面で破綻することがあります。 / Frame rate is raised by RIFE interpolation, which is approximate and can break on fast motion.");
+  if (wantFps !== "0") {
+    log(useAi ? "フレーム補間(RIFE)で目標のfpsにします。近似のため動きの大きい場面で破綻することがあります。 / Frame rate is raised by RIFE interpolation, which is approximate and can break on fast motion." : "AI超解像はオフですが、フレーム補間(RIFE)で新しいコマを作って目標のfpsにします(動きは滑らかになります。近似のため動きの大きい場面で破綻することがあります)。 / AI upscaling is off, but RIFE still creates new frames to reach the target fps (smoother motion; approximate, may break on fast motion).");
   }
   if (disc.startsWith("dvd")) {
     log("※DVDへのフルHD・4Kは家庭用DVDプレイヤーでは再生できない場合があります(PC・対応機器向けのデータディスク)。 / Full HD/4K on DVD may not play on set-top DVD players.");

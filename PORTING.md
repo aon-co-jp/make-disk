@@ -454,3 +454,12 @@ false`への変更・署名付きビルドがCI環境でも成功するか)、(2
   - NSISの既定のインストール先を`open-easy-web\make-disk`へ: 公式テンプレートを`installer/installer.nsi`にコピーして2か所だけ変更し(`tauri.conf.json`の`bundle.windows.nsis.template`)、**旧配置からの更新も新配置へ移す**。Tauri CLIを上げたら、テンプレートも同じ版から取り直して差分を当て直すこと。
   - 実機確認: ローカルでNSISインストーラーを作り、旧配置の環境へ上書きインストール→新配置に本体が入り、初回起動でプラグイン(realesrgan・rife・audio-sr・測定結果)が移動し、5つのフォルダと`component.json`ができ、旧プラグインフォルダは消えた。旧配置の本体(手動でインストールした古い分)は残るため、不要ならユーザーが削除する。
   - **次回**: LLMマネージャ(推奨/一段大きい/一段小さい、NPUは後回し)→ローカルopen-web-server(aruaru-llmのゲートウェイ)→easy-web.tokyo連携と`make-disk://`起動。
+
+- **2026-09-25続き31 / Continued 31 — 未検証だった点の検証と補強(v0.1.31)**:
+  - **4KのRIFE実測(GT 730)**: 補間コマ1枚あたり、フルHDはGPUで約4.2秒。**4KはGPUが`vkQueueSubmit/vkWaitForFences failed -4`(デバイス喪失)で一部のコマが黒くなる**(23枚中4枚)。CPUなら正常で約31〜46秒/枚。従来の出力検査は2コマだけだったため見逃す恐れがあり、**全コマを前後の元コマの明るさと比較する検査**に変更。壊れたらその区間をCPUでやり直し、以降の区間は最初からCPU(`rife.rs`)。`rife::speed()`で大きさごとの速さを測って保存(`rife-bench.json`)、「下調べ」に補間の所要時間と、GPUが使えない場合の警告を出す。
+  - **4K・120fps通し変換**: DVD相当(720×480、24fps)→3840×2160・120fps・音声つきが成功(4コマ、258秒、CPUへ自動切替)。`convert.rs`の`real_dvd_to_4k_120fps_end_to_end`と`real_dvd_to_full_hd_60fps_with_ai_and_rife`(`--ignored`)。
+  - **長時間検証**: `ai_video.rs`の`real_long_run_cancel_and_resume`(`--ignored`): 2分(3596コマ)のDVD相当→フルHD。約15分で中止→再開し、出力3596コマ(一致)、作業フォルダは完了後に消える、中止時の途中経過17MB、全体6408秒(約1.8秒/コマ)。映画1本(約17万コマ)は約3.5日の見込みだが、**通しの実行はしていない**。
+  - **実写モデルrealesr-general-x4v3を同梱**(`src-tauri/models/`、BSD-3-Clause、Real-ESRGAN): 公式のncnn配布物に無いため、公式の`.pth`2つ(general/wdn)をノイズ除去0.5(公式既定)で混ぜてncnn形式へ変換(`scripts/convert_general_model.py`、torch不要)。`realesr-general-x4v3`のCPU出力は公式GPU実装(NCNN-Vulkan)と**PSNR 46.5dB**で一致(`hw_bench.rs`の`real_general_model_cpu_matches_the_official_gpu`)。「自動」は実写→実写向け、アニメ→高速モデル。ノイズ除去の強さの変更UIは無い(0.5固定)。
+  - **AI超解像オフ+fps指定**: 超解像なしのRIFE補間だけを行う(`AiUpscale.interpolate_only`、`ai_video::make_interpolated_mezzanine`)。以前のコマ複製はやめた。**aruaru-llmは言語モデルで映像のコマを作れないため、動きを滑らかにするのはRIFE**であり、aruaru-llmは関与しない旨をUI・READMEに正直に書いた。
+  - **リリースの整理**: v0.1.30のCIは4ジョブともビルドに成功したが、リリース作成だけ`Resource not accessible by integration`で失敗したため、手元からリリースを作成して失敗ジョブを再実行して公開した。APKだけ旧名だったので`make-disk_<版>_android-universal.apk`へ統一(ワークフローも修正、v0.1.31から自動)。
+  - **未実施・制限**: 映画1本の実際の通し実行、4Kでのフレーム補間を映画規模で行うこと(このPCでは現実的でない)、補間の品質(動きの大きい場面でのゴースト)の定量評価、ノイズ除去の強さの調整。
