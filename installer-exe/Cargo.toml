@@ -1,6 +1,10 @@
 [package]
 name = "make-disk-installer"
-version = "0.1.0"
+# 注意: このCargo.toml自体のバージョンは表示に使わない(build.rsが../package.jsonから
+# 埋め込んだmake-disk本体のバージョンを読み、DisplayVersion/ウィンドウタイトルへ使う)。
+# ここは新規リリースのたびに手動で追従させる必要がなくなったが、`cargo publish`等の
+# 慣習に合わせて一応make-disk本体と揃えておく。
+version = "0.1.31"
 edition = "2021"
 description = "make-disk を1クリックでインストールする自己完結インストーラー(ffmpeg/xorriso/rs-ffmpeg/rs-xorriso同梱、open-barは任意で最新版を実行時取得)。"
 
