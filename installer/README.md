@@ -17,6 +17,7 @@ make the repository grow unboundedly and slow down every clone).
 | プラットフォーム / Platform | ファイル形式 / File(s) | ビルド元 / Built by |
 |---|---|---|
 | Windows | `make-disk_<version>_x64-setup.exe`(NSIS)・`make-disk_<version>_x64_en-US.msi`(WiX) | `.github/workflows/release.yml` の `release` ジョブ(`windows-latest`) |
+| Windows(単一自己完結インストーラー) | `make-disk-installer.exe` — ffmpeg/xorriso(実験的Rust版)を同梱、open-barの同時インストールを任意で選べる。詳細は[`../installer-exe/README.md`](../installer-exe/README.md) | `installer-exe/`(ローカルビルド、まだCIには未統合。本家xorrisoは未同梱の既知の欠落あり) |
 | macOS (Apple Silicon) | `make-disk_<version>_aarch64.dmg` | 同上(`macos-latest`、`--target aarch64-apple-darwin`) |
 | macOS (Intel) | `make-disk_<version>_x64.dmg` | 同上(`macos-latest`、`--target x86_64-apple-darwin`) |
 | Linux (Debian/Ubuntu系) | `make-disk_<version>_amd64.deb` | 同上(`ubuntu-22.04`) |
