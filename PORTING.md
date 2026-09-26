@@ -8,6 +8,29 @@
 詳細な技術的発見・方針決定は[`CLAUDE.md`](CLAUDE.md)にあるので、
 ここでは「今どこまで進んでいて、次に何をするか」だけを簡潔に記す。
 
+## 🔁 再開用メッセージ / Resume note (2026-09-26、最新 / latest、v0.1.31)
+
+**日本語**:
+- **リリース済み**: v0.1.29(open-cuda/open-directx/aruaru-llmの32GB VRAM級3ベンダー前提+F16/F32/F64/F128精度対応)、v0.1.30(open-easy-webのインストール配置`%LOCALAPPDATA%\open-easy-web\make-disk`への移行、旧配置からの自動移動)、v0.1.31(4KでのRIFE実測・GPU喪失時の全コマ検査+区間単位のCPUフォールバック・4K/120fps通し変換・実写向けrealesr-general-x4v3同梱・AI超解像オフでの補間専用再生成・Android APKファイル名統一)。全プラットフォームのCI成功(Windows NSIS/WiX・macOS Intel/Apple Silicon・Linux deb/rpm/AppImage・Android universal apk)、`gh release view v0.1.31`で全資産を確認済み。
+- **make-disk-installer.exe新設(未リリース版、installer-exe/)**: 単一自己完結インストーラー(Rust製、native-windows-gui)。make-disk本体・本家ffmpeg/ffprobe・実験的rs-ffmpeg/rs-xorrisoを`include_bytes!`で埋め込み、WebView2は未導入時のみブートストラッパー取得、open-barは「同時にインストール」チェック時だけGitHub Releasesから最新版を取得してサイレントインストール。実機で展開・レジストリ登録(プログラムと機能)・アンインストール・open-bar取得経路まで自動検証済み(`--test-install`/`--uninstall`)。GUIの実クリック操作(参照ダイアログ等)は自動操作ツールが無く未検証。**既知の欠落**: 本家xorriso未同梱(`KNOWN_GAPS.txt`で告知)。現状v0.1.31のGitHub Releaseへ追加資産として手動アップロード済み(タグは切り直していない)、CI(`release.yml`)への統合はまだ。
+- **バージョン自動同期の仕組みを新設**: `scripts/sync-doc-versions.sh`が`package.json`のversionを読み、README.md(日本語・英語)の「最新版」表記とファイル名一覧を自動で揃える(CLAUDE.md/PORTING.mdの過去ログ本文は履歴保存のため対象外——このエントリのような新規追記でのみ最新化する運用)。
+- **open-bar側の実バグ修正(姉妹リポジトリ、ユーザー報告により対応)**: 共有モード出力コールバックが`try_lock()`失敗時にフェード無しの無音を差し込んでおり、標準/シャープ/ソフトいずれのフィルターでも再生開始少し後に一瞬ノイズが入る原因になっていた。ブロッキング`lock()`へ変更+リング事前確保で修正、`503611f`としてpush済み。
+
+**次にやること(ユーザー依頼済み・未着手)**:
+1. make-disk-installer.exeのGUI実クリック検証(実機で手動、または自動操作ツールの導入)。
+2. make-disk-installer.exeへ本家xorrisoの同梱(簡易な静的Windows版の入手手段を探す)。
+3. make-disk-installer.exeのCI統合(`release.yml`への組み込み、または別ワークフロー)。
+4. LLMマネージャ(推奨/一つ大きい/一つ小さい、NPUは後回し)→ローカルopen-web-server(aruaru-llmのゲートウェイ)→easy-web.tokyo連携と`make-disk://`起動(v0.1.28時点から継続、未着手のまま)。
+5. アップコンバートの本番サイズでの実変換E2E(v0.1.28時点から継続、未着手のまま)。
+
+**English**:
+- **Released**: v0.1.29 (open-cuda/open-directx/aruaru-llm now assume a 32GB-VRAM-class, 3-vendor baseline with F16/F32/F64/F128 precision), v0.1.30 (moved the install layout to `%LOCALAPPDATA%\open-easy-web\make-disk`, auto-migrating from the old location), v0.1.31 (measured real 4K RIFE speed, per-frame inspection with section-level CPU fallback on GPU loss, a full 4K/120fps end-to-end conversion, bundled the live-action `realesr-general-x4v3` model, interpolation-only re-generation with AI upscaling off, unified the Android APK filename). CI green on all platforms; all release assets confirmed via `gh release view v0.1.31`.
+- **New: make-disk-installer.exe (not yet released, installer-exe/)**: a single self-contained installer (Rust, native-windows-gui) embedding make-disk itself plus genuine ffmpeg/ffprobe and the experimental rs-ffmpeg/rs-xorriso tributes via `include_bytes!`; fetches the WebView2 bootstrapper only if missing, and open-bar's latest Windows installer from GitHub Releases only when its checkbox is checked, running it silently. Verified on this machine: extraction, "Programs and Features" registration, uninstall, and the open-bar fetch path (via `--test-install`/`--uninstall`); the GUI click-through itself is not yet verified (no GUI automation tool available). **Known gap**: genuine xorriso is not bundled (disclosed via `KNOWN_GAPS.txt`). Currently uploaded as an extra asset on the existing v0.1.31 GitHub Release (no new tag), not yet wired into CI.
+- **New version-sync tooling**: `scripts/sync-doc-versions.sh` reads `package.json`'s version and keeps README.md's (Japanese + English) "latest version" line and filename table in sync automatically. CLAUDE.md/PORTING.md's past log entries are intentionally excluded (they're historical records); only new entries like this one get the current version.
+- **open-bar bugfix (sibling repo, from a user report)**: the shared-mode output callback injected unfaded hard silence whenever `try_lock()` failed, causing an audible click/noise a moment after playback started in every filter mode (Standard/Sharp/Soft). Fixed with a blocking `lock()` and ring pre-allocation, pushed as `503611f`.
+
+**Next**: click-through GUI verification for make-disk-installer.exe; bundle genuine xorriso; wire the installer into CI; LLM manager / local open-web-server / easy-web.tokyo integration (carried over, still not started); full-size upconvert E2E (carried over, still not started).
+
 ## 🔁 再開用メッセージ / Resume note (2026-09-24、最新 / latest、v0.1.28)
 
 **日本語**:

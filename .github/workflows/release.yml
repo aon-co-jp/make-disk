@@ -47,6 +47,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # README.md(日英)の「最新版」表記がpackage.jsonのversionとズレたままタグを
+      # pushしてしまうのを防ぐ(scripts/sync-doc-versions.sh参照)。ここでは確認だけ
+      # 行い、書き換え・自動コミットはしない(4ジョブ同時実行でのpush競合を避けるため。
+      # ズレていたら手元で`bash scripts/sync-doc-versions.sh`を実行してコミットし直す)。
+      - name: check README version matches package.json
+        shell: bash
+        run: bash scripts/sync-doc-versions.sh --check
+
       - name: install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
