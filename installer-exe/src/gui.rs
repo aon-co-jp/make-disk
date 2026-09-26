@@ -14,6 +14,8 @@ use crate::default_install_dir;
 #[derive(Default, NwgUi)]
 pub struct InstallerApp {
     #[nwg_control(size: (520, 300), position: (300, 300), title: "make-disk installer", flags: "WINDOW|VISIBLE|MINIMIZE_BOX")]
+    // ウィンドウタイトルは`build_ui`直後に`format!("make-disk installer (v{})", env!("MAKE_DISK_APP_VERSION"))`へ
+    // `run()`側で上書きする(nwg_control属性はリテラルしか書けないため)。
     #[nwg_events( OnWindowClose: [InstallerApp::exit] )]
     window: nwg::Window,
 
@@ -102,6 +104,7 @@ impl InstallerApp {
 pub fn run() -> anyhow::Result<()> {
     nwg::init().map_err(|e| anyhow::anyhow!("GUIの初期化に失敗しました: {e}"))?;
     let app = InstallerApp::build_ui(Default::default()).map_err(|e| anyhow::anyhow!("画面の構築に失敗しました: {e}"))?;
+    app.window.set_text(&format!("make-disk installer (v{})", env!("MAKE_DISK_APP_VERSION")));
     app.dir_edit.set_text(&default_install_dir().to_string_lossy());
     nwg::dispatch_thread_events();
     Ok(())

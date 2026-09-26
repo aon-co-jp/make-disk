@@ -51,8 +51,30 @@ fn main() {
     .unwrap();
 
     zip.finish().expect("finish payload.zip");
+
+    // インストーラー自身のCargo.tomlバージョン(0.1.0固定)ではなく、埋め込んだmake-disk本体の
+    // バージョン(../package.json)をレジストリ表示等に使う。ここが食い違うとユーザーが
+    // 「インストーラーのバージョンとmake-disk本体のバージョンが合っていない」と混乱するため
+    // (2026-09-26 ユーザー指摘、以後は手動同期せず自動で追従させる)。
+    let package_json = fs::read_to_string(repo_root.join("package.json")).expect("read ../package.json for the bundled make-disk version");
+    let app_version = extract_json_string_field(&package_json, "version").expect("find \"version\" in ../package.json");
+    println!("cargo:rustc-env=MAKE_DISK_APP_VERSION={app_version}");
+
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=../package.json");
     println!("cargo:rustc-env=MAKE_DISK_INSTALLER_PAYLOAD={}", payload_path.display());
+}
+
+/// `serde_json`を持ち込むまでもない単純な`"version": "0.1.31"`抽出(build.rsはbuild-dependenciesを
+/// 増やしたくないので手書き。package.jsonの整形が変わったら分かるようメッセージ付きでpanicする)。
+fn extract_json_string_field(json: &str, field: &str) -> Option<String> {
+    let needle = format!("\"{field}\"");
+    let after_key = json.split(&needle).nth(1)?;
+    let after_colon = after_key.split_once(':')?.1;
+    let start = after_colon.find('"')? + 1;
+    let rest = &after_colon[start..];
+    let end = rest.find('"')?;
+    Some(rest[..end].to_string())
 }
 
 fn add_file<W: std::io::Write + std::io::Seek>(zip: &mut zip::ZipWriter<W>, opts: &zip::write::FileOptions, name: &str, src: &Path, required: bool) {

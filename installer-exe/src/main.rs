@@ -183,7 +183,9 @@ fn register_uninstaller(install_dir: &Path) -> Result<()> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let (key, _) = hkcu.create_subkey(UNINSTALL_KEY).context("アンインストール情報の登録に失敗しました")?;
     key.set_value("DisplayName", &"make-disk".to_string())?;
-    key.set_value("DisplayVersion", &env!("CARGO_PKG_VERSION").to_string())?;
+    // インストーラー自体のCargo.tomlバージョンではなく、埋め込んだmake-disk本体の
+    // バージョン(build.rsが../package.jsonから読んだもの)を表示する。
+    key.set_value("DisplayVersion", &env!("MAKE_DISK_APP_VERSION").to_string())?;
     key.set_value("Publisher", &"aon-co-jp".to_string())?;
     key.set_value("DisplayIcon", &installed_self.to_string_lossy().to_string())?;
     key.set_value("UninstallString", &format!("\"{}\" --uninstall --dir \"{}\"", installed_self.display(), install_dir.display()))?;
