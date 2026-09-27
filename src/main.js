@@ -170,6 +170,18 @@ function renderCutEditor(container, file, index) {
   }
   renderRangeList();
 
+  const cutBox = document.createElement("div");
+  cutBox.className = "range-box range-box-remove";
+  const cutTitle = document.createElement("h4");
+  cutTitle.innerHTML = '<span class="range-badge range-badge-remove">🟠 ここを消す(カットする区間)</span> カットする区間(いくつでも追加可) / Ranges to cut out (add as many as you like)';
+  const cutHint = document.createElement("p");
+  cutHint.className = "hint";
+  cutHint.textContent =
+    "上の再生プレビューで消したい部分の頭で止めて「開始」の現在位置、消したい部分の終わりで止めて" +
+    "「終了」の現在位置を押すと、マウス操作だけで区間を指定できます(時:分:秒を直接入力してもOK)。 / " +
+    "Pause the preview at the start of what you want to remove and click Start's “現在位置”, then pause at the end " +
+    "and click End's “現在位置” — this sets the range with only mouse clicks (typing h:m:s directly also works).";
+
   const addForm = document.createElement("div");
   addForm.className = "cut-range-form";
 
@@ -234,10 +246,14 @@ function renderCutEditor(container, file, index) {
   // ── 必要な部分だけ切り出す(高速、2026-09-23新設) ──
   // 5時間の元データから60分・10分だけ欲しい場合に、全体を処理せず、開始位置へ直接シークして
   // 必要な長さだけを読み込む(ffmpegの入力側シーク`-ss`+`-t`)。処理時間は切り出す長さにほぼ比例する。
+  // 色分け(2026-09-27新設、ユーザー指摘): 「使う範囲(青)」と「消す範囲(オレンジ)」が
+  // 同じ見た目の開始・終了欄で並んでいて混乱の原因になっていたため、枠の色・見出しの
+  // バッジで一目で区別できるようにした。指定するのは常にどちらか片方だけでよい(両方
+  // 使うことは無い。切り出しを設定すると下のカット区間は使われない、既存の案内どおり)。
   const extractBox = document.createElement("div");
-  extractBox.className = "extract-box";
+  extractBox.className = "extract-box range-box range-box-keep";
   const extractTitle = document.createElement("h4");
-  extractTitle.textContent = "必要な部分だけ切り出す(高速・長い元データ向け) / Extract only the part you need (fast, for long sources)";
+  extractTitle.innerHTML = '<span class="range-badge range-badge-keep">🔵 ここだけ残す(使う範囲)</span> 必要な部分だけ切り出す(高速・長い元データ向け) / Extract only the part you want (fast, for long sources)';
   const extractHint = document.createElement("p");
   extractHint.className = "hint";
   extractHint.textContent =
@@ -357,8 +373,17 @@ function renderCutEditor(container, file, index) {
 
   extractBox.append(extractTitle, extractHint, exForm, exStatus, aiBox, aiResult);
 
-  container.append(extractBox, document.createElement("h4"), rangeList, addForm, frameAccurateLabel);
-  container.querySelectorAll("h4")[1].textContent = "カットする区間(いくつでも追加可)";
+  const rangeLegend = document.createElement("p");
+  rangeLegend.className = "range-legend hint";
+  rangeLegend.innerHTML =
+    '<span class="range-badge range-badge-keep">🔵 使う範囲</span>と<span class="range-badge range-badge-remove">🟠 消す範囲</span>は' +
+    "同時には使いません。欲しい部分が1か所だけなら🔵、要らない部分を後で取り除きたいなら🟠を使ってください。" +
+    " / Use only one of <span class=\"range-badge range-badge-keep\">🔵 keep</span> or " +
+    '<span class="range-badge range-badge-remove">🟠 remove</span> at a time: pick 🔵 for a single wanted portion, 🟠 to cut out unwanted parts.';
+
+  cutBox.append(cutTitle, cutHint, rangeList, addForm, frameAccurateLabel);
+
+  container.append(rangeLegend, extractBox, cutBox);
 }
 
 // 8.「時間指定・トリミング」節の編集対象(sourceFilesのインデックス)。
