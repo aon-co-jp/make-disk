@@ -69,7 +69,44 @@ make-disk-installer.exe --test-install <検証用フォルダ>
 
 2026-09-26に`--test-install`で実機検証済み: 展開(make-disk.exe/ffmpeg.exe/
 ffprobe.exe/rs-ffmpeg.exe/rs-xorriso.exe/KNOWN_GAPS.txt)・レジストリ登録・
-アンインストール(レジストリ削除+フォルダ削除)まで確認。GUI経由の
-クリック操作自体(参照ダイアログ・チェックボックス・完了ダイアログ)と、
-open-bar同時インストールの経路は自動操作ツールが無く未検証(次回、実機で
-手動クリックして確認する必要がある)。
+アンインストール(レジストリ削除+フォルダ削除)まで確認。
+
+**2026-09-27にGUI実クリックも実機検証済み**(Windows UI Automation
+(`System.Windows.Automation`)+`SetCursorPos`/`mouse_event`によるPowerShell
+スクリプトで、実際のマウス座標をGUIの各ボタン中心へ動かしクリックする方式。
+`InvokePattern`等のUIAパターンはこのGUI(native-windows-gui)のコントロールが
+一切公開していない〈`GetSupportedPatterns()`が全コントロールで空〉ため、
+座標クリックのみが有効だった)。実際に確認できたこと:
+- 「参照...」ボタン・チェックボックス(open-bar同梱)・「インストール」
+  ボタンの実クリックが、実際にGUIの状態(コントロールの無効化・ステータス
+  文言の変化)を変えることを画面キャプチャで確認。
+- 「インストール」を実クリックすると実際に`perform_install`が走り、
+  既定のインストール先(`%LOCALAPPDATA%\Programs\make-disk`)へ
+  make-disk.exe/ffmpeg.exe/ffprobe.exe/rs-ffmpeg.exe/rs-xorriso.exe/
+  KNOWN_GAPS.txtが実際に展開されることをファイルシステムで確認。
+  完了後は「完了」モーダルダイアログ(`nwg::modal_info_message`)が実際に
+  表示され、実クリックでOKを押して閉じられることを確認。ボタンの表示が
+  「インストール」→「再インストール」に変わる仕様通りの挙動も確認。
+- レジストリ(`HKCU\...\Uninstall\make-disk-installer`)の
+  DisplayName/DisplayVersion/Publisher/InstallLocation/UninstallString/
+  NoModify/NoRepairが全て正しい値で登録されることを確認。
+- 登録された`UninstallString`をそのまま実行(`--uninstall --dir <先>`)し、
+  実際にインストール先フォルダとレジストリキーの両方が削除される
+  (アンインストール)ことも実機で確認。
+- **見つかった環境上の注意点(次回のため)**: (1) 自動操作するプロセス側で
+  `SetProcessDPIAware()`を呼ばないと、UI Automationが返す座標(物理ピクセル)
+  と`SetCursorPos`が期待する座標系(非DPI対応プロセスからは仮想化される)が
+  ずれ、クリックが全く違う場所に飛んで何も起きない(この不整合の解消に
+  最も時間がかかった)。(2) 完了モーダル(`nwg::modal_info_message`が出す
+  `MessageBox`)は`AutomationElement.RootElement`の`TreeScope.Children`
+  列挙には出てこないことがあり(所有ウィンドウ扱いのためか)、代わりに
+  Win32の`EnumWindows`で確実にhwndを見つけてから`AutomationElement.FromHandle`
+  で扱うと確実だった。(3) UTF-8(BOM無し)で保存したPowerShellスクリプトは、
+  Windows PowerShell 5.1がシステムのコードページで誤って読み込み、
+  日本語の文字列リテラルが壊れて構文エラーになることがある(UTF-8のBOMを
+  先頭に付けると解決)。
+- open-bar同時インストールの経路(チェックを入れた状態での実インストール)は、
+  実機のopen-bar本体を本当にインストールしてしまう副作用を避けるため、
+  今回はチェックボックスの押下確認のみに留め、実際にはチェックを外した
+  状態でインストールを実行した(未検証のまま、次回検証するなら専用の
+  使い捨て環境で行うこと)。
