@@ -151,6 +151,19 @@ fn channel_layout_args(source_channels: u32, target: ChannelLayoutTarget) -> Vec
     convert::channel_layout_args(source_channels, target)
 }
 
+/// AIアップミックス(HT-Demucsによる実音源分離、2026-09-28新設)が、このマシンで
+/// 実際に使えるか(モデルファイルが用意されているか)の軽い確認。
+#[tauri::command]
+fn ai_upmix_available() -> bool {
+    engine::ai_upmix::is_available()
+}
+
+/// 音声/動画ソースファイルから、AIアップミックス済み(5.1ch/7.1ch)のWAVを作る。
+#[tauri::command]
+fn ai_upmix_convert(input_path: String, output_path: String, target: ChannelLayoutTarget) -> Result<(), String> {
+    engine::ai_upmix::upmix_source_file(&input_path, std::path::Path::new(&output_path), target)
+}
+
 /// 出力先フォルダのあるドライブの空き容量(バイト)。取得できなければNone。
 /// 「下調べ」を動画のAI超解像だけでなく、音声/CD処理でも使えるようにするための
 /// 汎用コマンド(2026-09-28新設、既存のengine::ai_video::free_space_bytesを再利用)。
@@ -382,6 +395,8 @@ pub fn run() {
             estimate_bitrate_fit,
             free_space_bytes,
             channel_layout_args,
+            ai_upmix_available,
+            ai_upmix_convert,
         ]);
 
     #[cfg(not(target_os = "android"))]
@@ -421,6 +436,8 @@ pub fn run() {
         estimate_bitrate_fit,
         free_space_bytes,
         channel_layout_args,
+        ai_upmix_available,
+        ai_upmix_convert,
     ]);
 
     builder.run(tauri::generate_context!()).expect("error while running tauri application");
