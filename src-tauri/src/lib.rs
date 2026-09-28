@@ -3,7 +3,7 @@ mod progress;
 
 use engine::burn::{self, WriteSpeed};
 use engine::capacity::{self, DiscType, MediaKind, QualityWarning};
-use engine::convert::{self, ConvertJob, TrimRange as ConvertTrimRange};
+use engine::convert::{self, ChannelLayoutTarget, ConvertJob, TrimRange as ConvertTrimRange};
 use engine::cpu::{self, CpuEncodeEstimate};
 use engine::iso;
 use engine::pdf::{self, BindingDirection};
@@ -136,6 +136,29 @@ fn estimate_lossless_audio_fit(disc: DiscType, total_duration_secs: f64, reserve
     capacity::estimate_lossless_audio_fit(disc, total_duration_secs, reserved_bytes)
 }
 
+/// 一般ビットレートでの容量見積もり(音声/CD・動画のいずれにも使える、2026-09-28新設)。
+/// 「収まるか予測」「下調べ」を動画のアップコンバートだけに限定せず、通常の音声変換や
+/// CD取り込みでも使えるようにする。
+#[tauri::command]
+fn estimate_bitrate_fit(disc: DiscType, total_duration_secs: f64, bitrate_kbps: u64, reserved_bytes: u64) -> capacity::BitrateFitEstimate {
+    capacity::estimate_bitrate_fit(disc, total_duration_secs, bitrate_kbps, reserved_bytes)
+}
+
+/// チャンネル構成の変換(モノ/ステレオ⇔5.1ch/7.1ch、2026-09-28新設)に必要な
+/// ffmpeg引数を、元のチャンネル数と変換先から組み立てる。
+#[tauri::command]
+fn channel_layout_args(source_channels: u32, target: ChannelLayoutTarget) -> Vec<String> {
+    convert::channel_layout_args(source_channels, target)
+}
+
+/// 出力先フォルダのあるドライブの空き容量(バイト)。取得できなければNone。
+/// 「下調べ」を動画のAI超解像だけでなく、音声/CD処理でも使えるようにするための
+/// 汎用コマンド(2026-09-28新設、既存のengine::ai_video::free_space_bytesを再利用)。
+#[tauri::command]
+fn free_space_bytes(path: String) -> Option<u64> {
+    engine::ai_video::free_space_bytes(std::path::Path::new(&path))
+}
+
 /// PDF見開き対応(2026-09-16新設): PDFを見開き画像群に変換して
 /// `output_dir`へ出力する。`pdf::render_pdf_as_spreads`のdocコメントに
 /// 記載の通り、現時点ではpoppler-utils(`pdftoppm`/`pdfinfo`)が
@@ -226,6 +249,27 @@ fn rebind_pdfs(pdf_paths: Vec<String>, output_dir: String) -> Vec<Result<String,
 #[tauri::command]
 fn create_iso(source_dir: String, output_iso: String, volume_label: String) -> Result<(), String> {
     iso::create_iso(&source_dir, &output_iso, &volume_label)
+}
+
+/// 音声/動画/PDFのような変換対象ではない任意のファイル(文書・画像・アーカイブ・
+/// 既にエンコード済みで再変換したくないファイル等)を、無変換のまま出力フォルダへ
+/// コピーする。出力フォルダはISO化(`create_iso`)でそのまま丸ごと1枚のディスクへ
+/// まとめられるため、これにより「色々な形式のファイルを1枚のディスクへ」まとめられる。
+/// 同名ファイルがあれば連番を付けて衝突を避ける。コピー後の実際のパスを返す。
+#[tauri::command]
+fn copy_source_as_is(source_path: String, output_folder: String) -> Result<String, String> {
+    let src = std::path::Path::new(&source_path);
+    let file_name = src.file_name().ok_or_else(|| "ファイル名を取得できません".to_string())?;
+    let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("file").to_string();
+    let ext = src.extension().and_then(|s| s.to_str()).map(|s| format!(".{s}")).unwrap_or_default();
+    let mut dest = std::path::Path::new(&output_folder).join(file_name);
+    let mut n = 1;
+    while dest.exists() {
+        dest = std::path::Path::new(&output_folder).join(format!("{stem}-{n}{ext}"));
+        n += 1;
+    }
+    std::fs::copy(&src, &dest).map_err(|e| format!("コピーできません({source_path}): {e}"))?;
+    Ok(dest.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -334,6 +378,10 @@ pub fn run() {
             rip_cd_tracks,
             ai_suggest_range,
             pick_output_tree,
+            copy_source_as_is,
+            estimate_bitrate_fit,
+            free_space_bytes,
+            channel_layout_args,
         ]);
 
     #[cfg(not(target_os = "android"))]
@@ -369,6 +417,10 @@ pub fn run() {
         list_cd_tracks,
         rip_cd_tracks,
         ai_suggest_range,
+        copy_source_as_is,
+        estimate_bitrate_fit,
+        free_space_bytes,
+        channel_layout_args,
     ]);
 
     builder.run(tauri::generate_context!()).expect("error while running tauri application");
