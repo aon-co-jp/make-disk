@@ -1030,17 +1030,36 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
         }
       }
       // チャンネル構成の変換(3.7、2026-09-28新設): 音声(DSD以外)にのみ適用。
+      let effectiveInputPath = f.path;
       if (!isVideo && !dsdMatch) {
         const channelTarget = document.getElementById("channel-layout").value;
         if (channelTarget !== "keep") {
           try {
             const srcInfo = await invoke("probe_media", { path: f.path });
             const sourceChannels = srcInfo.audio_channels ?? 2;
-            const extraArgs = await invoke("channel_layout_args", { sourceChannels, target: channelTarget });
-            if (extraArgs.length > 0) {
-              codecArgs = [...codecArgs, ...extraArgs];
-            } else if (/^surround/.test(channelTarget) && sourceChannels > 2) {
-              log(`${f.path}: 元から${sourceChannels}chあるため、5.1ch/7.1chへの疑似変換は行いません。 / Already ${sourceChannels}ch — skipping the pseudo-surround conversion.`);
+            const isSurroundTarget = /^surround/.test(channelTarget);
+            // AIアップミックス(HT-Demucsによる実音源分離、2026-09-28新設): モノ/ステレオ→
+            // 5.1ch/7.1chのときだけ、モデルが用意されていれば単純panフィルタより優先して使う
+            // (未設定/失敗時は既存のpanフィルタへフォールバックする)。
+            let usedAiUpmix = false;
+            if (isSurroundTarget && sourceChannels <= 2 && (await invoke("ai_upmix_available"))) {
+              const aiOutPath = `${outputFolder}/${baseName(f.path)}.ai-upmix.wav`;
+              try {
+                log(`AIアップミックス中(HT-Demucsで実音源分離): ${f.path} ... / AI upmixing (real source separation via HT-Demucs): ${f.path} ...`);
+                await invoke("ai_upmix_convert", { inputPath: f.path, outputPath: aiOutPath, target: channelTarget });
+                effectiveInputPath = aiOutPath;
+                usedAiUpmix = true;
+              } catch (e) {
+                log(`警告: AIアップミックスに失敗したため、簡易疑似サラウンドにフォールバックします(${f.path}): ${e}`);
+              }
+            }
+            if (!usedAiUpmix) {
+              const extraArgs = await invoke("channel_layout_args", { sourceChannels, target: channelTarget });
+              if (extraArgs.length > 0) {
+                codecArgs = [...codecArgs, ...extraArgs];
+              } else if (isSurroundTarget && sourceChannels > 2) {
+                log(`${f.path}: 元から${sourceChannels}chあるため、5.1ch/7.1chへの疑似変換は行いません。 / Already ${sourceChannels}ch — skipping the pseudo-surround conversion.`);
+              }
             }
           } catch (e) {
             log(`警告: チャンネル構成の変換に失敗(${f.path}): ${e}`);
@@ -1051,7 +1070,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
       const fps = isVideo ? await resolveFpsSetting(f) : null;
       await invoke("convert_media", {
         job: {
-          input_path: f.path,
+          input_path: effectiveInputPath,
           output_path: outputPath,
           codec_args: codecArgs,
           bitrate: format === "wav" || format === "flac" || hiresMatch || dsdMatch ? null : { [mode === "auto" || mode === "max_quality" ? "auto_max_for_capacity" : "fixed"]: effectiveBitrateKbps },

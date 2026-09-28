@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# AIアップミックスの使い捨て検証(tractでのDemucs ONNX動作確認、2026-09-28)。
+# パッチ済みモデル(数百MB〜2GB超)・Python venv・ビルド成果物はコミットしない
+# (整理済みの再現手順はtools/demucs-onnx-patch/README.mdを正本とする)。
+/experiments/

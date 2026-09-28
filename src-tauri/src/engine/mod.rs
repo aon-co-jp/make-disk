@@ -1,4 +1,5 @@
 pub mod ai_range;
+pub mod ai_upmix;
 pub mod ai_upscale;
 pub mod ai_video;
 pub mod layout;
