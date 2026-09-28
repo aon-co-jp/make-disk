@@ -79,6 +79,15 @@ section {
   width: 7rem;
 }
 
+.include-as-is-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: #555;
+}
+
 .hint {
   color: #888;
   font-size: 0.85rem;

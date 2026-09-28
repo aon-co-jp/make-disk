@@ -104,6 +104,34 @@
       </section>
 
       <section>
+        <h2>3.7. チャンネル構成(モノ/ステレオ⇔サラウンド変換) / Channel layout (mono/stereo ⇔ surround)</h2>
+        <label>変換先 / Target:
+          <select id="channel-layout">
+            <option value="keep" selected>元のまま(既定) / Keep as-is</option>
+            <option value="mono">モノラル(1ch) / Mono (1ch)</option>
+            <option value="stereo">ステレオ(2ch) / Stereo (2ch)</option>
+            <option value="surround51">5.1ch(FL/FR/FC/LFE/BL/BR)</option>
+            <option value="surround71">7.1ch(5.1ch + SL/SR)</option>
+          </select>
+        </label>
+        <p class="hint">
+          全ての音声出力形式(3.)に適用されます。<br />
+          <b>モノラル/ステレオ → 5.1ch・7.1ch</b>: 元に無い音を新たに生成するわけではない、単純な複製・按分による
+          <b>疑似(バーチャル)サラウンド</b>です(実際のディスクリート5.1ch/7.1ch音源が持つ情報量には及びません)。
+          センターは左右の単純ミックス、リア/サイドは前方の減衰コピー、LFE(低音効果音)は常に無音にします。
+          元から3ch以上ある音源には適用しません(想定外のチャンネル対応付けを避けるため)。<br />
+          <b>サラウンド → ステレオ/モノラル</b>: ffmpeg標準の降ミックス(疑似ではありません)。
+        </p>
+        <p class="hint">
+          Applies to every audio output format (3.). <b>Mono/stereo → 5.1ch/7.1ch</b> is a simple duplication/mix-based
+          <b>pseudo (virtual) surround</b> — it does not generate sound that wasn't in the source, and falls short of a
+          true discrete 5.1/7.1 source. Center is a plain mix of left+right, rear/side channels are attenuated copies
+          of the front, and LFE is always silent. Sources that already have 3+ channels are left untouched (to avoid an
+          unintended channel mapping). <b>Surround → stereo/mono</b> uses ffmpeg's standard downmix (not pseudo).
+        </p>
+      </section>
+
+      <section>
         <h2>4. 動画フォーマットへ変換(複数選択可)</h2>
         <div class="checkbox-grid">
           <label><input type="checkbox" name="video-format" value="mp4" /> MP4 (H.264/AAC)</label>
@@ -374,10 +402,41 @@
           <br />Record at maximum audio &amp; video quality (works even with no format checked — e.g. converting a video like MP4 to a CD ISO with no format checked automatically uses lossless WAV and builds the ISO at the same time)
         </label>
         <p id="max-quality-estimate" class="hint" hidden></p>
+
+        <h3>見積もり(所要時間・空き容量・収まるか) / Estimate (time, free space, fit)</h3>
+        <p class="hint">
+          動画のAI超解像(4.3)専用だった「下調べ」「収まるか予測」を、CD取り込みや通常の音声変換にも
+          使えるようにしたものです。上の設定(ビットレート・音声フォーマット)と、6.で選んだディスク種別を
+          もとに、全ソースの合計時間から必要な容量・収まるかを判定します。 / Previously limited to video AI
+          upscaling (4.3), this estimate now also works for CD ripping and ordinary audio conversion. Using the
+          settings above and the disc type(s) chosen in 6., it computes the required size (and whether it fits)
+          from the total duration of all sources.
+        </p>
+        <button id="estimate-audio-fit-btn" type="button">見積もりを実行 / Run estimate</button>
+        <pre id="estimate-audio-fit-result" class="hint"></pre>
       </section>
 
       <section>
-        <h2>7.5. 元データのカット(サイズ/時間) / Cutting the source (size or time)</h2>
+        <h2>7.5. 再生規格の上限(kHz・ビットレート)に収める / Fit within a playback standard's maximum (kHz &amp; bitrate)</h2>
+        <select id="playback-spec"></select>
+        <p id="playback-spec-detail" class="hint"></p>
+        <p class="hint">選んだ規格の最大サンプリング周波数・ビット深度・ビットレートを超えないように変換します(元がそれ以下ならそのまま。アップサンプリングはしません)。上限を超える高解像度PCM/DSDの形式は、家庭用プレーヤーの規格外である旨を表示します。 / Converts so the chosen standard's maximum sample rate, bit depth and bitrate are not exceeded (sources already below are left as is; no upsampling). High-res PCM/DSD formats above the limit are reported as outside the player standard.</p>
+      </section>
+
+      <section>
+        <h2>8. 時間指定・トリミング(区間カット)</h2>
+        <p class="hint">
+          時間・区間の指定は、この8.にまとめてあります(以前は7.5と8.に分かれていて分かりにくかったため、
+          2026-09-28にここへ統合しました)。全ファイルまとめて先頭から機械的に切るだけでよいなら
+          <b>8.1</b>、動画/音声を見ながら・聞きながら、途中の不要な部分だけをマウスや時:分:秒で
+          精密に指定したいなら<b>8.2</b>を使ってください(両方を同じファイルに使うと8.2が優先されます)。<br />
+          Every time/range input now lives here in section 8 (previously split across 7.5 and 8, which
+          was confusing — consolidated 2026-09-28). Use <b>8.1</b> to mechanically keep just the start of
+          every file; use <b>8.2</b> to precisely mark unwanted parts anywhere in a file while watching/
+          listening, or by typing h:m:s (8.2 takes priority if both are set for the same file).
+        </p>
+
+        <h3>8.1. 全ファイル一括: 先頭から◯◯だけ残す / All files at once: keep only the first ◯◯</h3>
         <p class="hint">
           元データをサイズでカットするか、時間でカットするかを、それぞれYES/NOで選びます。<br />
           Answer YES/NO for cutting the source by size and by time.
@@ -395,9 +454,9 @@
           <input id="cut-time-s" type="number" min="0" value="0" style="width:3.5em" />秒(先頭から / from the start)
         </div>
         <p class="hint">サイズと時間は必ずどちらか一方だけがYESです(片方をYESにするともう片方はNO、NOにするともう片方がYESになります。既定はサイズ)。数値が空欄なら、そのファイルはカットしません。 / Exactly one of size/time is YES (switching one flips the other; size is the default). If the value is left blank, nothing is cut.</p>
-        <p class="hint">サイズでカットする場合は、元データのサイズを基準に、指定サイズに収まる長さだけを先頭から残します。8.で手動のカット区間を指定したファイルは変更しません。 / Cutting by size keeps only as much from the start as fits the given size of the source data. Files with manual cut ranges (section 8) are left untouched.</p>
+        <p class="hint">サイズでカットする場合は、元データのサイズを基準に、指定サイズに収まる長さだけを先頭から残します。8.2で手動のカット区間を指定したファイルは変更しません。 / Cutting by size keeps only as much from the start as fits the given size of the source data. Files with manual cut ranges (8.2) are left untouched.</p>
 
-        <h3>後処理 / Post-processing</h3>
+        <h4>後処理 / Post-processing</h4>
         <label><input type="checkbox" id="fill-disc" /> ディスクいっぱいに収める(6.で選んだCD / DVD 1〜2層 / Blu-ray 1〜4層の容量に合わせてビットレートを自動調整) / Fill the disc (auto-adjust bitrate to the CD / DVD 1–2 layer / Blu-ray 1–4 layer chosen in section 6)</label>
         <br />
         <label><input type="checkbox" id="ai-auto-cut" /> AI判断で無音部分を自動カット / AI-judged auto-cut of silent parts</label>
@@ -405,17 +464,8 @@
           ※「AI判断」はffmpegの無音検出(音量ベース)による近似です。実際の意味的なシーン解析は行いません。<br />
           Note: "AI-judged" is an approximation using ffmpeg's volume-based silence detection — it does not perform true semantic scene analysis.
         </p>
-      </section>
 
-      <section>
-        <h2>7.6. 再生規格の上限(kHz・ビットレート)に収める / Fit within a playback standard's maximum (kHz &amp; bitrate)</h2>
-        <select id="playback-spec"></select>
-        <p id="playback-spec-detail" class="hint"></p>
-        <p class="hint">選んだ規格の最大サンプリング周波数・ビット深度・ビットレートを超えないように変換します(元がそれ以下ならそのまま。アップサンプリングはしません)。上限を超える高解像度PCM/DSDの形式は、家庭用プレーヤーの規格外である旨を表示します。 / Converts so the chosen standard's maximum sample rate, bit depth and bitrate are not exceeded (sources already below are left as is; no upsampling). High-res PCM/DSD formats above the limit are reported as outside the player standard.</p>
-      </section>
-
-      <section>
-        <h2>8. 時間指定・トリミング(区間カット)</h2>
+        <h3>8.2. ファイルごとの精密カット(個別編集) / Per-file precise cutting (individual edit)</h3>
         <p class="hint">
           各ファイルの「編集...」から、カットしたい区間(最初・途中・最後、いくつでも)を
           動画を再生して見ながらマウスで、または時:分:秒を直接数字で入力して指定できます。

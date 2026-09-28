@@ -11,8 +11,16 @@ const convertFileSrc = window.__TAURI__.core.convertFileSrc;
 /**
  * @typedef {{ startSecs: number, endSecs: number | null }} CutRange
  * @typedef {{ startSecs: number, endSecs: number }} ExtractRange
- * @typedef {{ path: string, cutRanges: CutRange[], frameAccurate: boolean, extract?: ExtractRange | null }} SourceFile
+ * @typedef {{ path: string, cutRanges: CutRange[], frameAccurate: boolean, extract?: ExtractRange | null, includeAsIs: boolean }} SourceFile
  */
+
+// make-diskが変換できる(音声・動画・PDF)以外の拡張子は、既定で「そのまま含める」に
+// する(2026-09-27新設)。以前はここに当てはまらないファイルを追加しても、変換されず
+// ISOにも入らず黙って無視されていた(混乱の原因)。
+const CONVERTIBLE_EXT_RE = /\.(mp3|wav|flac|aac|m4a|ogg|opus|mp4|mkv|avi|mov|webm|pdf)$/i;
+function defaultIncludeAsIs(path) {
+  return !CONVERTIBLE_EXT_RE.test(path);
+}
 /** @type {SourceFile[]} */
 let sourceFiles = [];
 let outputFolder = "";
@@ -440,6 +448,23 @@ function renderFileList() {
     name.className = "file-name";
     name.textContent = fileLabel(f);
 
+    // 「そのまま含める」(2026-09-27新設): make-diskが変換できない形式
+    // (文書・画像・アーカイブ等)や、あえて再変換したくないファイルを、無変換の
+    // まま出力フォルダへコピーし、ISO/ディスクへ一緒に含める。音声/動画/PDFに
+    // 一致しない形式は既定でON(付けないと黙って無視されていた挙動を解消)。
+    const asIsLabel = document.createElement("label");
+    asIsLabel.className = "include-as-is-label";
+    const asIsCheckbox = document.createElement("input");
+    asIsCheckbox.type = "checkbox";
+    asIsCheckbox.checked = f.includeAsIs;
+    asIsCheckbox.title =
+      "無変換のままディスク(ISO)へ含めます。音声/動画への変換とは独立していて、両方チェックすれば変換版とオリジナル両方が入ります。 / " +
+      "Include the file as-is on the disc (ISO), unconverted. Independent of audio/video conversion — check both to include the converted version and the original.";
+    asIsCheckbox.addEventListener("change", () => {
+      f.includeAsIs = asIsCheckbox.checked;
+    });
+    asIsLabel.append(asIsCheckbox, document.createTextNode(" そのまま含める / include as-is"));
+
     const editBtn = document.createElement("button");
     editBtn.textContent = "編集...";
     editBtn.addEventListener("click", () => {
@@ -456,7 +481,7 @@ function renderFileList() {
       renderFileList();
     });
 
-    li.append(name, editBtn, removeBtn);
+    li.append(name, asIsLabel, editBtn, removeBtn);
     fileListEl.appendChild(li);
   });
   renderCutSection();
@@ -483,7 +508,7 @@ document.getElementById("add-files-btn").addEventListener("click", async () => {
     }
   }
   for (const path of paths) {
-    sourceFiles.push({ path, cutRanges: [], frameAccurate: false });
+    sourceFiles.push({ path, cutRanges: [], frameAccurate: false, includeAsIs: defaultIncludeAsIs(path) });
   }
   renderFileList();
 });
@@ -525,7 +550,7 @@ document.getElementById("cdda-rip-btn").addEventListener("click", async () => {
   log(`取り込み中(${tracks.length}トラック)... / Ripping ${tracks.length} track(s)...`);
   try {
     const outs = await invoke("rip_cd_tracks", { drive: document.getElementById("cdda-drive").value, tracks, outputDir: outputFolder + "/CD-rip", secure: document.getElementById("cdda-secure").checked });
-    for (const path of outs) sourceFiles.push({ path, cutRanges: [], frameAccurate: false });
+    for (const path of outs) sourceFiles.push({ path, cutRanges: [], frameAccurate: false, includeAsIs: false });
     renderFileList();
     log(`取り込み完了 / Ripped ${outs.length} track(s) → ${outputFolder}/CD-rip`);
   } catch (e) {
@@ -965,7 +990,7 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
         }
       }
       const isVideo = format in VIDEO_CODEC_ARGS;
-      // 再生規格の上限(7.6)に収める。
+      // 再生規格の上限(7.5)に収める。
       const spec = selectedPlaybackSpec();
       if (spec) {
         if (dsdMatch && spec !== PLAYBACK_SPECS.pc) {
@@ -1001,6 +1026,24 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
             codecArgs = [...codecArgs, "-sample_fmt", "s16"];
           } else if (spec.bits >= 24 && format === "wav") {
             codecArgs = ["-c:a", "pcm_s24le", ...codecArgs.slice(2)];
+          }
+        }
+      }
+      // チャンネル構成の変換(3.7、2026-09-28新設): 音声(DSD以外)にのみ適用。
+      if (!isVideo && !dsdMatch) {
+        const channelTarget = document.getElementById("channel-layout").value;
+        if (channelTarget !== "keep") {
+          try {
+            const srcInfo = await invoke("probe_media", { path: f.path });
+            const sourceChannels = srcInfo.audio_channels ?? 2;
+            const extraArgs = await invoke("channel_layout_args", { sourceChannels, target: channelTarget });
+            if (extraArgs.length > 0) {
+              codecArgs = [...codecArgs, ...extraArgs];
+            } else if (/^surround/.test(channelTarget) && sourceChannels > 2) {
+              log(`${f.path}: 元から${sourceChannels}chあるため、5.1ch/7.1chへの疑似変換は行いません。 / Already ${sourceChannels}ch — skipping the pseudo-surround conversion.`);
+            }
+          } catch (e) {
+            log(`警告: チャンネル構成の変換に失敗(${f.path}): ${e}`);
           }
         }
       }
@@ -1167,6 +1210,58 @@ document.getElementById("ai-estimate-btn").addEventListener("click", async () =>
     status.textContent = lines.join("\n");
   } catch (err) {
     status.textContent = `下調べに失敗しました / Estimate failed: ${err}`;
+  }
+});
+
+// 見積もり(所要時間・空き容量・収まるか、2026-09-28新設): 動画のAI超解像(4.3)専用だった
+// 「下調べ」「収まるか予測」を、CD取り込み・通常の音声変換にも使えるようにする
+// (ユーザー指摘: 「下調べ」「収まるか予測」がビデオのみで音声/CDに対応していなかった)。
+document.getElementById("estimate-audio-fit-btn").addEventListener("click", async () => {
+  const box = document.getElementById("estimate-audio-fit-result");
+  if (sourceFiles.length === 0) {
+    box.textContent = "先にソースファイルを追加してください。 / Add source files first.";
+    return;
+  }
+  const discTypes = checkedValues("disc-type");
+  if (discTypes.length === 0) {
+    box.textContent = "6.でディスク種別を1つ以上選択してください。 / Pick at least one disc type in 6.";
+    return;
+  }
+  box.textContent = "見積もり中… / Estimating…";
+  try {
+    let totalDuration = 0;
+    for (const f of sourceFiles) totalDuration += await effectiveDurationSecs(f);
+
+    const mode = bitrateMode();
+    const useLossless = mode === "max_quality" && document.querySelectorAll('input[name="audio-format"]:checked').length === 0;
+    let bitrateKbps = parseInt(document.getElementById("bitrate-fixed").value, 10) || 0;
+    if (mode === "auto" || mode === "max_quality") {
+      bitrateKbps = await computeAutoBitrateKbps(discTypes);
+    }
+
+    const lines = [`合計時間 / Total duration: ${fmtDur(totalDuration)}`];
+    for (const discType of discTypes) {
+      const est = useLossless
+        ? await invoke("estimate_lossless_audio_fit", { disc: discType, totalDurationSecs: totalDuration, reservedBytes: 50 * 1024 * 1024 })
+        : await invoke("estimate_bitrate_fit", { disc: discType, totalDurationSecs: totalDuration, bitrateKbps, reservedBytes: 50 * 1024 * 1024 });
+      const mark = est.fits ? "◎" : "×";
+      const need = (est.required_bytes / 1e9).toFixed(2);
+      const usable = (est.usable_bytes / 1e9).toFixed(2);
+      lines.push(
+        `${mark} [${discType}]${useLossless ? " ロスレスWAV" : ` ${bitrateKbps}kbps`}: 必要 約${need}GB / 実用容量 約${usable}GB` +
+          (est.fits ? "" : ` — 収まりません(このディスクなら最大${fmtDur(est.max_fitting_duration_secs)}まで) / doesn't fit (max ${fmtDur(est.max_fitting_duration_secs)} on this disc)`)
+      );
+    }
+
+    if (outputFolder) {
+      const free = await invoke("free_space_bytes", { path: outputFolder });
+      if (free != null) {
+        lines.push(`出力先の空き容量 / Free space at output folder: 約${(free / 1e9).toFixed(1)}GB`);
+      }
+    }
+    box.textContent = lines.join("\n");
+  } catch (e) {
+    box.textContent = `見積もりに失敗しました / Estimate failed: ${e}`;
   }
 });
 
@@ -1380,11 +1475,33 @@ document.getElementById("run-btn").addEventListener("click", async () => {
     }
   }
 
-  // ソースが全てPDFの場合(音声/動画の変換対象が無い)は、PDF見開き変換
-  // だけで完了とする——音声/動画フォーマット必須のバリデーションを
-  // 誤って適用しないようにする。
-  if (pdfFiles.length === sourceFiles.length) {
-    log("すべての処理が完了しました。");
+  // 「そのまま含める」ファイル(2026-09-27新設): 音声/動画/PDFのように
+  // make-diskが変換できる形式とは限らない、任意のファイルを無変換のまま
+  // 出力フォルダへコピーする。これにより、色々な形式のファイルを1つに
+  // まとめて、まとめて1枚のISO/ディスクに書き込める(音声/動画への変換とは
+  // 独立で併用可能)。
+  const asIsFiles = sourceFiles.filter((f) => f.includeAsIs);
+  if (asIsFiles.length > 0) {
+    for (const f of asIsFiles) {
+      log(`そのまま含める(無変換でコピー): ${f.path} ... / Including as-is (copying, no conversion): ${f.path} ...`);
+      try {
+        const dest = await invoke("copy_source_as_is", { sourcePath: f.path, outputFolder });
+        log(`  コピーしました: ${dest} / copied to: ${dest}`);
+      } catch (e) {
+        log(`  エラー: ${e}`);
+      }
+    }
+  }
+
+  // ソースが全てPDF(+そのまま含めるファイル)で、音声/動画の変換対象が
+  // 無い場合は、PDF見開き変換・そのままコピーだけで完了とする——音声/動画
+  // フォーマット必須のバリデーションを誤って適用しないようにする。
+  if (pdfFiles.length + asIsFiles.filter((f) => !pdfFiles.includes(f)).length === sourceFiles.length) {
+    if (asIsFiles.length > 0 && (document.getElementById("output-iso").checked || checkedValues("disc-type").length > 0)) {
+      await createIsoAndMaybeBurn();
+    } else {
+      log("すべての処理が完了しました。");
+    }
     return;
   }
 
@@ -1561,85 +1678,95 @@ document.getElementById("run-btn").addEventListener("click", async () => {
   }
 
   if (wantIso || discTypes.length > 0) {
-    const isoPath = `${outputFolder}/output.iso`;
-    log(`ISO作成中: ${isoPath}`);
-    try {
-      await invoke("create_iso", {
-        sourceDir: outputFolder,
-        outputIso: isoPath,
-        volumeLabel: "MAKE_DISK",
-      });
-      log(`完了: ${isoPath}`);
-
-      if (discTypes.length > 0) {
-        const devices = await invoke("list_burn_devices");
-        if (devices.length === 0) {
-          log("エラー: 書き込み可能な光学ドライブが見つかりません。");
-        } else {
-          const speedMode = document.getElementById("write-speed-mode").value;
-          const speed =
-            speedMode === "fixed"
-              ? { fixed: parseInt(document.getElementById("write-speed-fixed").value, 10) }
-              : speedMode === "max"
-                ? "max"
-                : "auto";
-
-          // 2026-09-16変更: 複数のディスク種別を選択した場合、物理
-          // ドライブが複数あればドライブごとに並行して書き込む
-          // (1台のドライブへ同時に2つの書き込みストリームは送れない
-          // ため、同じドライブへ割り当てられた種別同士は順番に、
-          // 異なるドライブへの書き込みは互いを待たずに並行実行する
-          // ——ユーザー指示「書き込みも同時に行なって」への対応)。
-          // ドライブより種別数が多い場合はラウンドロビンで割り当てる。
-          // ISOがディスクの実用容量に収まらない種別は書き込みを試みず、日英で理由を示して飛ばす
-          // (以前は容量超過でも書き込みを始めて途中で失敗していた)。
-          let isoBytes = 0;
-          try {
-            isoBytes = await invoke("folder_size_bytes", { path: outputFolder });
-          } catch (e) {
-            log(`警告: 出力フォルダのサイズを確認できませんでした: ${e}`);
-          }
-          const burnable = [];
-          for (const discType of discTypes) {
-            const usable = await invoke("disc_usable_bytes", { disc: discType });
-            if (isoBytes > usable) {
-              log(`⚠ [${discType}] 出力が大きすぎてこのディスクには収まりません(${(isoBytes / 1e9).toFixed(2)}GB > 実用容量${(usable / 1e9).toFixed(2)}GB)。書き込みをスキップします。 / Output (${(isoBytes / 1e9).toFixed(2)} GB) exceeds this disc's usable capacity (${(usable / 1e9).toFixed(2)} GB); skipping the burn.`);
-            } else {
-              burnable.push(discType);
-            }
-          }
-          const byDevice = new Map();
-          burnable.forEach((discType, i) => {
-            const device = devices[i % devices.length];
-            if (!byDevice.has(device)) byDevice.set(device, []);
-            byDevice.get(device).push(discType);
-          });
-          if (devices.length < burnable.length) {
-            log(`ドライブが${devices.length}台のため、一部のディスク種別は同じドライブへ順番に書き込みます。`);
-          }
-
-          await Promise.all(
-            Array.from(byDevice.entries()).map(async ([device, types]) => {
-              for (const discType of types) {
-                log(`書き込み中(${discType}): ${isoPath} -> ${device}`);
-                try {
-                  await invoke("burn_image", { imagePath: isoPath, device, disc: discType, speed });
-                  log(`書き込み完了(${discType})。`);
-                } catch (e) {
-                  log(`エラー(${discType}): ${e}`);
-                }
-              }
-            })
-          );
-        }
-      }
-    } catch (e) {
-      log(`エラー: ${e}`);
-    }
+    await createIsoAndMaybeBurn();
   }
 
   log("すべての処理が完了しました。");
 });
+
+// ISO作成+(ディスク種別が選ばれていれば)書き込みまでを行う。出力フォルダに
+// 溜まったファイル(変換済み音声/動画・PDF見開き画像・「そのまま含める」で
+// コピーしたファイル)を、形式を問わずまとめて1枚のISO/ディスクにする
+// (2026-09-27: 音声/動画変換が無い、そのまま含めるファイルのみの実行からも
+// 呼べるよう、実行ボタンの本処理から切り出した)。
+async function createIsoAndMaybeBurn() {
+  const discTypes = checkedValues("disc-type");
+  const isoPath = `${outputFolder}/output.iso`;
+  log(`ISO作成中: ${isoPath}`);
+  try {
+    await invoke("create_iso", {
+      sourceDir: outputFolder,
+      outputIso: isoPath,
+      volumeLabel: "MAKE_DISK",
+    });
+    log(`完了: ${isoPath}`);
+
+    if (discTypes.length > 0) {
+      const devices = await invoke("list_burn_devices");
+      if (devices.length === 0) {
+        log("エラー: 書き込み可能な光学ドライブが見つかりません。");
+      } else {
+        const speedMode = document.getElementById("write-speed-mode").value;
+        const speed =
+          speedMode === "fixed"
+            ? { fixed: parseInt(document.getElementById("write-speed-fixed").value, 10) }
+            : speedMode === "max"
+              ? "max"
+              : "auto";
+
+        // 2026-09-16変更: 複数のディスク種別を選択した場合、物理
+        // ドライブが複数あればドライブごとに並行して書き込む
+        // (1台のドライブへ同時に2つの書き込みストリームは送れない
+        // ため、同じドライブへ割り当てられた種別同士は順番に、
+        // 異なるドライブへの書き込みは互いを待たずに並行実行する
+        // ——ユーザー指示「書き込みも同時に行なって」への対応)。
+        // ドライブより種別数が多い場合はラウンドロビンで割り当てる。
+        // ISOがディスクの実用容量に収まらない種別は書き込みを試みず、日英で理由を示して飛ばす
+        // (以前は容量超過でも書き込みを始めて途中で失敗していた)。
+        let isoBytes = 0;
+        try {
+          isoBytes = await invoke("folder_size_bytes", { path: outputFolder });
+        } catch (e) {
+          log(`警告: 出力フォルダのサイズを確認できませんでした: ${e}`);
+        }
+        const burnable = [];
+        for (const discType of discTypes) {
+          const usable = await invoke("disc_usable_bytes", { disc: discType });
+          if (isoBytes > usable) {
+            log(`⚠ [${discType}] 出力が大きすぎてこのディスクには収まりません(${(isoBytes / 1e9).toFixed(2)}GB > 実用容量${(usable / 1e9).toFixed(2)}GB)。書き込みをスキップします。 / Output (${(isoBytes / 1e9).toFixed(2)} GB) exceeds this disc's usable capacity (${(usable / 1e9).toFixed(2)} GB); skipping the burn.`);
+          } else {
+            burnable.push(discType);
+          }
+        }
+        const byDevice = new Map();
+        burnable.forEach((discType, i) => {
+          const device = devices[i % devices.length];
+          if (!byDevice.has(device)) byDevice.set(device, []);
+          byDevice.get(device).push(discType);
+        });
+        if (devices.length < burnable.length) {
+          log(`ドライブが${devices.length}台のため、一部のディスク種別は同じドライブへ順番に書き込みます。`);
+        }
+
+        await Promise.all(
+          Array.from(byDevice.entries()).map(async ([device, types]) => {
+            for (const discType of types) {
+              log(`書き込み中(${discType}): ${isoPath} -> ${device}`);
+              try {
+                await invoke("burn_image", { imagePath: isoPath, device, disc: discType, speed });
+                log(`書き込み完了(${discType})。`);
+              } catch (e) {
+                log(`エラー(${discType}): ${e}`);
+              }
+            }
+          })
+        );
+      }
+    }
+  } catch (e) {
+    log(`エラー: ${e}`);
+  }
+}
 
 // ── 自動アップデート確認(2026-09-16新設) ──────────────────────────
 // アプリ起動時に一度だけGitHub Releasesの最新版を確認し、新しいバージョンが

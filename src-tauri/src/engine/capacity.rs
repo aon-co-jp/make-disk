@@ -143,6 +143,32 @@ pub fn quality_warning(bitrate_bps: u64, kind: MediaKind) -> Option<QualityWarni
     })
 }
 
+/// 任意のビットレート(kbps)での容量見積もり。[`LosslessFitEstimate`]と同じ形だが、
+/// ロスレスPCM固定ではなく指定ビットレートで計算する——「収まるか予測」「下調べ」を
+/// 動画のアップコンバートだけでなく、CD取り込みや通常の音声変換にも使えるようにする
+/// (2026-09-28、ユーザー指摘: 音声/CDにも対応してほしい)。
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
+pub struct BitrateFitEstimate {
+    pub fits: bool,
+    pub required_bytes: u64,
+    pub usable_bytes: u64,
+    /// `fits`が`false`の場合、代わりにこの秒数までなら収まる。
+    pub max_fitting_duration_secs: f64,
+}
+
+pub fn estimate_bitrate_fit(disc: DiscType, total_duration_secs: f64, bitrate_kbps: u64, reserved_bytes: u64) -> BitrateFitEstimate {
+    let usable_bytes = disc.usable_bytes().saturating_sub(reserved_bytes);
+    let bps = bitrate_kbps as f64 * 1000.0;
+    let required_bytes = ((total_duration_secs.max(0.0) * bps) / 8.0) as u64;
+    let max_fitting_duration_secs = if bps > 0.0 { (usable_bytes as f64 * 8.0) / bps } else { 0.0 };
+    BitrateFitEstimate {
+        fits: required_bytes <= usable_bytes,
+        required_bytes,
+        usable_bytes,
+        max_fitting_duration_secs,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,6 +212,28 @@ mod tests {
         let ten_hours = 10.0 * 3600.0;
         let estimate = estimate_lossless_audio_fit(DiscType::Bd25, ten_hours, 0);
         assert!(estimate.fits);
+    }
+
+    /// 一般ビットレートでの見積もり(音声/CD向け): 短い尺・低ビットレートなら
+    /// CD1枚に十分収まること。
+    #[test]
+    fn bitrate_fit_reports_true_for_a_short_low_bitrate_clip_on_cd() {
+        let estimate = estimate_bitrate_fit(DiscType::Cd700, 180.0, 192, 0);
+        assert!(estimate.fits);
+        assert!(estimate.required_bytes < estimate.usable_bytes);
+    }
+
+    /// 収まらない場合は、代わりに収まる秒数を返し、その秒数ちょうどなら
+    /// 実際に収まる(ロスレス版と同じ整合性)。
+    #[test]
+    fn bitrate_fit_reports_false_and_max_fitting_duration_when_too_long() {
+        let ten_hours = 10.0 * 3600.0;
+        let estimate = estimate_bitrate_fit(DiscType::Cd700, ten_hours, 320, 0);
+        assert!(!estimate.fits);
+        assert!(estimate.max_fitting_duration_secs < ten_hours);
+        assert!(estimate.max_fitting_duration_secs > 0.0);
+        let recheck = estimate_bitrate_fit(DiscType::Cd700, estimate.max_fitting_duration_secs, 320, 0);
+        assert!(recheck.fits);
     }
 
     #[test]

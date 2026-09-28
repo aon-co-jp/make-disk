@@ -276,6 +276,56 @@ fn detect_av1_encoder() -> Option<(&'static str, Vec<&'static str>)> {
     name.map(|n| (n, if n == "libaom-av1" { vec!["-cpu-used", "6", "-row-mt", "1"] } else { vec!["-preset", "8"] }))
 }
 
+/// チャンネル構成の変換先(2026-09-28新設、ユーザー指示:
+/// 「モノラルや2CHステレオから擬似的に5.1CHや7.1CHへ」「サラウンドから2CHやモノラルへ」)。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelLayoutTarget {
+    /// 変更しない(既定)。
+    Keep,
+    Mono,
+    Stereo,
+    /// 5.1ch(FL/FR/FC/LFE/BL/BR)。
+    Surround51,
+    /// 7.1ch(5.1ch+SL/SR)。
+    Surround71,
+}
+
+/// 元のチャンネル数と変換先から、ffmpegへ渡す引数(`-ac`または`-af pan=...`)を作る。
+///
+/// **正直な開示**: モノラル・ステレオから5.1ch/7.1chへの変換は、元に無い音を新たに
+/// 「生成」するわけではない、単純な複製・按分による疑似(バーチャル)サラウンドである
+/// (実際のディスクリート5.1ch/7.1ch音源が持つ情報量には及ばない)。センターは左右の
+/// 単純ミックス、リア/サイドは前方の減衰コピー、LFEは常に無音にする。
+/// 元から3ch以上ある場合、5.1ch/7.1chへの変換は対象外(何もしない)——想定外の
+/// チャンネルマッピングを避けるため。サラウンド→ステレオ/モノラルの各`-ac`降ミックスは、
+/// ffmpeg(libswresample)の標準機能によるもので、疑似ではない。
+pub fn channel_layout_args(source_channels: u32, target: ChannelLayoutTarget) -> Vec<String> {
+    match target {
+        ChannelLayoutTarget::Keep => vec![],
+        ChannelLayoutTarget::Mono => vec!["-ac".to_string(), "1".to_string()],
+        ChannelLayoutTarget::Stereo => vec!["-ac".to_string(), "2".to_string()],
+        ChannelLayoutTarget::Surround51 if source_channels <= 2 => {
+            let pan = if source_channels <= 1 {
+                "pan=5.1|FL=c0|FR=c0|FC=c0|LFE=0|BL=c0|BR=c0"
+            } else {
+                "pan=5.1|FL=FL|FR=FR|FC=0.5*FL+0.5*FR|LFE=0|BL=0.6*FL|BR=0.6*FR"
+            };
+            vec!["-af".to_string(), pan.to_string()]
+        }
+        ChannelLayoutTarget::Surround71 if source_channels <= 2 => {
+            let pan = if source_channels <= 1 {
+                "pan=7.1|FL=c0|FR=c0|FC=c0|LFE=0|BL=c0|BR=c0|SL=c0|SR=c0"
+            } else {
+                "pan=7.1|FL=FL|FR=FR|FC=0.5*FL+0.5*FR|LFE=0|BL=0.6*FL|BR=0.6*FR|SL=0.4*FL|SR=0.4*FR"
+            };
+            vec!["-af".to_string(), pan.to_string()]
+        }
+        // 元から3ch以上(既にサラウンド等)の場合、5.1ch/7.1chへの疑似変換は対象外。
+        ChannelLayoutTarget::Surround51 | ChannelLayoutTarget::Surround71 => vec![],
+    }
+}
+
 /// codec_args内の疑似コーデック`-c:v av1`を、実際に使えるAV1エンコーダへ置き換える。
 fn resolve_av1_codec_args(codec_args: &[String]) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
@@ -907,6 +957,37 @@ mod tests {
     #[test]
     fn bitrate_for_target_size_kbps_returns_zero_for_zero_duration() {
         assert_eq!(bitrate_for_target_size_kbps(10_000_000, 0.0), 0);
+    }
+
+    #[test]
+    fn channel_layout_keep_is_a_no_op() {
+        assert!(channel_layout_args(2, ChannelLayoutTarget::Keep).is_empty());
+    }
+
+    #[test]
+    fn channel_layout_downmix_uses_ac_flag() {
+        assert_eq!(channel_layout_args(6, ChannelLayoutTarget::Stereo), vec!["-ac".to_string(), "2".to_string()]);
+        assert_eq!(channel_layout_args(8, ChannelLayoutTarget::Mono), vec!["-ac".to_string(), "1".to_string()]);
+    }
+
+    #[test]
+    fn channel_layout_upmix_from_mono_duplicates_to_all_channels() {
+        let args = channel_layout_args(1, ChannelLayoutTarget::Surround51);
+        assert_eq!(args[0], "-af");
+        assert!(args[1].contains("FL=c0") && args[1].contains("LFE=0"), "{}", args[1]);
+    }
+
+    #[test]
+    fn channel_layout_upmix_from_stereo_mixes_center_and_attenuates_rear() {
+        let args = channel_layout_args(2, ChannelLayoutTarget::Surround71);
+        assert_eq!(args[0], "-af");
+        assert!(args[1].contains("FC=0.5*FL+0.5*FR") && args[1].contains("SL=0.4*FL"), "{}", args[1]);
+    }
+
+    #[test]
+    fn channel_layout_upmix_is_skipped_for_already_multichannel_sources() {
+        assert!(channel_layout_args(6, ChannelLayoutTarget::Surround71).is_empty());
+        assert!(channel_layout_args(3, ChannelLayoutTarget::Surround51).is_empty());
     }
 
     #[test]
