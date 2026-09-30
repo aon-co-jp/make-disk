@@ -368,6 +368,60 @@ pub fn limit_generated_hf(y: &[f32], generated: &[f32], fc: f32) -> Vec<f32> {
     stft.inverse(frames, &out, y.len())
 }
 
+/// 声(TTS・ポッドキャスト・電話など)向けのカットオフ検出。
+///
+/// [`detect_cutoff_hz`]は音楽の「急峻な崖」を探すが、声は高域が**なだらかに**減衰するだけで崖にならない
+/// (maid-cafe-seでの実測: Windowsの音声Harukaは、3〜6kHzが約-13dBのとき7〜8kHzで-18dB、8〜9kHzで-26dB、9〜10kHzで-36dB。
+/// 崖検出は12.4kHzを返し、可聴域に何も足さなかった)。そこで、声の主要帯域(3〜6kHz)の平均レベルより`SPEECH_ROLLOFF_DB`下がった
+/// 最初の周波数を見つけ、その少し手前(`SPEECH_ROLLOFF_MARGIN_HZ`)をカットオフにする(手前の帯域の傾きから高域を外挿するため)。
+/// 見つからない(=高域まで十分ある)、または拡張する価値のある範囲(5〜16kHz)を外れたら`None`。
+///
+/// **音楽には使わないこと**: 音楽は自然な高域の減衰だけでこの条件を満たしやすく、帯域が欠けていない音源にも拡張が掛かってしまう。
+pub fn detect_speech_rolloff_hz(x48: &[f32]) -> Option<f32> {
+    let n_fft = 4096;
+    let stft = Stft::new(n_fft, 2048);
+    let take = x48.len().min(OUT_SR * 120);
+    let (frames, spec) = stft.forward(&x48[..take]);
+    let bins = stft.bins();
+    let mut power = vec![0f64; bins];
+    let mut used = 0usize;
+    for f in 0..frames {
+        let e: f64 = (0..bins).map(|k| spec[f * bins + k].norm_sqr() as f64).sum();
+        if e > 1e-9 {
+            // 無音に近いフレームは平均に入れない
+            for k in 0..bins {
+                power[k] += spec[f * bins + k].norm_sqr() as f64;
+            }
+            used += 1;
+        }
+    }
+    if used == 0 {
+        return None;
+    }
+    let bin_hz = OUT_SR as f64 / 2.0 / (bins - 1) as f64;
+    let db: Vec<f64> = power.iter().map(|p| 10.0 * (p / used as f64 + 1e-20).log10()).collect();
+    let band = |lo: f64, hi: f64| -> f64 {
+        let (a, b) = ((lo / bin_hz) as usize, (hi / bin_hz) as usize);
+        db[a..b].iter().sum::<f64>() / (b - a) as f64
+    };
+    let reference = band(3_000.0, 6_000.0);
+    let half = (300.0 / bin_hz) as usize;
+    let smooth = |k: usize| -> f64 {
+        let (a, b) = (k.saturating_sub(half), (k + half).min(bins - 1));
+        db[a..=b].iter().sum::<f64>() / (b - a + 1) as f64
+    };
+    let start = (6_000.0 / bin_hz) as usize;
+    let end = (19_500.0 / bin_hz) as usize;
+    let crossing = (start..end.min(bins)).find(|&k| smooth(k) < reference - SPEECH_ROLLOFF_DB)?;
+    let fc = crossing as f64 * bin_hz - SPEECH_ROLLOFF_MARGIN_HZ;
+    (5_000.0..=16_000.0).contains(&fc).then_some(fc as f32)
+}
+
+/// 声の主要帯域よりこれだけ(dB)下がった所を「高域が欠けている」とみなす。
+const SPEECH_ROLLOFF_DB: f64 = 18.0;
+/// 拡張の開始点は、下がり始めの少し手前に置く。
+const SPEECH_ROLLOFF_MARGIN_HZ: f64 = 1_500.0;
+
 /// 入力(48kHz)の帯域のカットオフ周波数(Hz)を推定する。
 ///
 /// 平均パワースペクトル(dB)の中で、低域側800Hzの平均と、600Hz先の高域側800Hzの平均との差が最大になる位置(=急峻な崖)を探す。
@@ -490,13 +544,15 @@ pub fn write_f32_wav(path: &Path, sr: u32, channels: &[Vec<f32>]) -> Result<(), 
 }
 
 /// 48kHz 32bit float WAVを読み、各チャンネルを帯域拡張して`output`へ書く。
-pub fn extend_wav_file(input: &Path, output: &Path, cutoff_hz: Option<f32>) -> Result<Option<f32>, String> {
+/// `speech`が`true`なら、カットオフの自動検出に声向け([`detect_speech_rolloff_hz`])を使う(なだらかに減衰する声用)。`false`は音楽向けの崖検出。
+pub fn extend_wav_file(input: &Path, output: &Path, cutoff_hz: Option<f32>, speech: bool) -> Result<Option<f32>, String> {
     let (sr, channels) = read_f32_wav(input)?;
     if sr as usize != OUT_SR {
         return Err(format!("入力は48kHzである必要があります(実際: {sr}Hz)"));
     }
     // カットオフは全チャンネルで共通にする(最初のチャンネルで検出)。
-    let fc = cutoff_hz.or_else(|| channels.first().and_then(|c| detect_cutoff_hz(c)));
+    let detect = |c: &Vec<f32>| if speech { detect_speech_rolloff_hz(c) } else { detect_cutoff_hz(c) };
+    let fc = cutoff_hz.or_else(|| channels.first().and_then(detect));
     let Some(fc) = fc else {
         write_f32_wav(output, sr, &channels)?;
         return Ok(None);
@@ -584,6 +640,41 @@ mod tests {
             assert!((fc - fc_true).abs() < 600.0, "検出したカットオフは約{fc_true}Hzのはず(実際: {fc})");
         }
         assert!(detect_cutoff_hz(&noise).is_none(), "全帯域の信号は素通し(検出なし)のはず");
+    }
+
+    #[test]
+    fn speech_rolloff_detection_handles_gentle_voice_rolloff_but_not_full_band() {
+        // 声のような、なだらかに減衰するスペクトルを作る: 白色雑音を1次ローパス3段に通し、さらに8kHzで帯域制限する。
+        let mut state = 88172645u32;
+        let mut x: Vec<f32> = (0..OUT_SR * 4)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                (state >> 8) as f32 / 8_388_608.0 - 1.0
+            })
+            .collect();
+        for _ in 0..3 {
+            let mut y = 0f32;
+            for v in x.iter_mut() {
+                y = 0.55 * y + 0.45 * *v;
+                *v = y;
+            }
+        }
+        let voice = brickwall_lowpass(&x, 8_000.0);
+        let fc = detect_speech_rolloff_hz(&voice).expect("8kHzで帯域が切れた声のロールオフを検出できるはず");
+        assert!((5_000.0..=8_000.0).contains(&fc), "カットオフは声の帯域の手前(5〜8kHz)のはず(実際: {fc})");
+        // 全帯域に十分な信号は素通し。無音も素通し。
+        let full: Vec<f32> = (0..OUT_SR * 4)
+            .map(|_| {
+                state ^= state << 13;
+                state ^= state >> 17;
+                state ^= state << 5;
+                (state >> 8) as f32 / 8_388_608.0 - 1.0
+            })
+            .collect();
+        assert!(detect_speech_rolloff_hz(&full).is_none());
+        assert!(detect_speech_rolloff_hz(&vec![0f32; OUT_SR]).is_none());
     }
 
     #[test]
