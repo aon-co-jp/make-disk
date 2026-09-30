@@ -112,6 +112,10 @@ pub struct ConvertJob {
 pub struct AudioBwe {
     #[serde(default)]
     pub cutoff_hz: Option<f32>,
+    /// 声(TTS・ポッドキャスト・電話など)向け。カットオフの自動検出を、音楽向けの「崖」検出ではなく、
+    /// 声のなだらかな高域の減衰に合わせた検出にする(`audio_sr::detect_speech_rolloff_hz`)。音楽には使わない。
+    #[serde(default)]
+    pub speech: bool,
 }
 
 /// AIノイズ除去の設定。`mix`は原音とのブレンド(-1.0〜1.0、1.0で完全適用、
@@ -210,7 +214,7 @@ pub fn run_convert(job: &ConvertJob) -> Result<(), String> {
         push_ai_denoise_args(&mut args, &job.ai_denoise)?;
         args.extend(["-ar".into(), "48000".into(), "-c:a".into(), "pcm_f32le".into(), "-y".into(), decoded.to_string_lossy().to_string()]);
         let prep = run_ffmpeg(&merge_audio_filters(args));
-        let result = prep.and_then(|_| crate::engine::audio_sr::extend_wav_file(&decoded, &extended, bwe.cutoff_hz)).and_then(|_| {
+        let result = prep.and_then(|_| crate::engine::audio_sr::extend_wav_file(&decoded, &extended, bwe.cutoff_hz, bwe.speech)).and_then(|_| {
             let mut next = job.clone();
             next.input_path = extended.to_string_lossy().to_string();
             next.trim = None;
@@ -1679,7 +1683,7 @@ mod tests {
         assert!(st.status.success(), "{}", String::from_utf8_lossy(&st.stderr));
         let out = tmp.join("out.flac");
         let mut job = hires_job(&lowpassed, &out, &["-c:a", "flac"], false);
-        job.audio_bwe = Some(AudioBwe { cutoff_hz: None }); // 自動検出
+        job.audio_bwe = Some(AudioBwe { cutoff_hz: None, speech: false }); // 自動検出
         run_convert(&job).expect("bandwidth extension pipeline should succeed");
 
         let band_power = |path: &Path, lo: f32, hi: f32| -> f64 {

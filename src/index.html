@@ -92,6 +92,7 @@
         <h2>3.6. AI高域生成(帯域拡張、実験的) / AI bandwidth extension (experimental)</h2>
         <label><input type="checkbox" id="audio-bwe" /> 帯域が欠けた音声の高域をAIで補う(低域はそのまま保持) / Fill in missing highs with AI (the existing band is kept untouched)</label>
         <br />
+        <label><input type="checkbox" id="audio-bwe-speech" /> 声(ポッドキャスト・電話・音声合成)向け: なだらかに減衰する高域を補う / For speech (podcasts, phone, TTS): fill gently rolling-off highs (not for music)</label><br />
         <label>カットオフ(Hz、空欄=自動検出) / Cutoff (Hz, blank = auto-detect): <input id="audio-bwe-cutoff" type="number" min="3000" max="19000" placeholder="例: 8000 / e.g. 8000" style="width:8em" /></label>
         <p class="hint">
           ※学習済みモデル(LavaSR、Apache-2.0、初回のみ約56MBを自動ダウンロード)で欠けた高域を<b>生成</b>して足します。入力の帯域は一切変更せず、生成した高域は入力の包絡を外挿した値を上限に頭打ちにします(生のモデル出力は音楽で元信号から離れて悪化したため、この設計にしています)。

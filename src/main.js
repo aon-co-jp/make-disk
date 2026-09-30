@@ -1089,7 +1089,10 @@ async function convertAll(formats, codecMap, mode, bitrateKbps) {
           dop_wav_bits: dsdMatch && document.getElementById("dsd-dop-wav").checked ? parseInt(document.getElementById("dsd-dop-bits").value, 10) : null,
           audio_bwe:
             !isVideo && document.getElementById("audio-bwe").checked
-              ? { cutoff_hz: parseFloat(document.getElementById("audio-bwe-cutoff").value) || null }
+              ? {
+                  cutoff_hz: parseFloat(document.getElementById("audio-bwe-cutoff").value) || null,
+                  speech: document.getElementById("audio-bwe-speech").checked,
+                }
               : null,
           ai_upscale: isVideo && format !== "passthrough-mkv" ? aiJobOptions() : null,
           ai_denoise: document.getElementById("ai-denoise").checked && format !== "passthrough-mkv" ? { mix: parseFloat(document.getElementById("ai-denoise-mix").value) } : null,
