@@ -6,16 +6,16 @@
 音声/動画フォーマット変換GUIアプリ。インストーラーのみをOSごとに分ける
 方針で、アプリ本体は単一コードベース。
 
-### 最新版: v0.1.31
+### 最新版: v0.1.32
 
 [最新のリリース](https://github.com/aon-co-jp/make-disk/releases/latest)から入手できます。全ファイル名の版番号は同じです。
 
 | 環境 | ファイル |
 |---|---|
-| Windows | `make-disk_0.1.31_x64-setup.exe`(推奨)・`make-disk_0.1.31_x64_en-US.msi` |
-| macOS | `make-disk_0.1.31_aarch64.dmg`(Apple Silicon)・`make-disk_0.1.31_x64.dmg`(Intel) |
-| Linux | `make-disk_0.1.31_amd64.deb`・`make-disk_0.1.31_amd64.AppImage`・`make-disk-0.1.31-1.x86_64.rpm` |
-| Android | `make-disk_0.1.31_android-universal.apk`(未署名、サイドロード) |
+| Windows | `make-disk_0.1.32_x64-setup.exe`(推奨)・`make-disk_0.1.32_x64_en-US.msi` |
+| macOS | `make-disk_0.1.32_aarch64.dmg`(Apple Silicon)・`make-disk_0.1.32_x64.dmg`(Intel) |
+| Linux | `make-disk_0.1.32_amd64.deb`・`make-disk_0.1.32_amd64.AppImage`・`make-disk-0.1.32-1.x86_64.rpm` |
+| Android | `make-disk_0.1.32_android-universal.apk`(未署名、サイドロード) |
 
 Windowsの既定のインストール先は`%LOCALAPPDATA%\open-easy-web\make-disk`です(旧配置からの更新は自動で移ります)。
 

@@ -1327,3 +1327,14 @@ E2E未実施(前回のCDは書き込み済みのため)。手動テスト
 - make-diskの`audio_sr.rs`(LavaSRによる帯域拡張)が、この研究の**出発点**。maid-cafe-seへ移植して声(TTS)に使ったところ、**声は高域がなだらかに減衰するだけで、音楽向けの崖検出が機能しない**ことが分かった(Windows音声Harukaで実測: 崖検出は12.4kHz=可聴域に何も足さない)。
 - そこで逆方向に、声向けの検出をmake-diskへ取り込んだ: `audio_sr::detect_speech_rolloff_hz`(声の主要帯域3〜6kHzの平均より18dB下がった最初の周波数の1.5kHz手前をカットオフにする)、`AudioBwe.speech`(`extend_wav_file`の引数、UIのチェックボックス`audio-bwe-speech`)。**音楽には使わない**(自然な高域の減衰だけで条件を満たし、帯域が欠けていない音源にも拡張が掛かる)。既定は従来どおり音楽向け(`speech: false`)で、既存の挙動は変えない。
 - 音程と声の太さの独立制御・ニューラルTTS・ハモり等は、ディスクオーサリングの用途外なので取り込まない。
+
+## HANDOFF (2026-10-06 v0.1.32: poppler同梱・入れ子PDFの右綴じ変換)
+
+- Windows版インストーラーへpoppler-utils(pdftoppm/pdfinfo+DLL+poppler-data)を同梱
+  (`scripts/fetch-poppler-sidecars.sh`→`bundle.resources`で`poppler/bin`・`poppler/share/poppler`、
+  `engine::sidecar`が探索)。LinuxはdebのDependsにpoppler-utils。macOSは未対応。
+- `reverse_pdf_page_order`を入れ子ページツリー(Acrobat Distiller出力)対応へ拡張(葉へフラット化、継承属性を複製)。
+  実PDF(44ページ)で変換し、先頭ページ=元の最終ページを画像一致で検証済み。
+- 注意: `Missing language pack for 'Adobe-Japan1'`の警告は、非埋め込みCJKフォントの代替フォントが無いことが原因で、
+  poppler-data(cMap)だけでは消えない。スキャンPDFの不可視OCR文字層にのみ影響し、描画結果には影響しない。
+- 未コミットの他セッション作業(ai_upmix.rs・ort依存のCargo.toml/Cargo.lock差分)は今回含めていない。

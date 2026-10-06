@@ -1,6 +1,6 @@
 [package]
 name = "make-disk"
-version = "0.1.31"
+version = "0.1.32"
 description = "Cross-platform CD/DVD/Blu-ray writing & format conversion GUI"
 authors = ["aon-co-jp"]
 edition = "2021"
