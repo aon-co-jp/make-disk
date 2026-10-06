@@ -95,8 +95,13 @@ fn find_sidecar(name: &str) -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
     let filename = format!("{name}{}", std::env::consts::EXE_SUFFIX);
-    let candidate = dir.join(filename);
-    candidate.is_file().then_some(candidate)
+    let candidate = dir.join(&filename);
+    if candidate.is_file() {
+        return Some(candidate);
+    }
+    // popplerはDLLを伴うためresourcesとして`poppler/`サブフォルダへ同梱される。
+    let in_poppler = dir.join("poppler").join("bin").join(&filename);
+    in_poppler.is_file().then_some(in_poppler)
 }
 
 #[cfg(test)]
