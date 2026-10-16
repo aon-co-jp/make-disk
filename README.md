@@ -124,3 +124,7 @@ Windows(.msi/.exe)・macOS(.dmg、Intel/Apple Silicon)・Linux(.deb/.rpm/.AppIma
 ### ライセンス
 
 MIT(同梱のRNNoiseモデルは作者が著作権対象外と明記、詳細は`CLAUDE.md`)
+
+---
+
+作者 / Author: 石塚正浩（MASAHIRO ISHIZUKA） (https://github.com/aon-co-jp)
