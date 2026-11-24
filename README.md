@@ -1,3 +1,5 @@
+> Latest translations / 翻訳の最新版: [0-LATEST-TRANSLATIONS.md](0-LATEST-TRANSLATIONS.md)
+
 # make-disk は open-media へ引っ越しました / make-disk has moved to open-media
 
 **日本語** | [English](#english)
